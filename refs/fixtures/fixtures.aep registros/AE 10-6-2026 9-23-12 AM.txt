@@ -1,0 +1,12 @@
+El registro de procesamiento de Adobe After Effects v25.0 Windows 64 para el procesamiento del proyecto "fixtures.aep"
+
+ se inició en 10/6/2026 a las 9:23:12 AM
+
+  10/6/2026 9:23:12 AM: Iniciando composición "matte_alpha_inverted".
+
+  Configuración de procesamiento: Configuración óptima  Calidad: Óptima  Resolución: Completo  Tamaño: 160 x 120  Uso de proxy: No utilizar proxy  Efectos: Config. actual  Caché de disco: Sólo lectura  Profundidad de color: Config.  actual  Fusión fotog.: Sí para capas verif.  Proces. de campo: Desactivado  Telecine: Desactivado  Desenf. mov.: Sí para capas verif.     Solos: Config. actual  Espacio de tiempo: Personalizar  Inicio: 0:00:00:00  Fin: 0:00:00:00  Duración: 0:00:00:01  Velocidad de fotogramas: 24.00 (comp.)  Capas de guías: Todo desac.  Omitir archivos existentes: Desactivado    Módulo de salida: Secuencia TIFF con alfa  Salida a: C:\Users\schxm\projects\aep-web\refs\frames\matte_alpha_inverted\frame_[#####].tif  Formato: Secuencia de Photoshop  Información de salida: -  Fotograma de inicio: 0  Salida de audio: -  Canales: RGB + Alfa  Profundidad: Más de millones de colores  Color: Premultiplicado  Cambiar tamaño: -  Cortar: -  Tamaño final: 160 x 120  Perfil: -  Incrustar perfil:      Acción de postprocesamiento: ninguno             0:00:00:00 (1): 0 segundos  10/6/2026 9:23:12 AM: Composición finalizada "matte_alpha_inverted".
+
+
+  Tiempo total transc.: 0 segundos
+Registro cerrado en 10/6/2026 a las 9:23:12 AM
+

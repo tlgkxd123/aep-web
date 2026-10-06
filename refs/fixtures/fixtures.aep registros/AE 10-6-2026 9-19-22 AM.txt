@@ -1,0 +1,9 @@
+El registro de procesamiento de Adobe After Effects v25.0 Windows 64 para el procesamiento del proyecto "fixtures.aep"
+
+ se inició en 10/6/2026 a las 9:19:22 AM
+
+  10/6/2026 9:19:22 AM: Iniciando composición "transform_rotate".
+
+  Configuración de procesamiento: Configuración óptima  Calidad: Óptima
+Registro cerrado en 10/6/2026 a las 9:19:22 AM
+

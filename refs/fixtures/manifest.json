@@ -1,0 +1,278 @@
+{
+ "project": "fixtures.aep",
+ "width": 160,
+ "height": 120,
+ "comps": [
+  {
+   "comp": "solid_basic",
+   "frames": [
+    0
+   ]
+  },
+  {
+   "comp": "solid_offset",
+   "frames": [
+    0
+   ]
+  },
+  {
+   "comp": "transform_rotate",
+   "frames": [
+    0
+   ]
+  },
+  {
+   "comp": "transform_scale_anchor",
+   "frames": [
+    0
+   ]
+  },
+  {
+   "comp": "opacity",
+   "frames": [
+    0
+   ]
+  },
+  {
+   "comp": "parent",
+   "frames": [
+    0
+   ]
+  },
+  {
+   "comp": "anim_position",
+   "frames": [
+    0,
+    6,
+    12,
+    18
+   ]
+  },
+  {
+   "comp": "anim_rotation_opacity",
+   "frames": [
+    0,
+    6,
+    12,
+    18
+   ]
+  },
+  {
+   "comp": "blend_add",
+   "frames": [
+    0
+   ]
+  },
+  {
+   "comp": "blend_multiply",
+   "frames": [
+    0
+   ]
+  },
+  {
+   "comp": "blend_screen",
+   "frames": [
+    0
+   ]
+  },
+  {
+   "comp": "blend_overlay",
+   "frames": [
+    0
+   ]
+  },
+  {
+   "comp": "blend_darken",
+   "frames": [
+    0
+   ]
+  },
+  {
+   "comp": "blend_lighten",
+   "frames": [
+    0
+   ]
+  },
+  {
+   "comp": "blend_difference",
+   "frames": [
+    0
+   ]
+  },
+  {
+   "comp": "blend_soft_light",
+   "frames": [
+    0
+   ]
+  },
+  {
+   "comp": "blend_hard_light",
+   "frames": [
+    0
+   ]
+  },
+  {
+   "comp": "blend_color_dodge",
+   "frames": [
+    0
+   ]
+  },
+  {
+   "comp": "blend_color_burn",
+   "frames": [
+    0
+   ]
+  },
+  {
+   "comp": "blend_linear_burn",
+   "frames": [
+    0
+   ]
+  },
+  {
+   "comp": "blend_linear_dodge",
+   "frames": [
+    0
+   ]
+  },
+  {
+   "comp": "blend_exclusion",
+   "frames": [
+    0
+   ]
+  },
+  {
+   "comp": "blend_subtract",
+   "frames": [
+    0
+   ]
+  },
+  {
+   "comp": "blend_divide",
+   "frames": [
+    0
+   ]
+  },
+  {
+   "comp": "blend_hue",
+   "frames": [
+    0
+   ]
+  },
+  {
+   "comp": "blend_saturation",
+   "frames": [
+    0
+   ]
+  },
+  {
+   "comp": "blend_color",
+   "frames": [
+    0
+   ]
+  },
+  {
+   "comp": "blend_luminosity",
+   "frames": [
+    0
+   ]
+  },
+  {
+   "comp": "matte_alpha",
+   "frames": [
+    0
+   ]
+  },
+  {
+   "comp": "matte_alpha_inverted",
+   "frames": [
+    0
+   ]
+  },
+  {
+   "comp": "matte_luma",
+   "frames": [
+    0
+   ]
+  },
+  {
+   "comp": "matte_luma_inverted",
+   "frames": [
+    0
+   ]
+  },
+  {
+   "comp": "mask_add",
+   "frames": [
+    0
+   ]
+  },
+  {
+   "comp": "mask_subtract",
+   "frames": [
+    0
+   ]
+  },
+  {
+   "comp": "mask_intersect",
+   "frames": [
+    0
+   ]
+  },
+  {
+   "comp": "mask_lighten",
+   "frames": [
+    0
+   ]
+  },
+  {
+   "comp": "mask_darken",
+   "frames": [
+    0
+   ]
+  },
+  {
+   "comp": "mask_difference",
+   "frames": [
+    0
+   ]
+  },
+  {
+   "comp": "mask_inverted",
+   "frames": [
+    0
+   ]
+  },
+  {
+   "comp": "mask_bezier",
+   "frames": [
+    0
+   ]
+  },
+  {
+   "comp": "mask_feather",
+   "frames": [
+    0
+   ]
+  },
+  {
+   "comp": "precomp",
+   "frames": [
+    0,
+    12
+   ]
+  },
+  {
+   "comp": "three_d_default_camera",
+   "frames": [
+    0
+   ]
+  },
+  {
+   "comp": "three_d_camera",
+   "frames": [
+    0
+   ]
+  }
+ ]
+}

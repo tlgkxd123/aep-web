@@ -39,6 +39,11 @@ Scope: a TypeScript .aep parser plus a browser inspector that shows project item
   EXPECT: GEOMETRY-PASSED
   EVIDENCE: pending
 
+- [ ] G8: the WebGL renderer reproduces After Effects' own renders of the fixture comps (solids, transforms, parenting, animation, blend modes, track mattes, masks, precomps, 3D, cameras): every frame within 3/255 on 99 percent of pixels, except listed known approximations which stay within a mean error of 1/255
+  CHECK: node scripts/pixel-report.ts --require
+  EXPECT: PIXELS-PASSED
+  EVIDENCE: pending
+
 - [ ] G6: valueAtTime reproduces After Effects' per-frame values for every animated property in the value_at_time exports (0.001 tolerance, 0.015 px on motion paths, every property found)
   CHECK: node scripts/vat-report.ts --require
   EXPECT: VALUE-AT-TIME-PASSED
