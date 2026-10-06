@@ -6,3 +6,4 @@ dist-harness
 refs/diff
 refs/ours
 refs/probe
+*.log

@@ -105,7 +105,7 @@ export function maskCoverage(layer: Layer, time: number, width: number, height: 
       }
     }
     const pixels = ctx.getImageData(0, 0, w, h).data;
-    let shapeCoverage = new Float32Array(w * h);
+    let shapeCoverage: Float32Array = new Float32Array(w * h);
     for (let i = 0; i < w * h; i++) shapeCoverage[i] = pixels[i * 4 + 3] / 255;
     if (feather > 0) shapeCoverage = featherCoverage(shapeCoverage, w, h, feather);
     const inverted = mask.mask!.inverted;
