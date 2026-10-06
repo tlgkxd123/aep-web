@@ -1,0 +1,62 @@
+{
+ "project": "layerops.base.aep",
+ "comps": [
+  {
+   "comp": "layerops_new",
+   "frames": [
+    0
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "layerops_fit",
+   "frames": [
+    0
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "layerops_fit_width",
+   "frames": [
+    0
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "layerops_fit_height",
+   "frames": [
+    0
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "layerops_move",
+   "frames": [
+    0,
+    12
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "layerops_parent",
+   "frames": [
+    0
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "layerops_anchor",
+   "frames": [
+    0
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "layerops_stack",
+   "frames": [
+    0
+   ],
+   "fps": 24.0
+  }
+ ]
+}

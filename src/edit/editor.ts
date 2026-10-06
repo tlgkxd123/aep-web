@@ -17,6 +17,7 @@ import {
 import { findChild, findList, readRifx, type Chunk, type RifxFile } from "../aep/riff.ts";
 import { writeRifx } from "../aep/write.ts";
 import { applyStates, chunkPath, readDoubles, Transaction, utf8Chunk, type ChunkChange } from "./chunks.ts";
+import { syncItems } from "./items.ts";
 import {
   CDTA,
   DEFAULT_INFLUENCE,
@@ -79,6 +80,13 @@ interface HistoryEntry {
   change: ChunkChange;
   comps: CompItem[];
   coalesce?: string;
+  /** The command added or removed project items, so the item tree is re-read with the comps. */
+  items?: boolean;
+}
+
+export interface PerformOptions extends CommandOptions {
+  /** The command adds or removes project items. */
+  items?: boolean;
 }
 
 interface Target {
@@ -124,6 +132,8 @@ export class Editor {
   private readonly redoStack: HistoryEntry[] = [];
   private savedTop: HistoryEntry | null = null;
   private readonly listeners = new Set<() => void>();
+  /** The command `perform` is running: commands it calls join its transaction. */
+  private batch?: { tx: Transaction; comps: CompItem[]; items: boolean };
 
   constructor(file: RifxFile, project = projectFromRifx(file)) {
     this.file = file;
@@ -156,7 +166,7 @@ export class Editor {
     if (!entry) return;
     applyStates(entry.change.before);
     this.redoStack.push(entry);
-    this.changed(entry.comps);
+    this.changed(entry.comps, entry.items);
   }
 
   redo(): void {
@@ -164,7 +174,7 @@ export class Editor {
     if (!entry) return;
     applyStates(entry.change.after);
     this.undoStack.push(entry);
-    this.changed(entry.comps);
+    this.changed(entry.comps, entry.items);
   }
 
   /** Serializes the project; unedited chunks are written back byte for byte. */
@@ -187,20 +197,71 @@ export class Editor {
     for (const listener of this.listeners) listener();
   }
 
-  private changed(comps: CompItem[]): void {
+  private changed(comps: CompItem[], items = false): void {
+    if (items) this.syncItems();
     refreshCompositions(this.project, comps);
     this.revision++;
     this.notify();
+  }
+
+  /** Re-reads the item tree after its chunks changed (new solids, folders). */
+  syncItems(): void {
+    syncItems(this.project);
+  }
+
+  /**
+   * Runs `body` as one undoable command named `label`. Editor commands called
+   * from `body` join it, and the comps they touch are refreshed after each of
+   * them, so `body` can read the model between steps.
+   */
+  perform(label: string, comps: CompItem[], body: (tx: Transaction) => void, options: PerformOptions = {}): void {
+    if (this.batch) {
+      const batch = this.batch;
+      body(batch.tx);
+      for (const comp of comps) if (!batch.comps.includes(comp)) batch.comps.push(comp);
+      if (options.items) batch.items = true;
+      this.refreshBatch(batch);
+      return;
+    }
+    const all = [...comps];
+    let items = !!options.items;
+    try {
+      this.run(label, all, options, (tx) => {
+        const batch = { tx, comps: all, items };
+        this.batch = batch;
+        try {
+          body(tx);
+        } finally {
+          items = batch.items;
+          this.batch = undefined;
+        }
+      }, () => items);
+    } catch (error) {
+      this.refreshBatch({ comps: all, items: true });
+      throw error;
+    }
+  }
+
+  private refreshBatch(batch: { comps: CompItem[]; items?: boolean }): void {
+    if (batch.items) this.syncItems();
+    refreshCompositions(this.project, batch.comps);
   }
 
   private allComps(): CompItem[] {
     return [...this.project.items.values()].filter((i): i is CompItem => i.kind === "comp");
   }
 
-  private run(label: string, comps: CompItem[], options: CommandOptions, body: (tx: Transaction) => void): void {
+  private run(label: string, comps: CompItem[], options: CommandOptions, body: (tx: Transaction) => void, items = () => false): void {
+    if (this.batch) {
+      this.perform(label, comps, body);
+      return;
+    }
     const top = this.undoStack.at(-1);
     const merge = !!options.coalesce && top?.coalesce === options.coalesce && top !== this.savedTop && !this.redoStack.length;
-    if (merge) applyStates(top.change.before);
+    if (merge) {
+      applyStates(top.change.before);
+      this.refreshBatch(top);
+    }
     const tx = new Transaction();
     try {
       body(tx);
@@ -217,13 +278,14 @@ export class Editor {
         if (!change.after.has(chunk)) top.change.after.set(chunk, top.change.before.get(chunk)!);
       }
       for (const comp of comps) if (!top.comps.includes(comp)) top.comps.push(comp);
-      this.changed(top.comps);
+      top.items ||= items();
+      this.changed(top.comps, top.items);
       return;
     }
     if (tx.empty) return;
-    this.undoStack.push({ label, change, comps, coalesce: options.coalesce });
+    this.undoStack.push({ label, change, comps, coalesce: options.coalesce, items: items() });
     this.redoStack.length = 0;
-    this.changed(comps);
+    this.changed(comps, items());
   }
 
   // ---------------------------------------------------------------- properties
