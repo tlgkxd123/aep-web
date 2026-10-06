@@ -10,3 +10,4 @@ refs/probe
 __pycache__
 refs/fixtures/effect-donors.json
 *registros/
+refs/probe*
