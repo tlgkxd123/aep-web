@@ -1,9 +1,6 @@
-// Decoded audio of footage items, for effects that visualise another layer's
-// sound (Audio Spectrum, Audio Waveform). Rendering is synchronous, so audio is
-// decoded ahead of time and looked up by footage item id.
-//
-// The footage store installs a lookup with `setAudioSource`; tests and the
-// harness can also `registerAudio` directly.
+// Audio decoding for effects that visualise another layer's sound (Audio
+// Spectrum, Audio Waveform). The footage store decodes located files on demand;
+// tests can `registerAudio` decoded audio for a footage item id directly.
 
 /** The part of WebAudio's AudioBuffer the visualisers use (an AudioBuffer satisfies it). */
 export interface AudioData {
@@ -14,15 +11,7 @@ export interface AudioData {
   getChannelData(channel: number): Float32Array;
 }
 
-export type AudioSource = (itemId: number) => AudioData | undefined;
-
-let source: AudioSource = () => undefined;
 const registered = new Map<number, AudioData>();
-
-/** Installs the lookup used for items that were not registered directly. */
-export function setAudioSource(lookup: AudioSource): void {
-  source = lookup;
-}
 
 export function registerAudio(itemId: number, audio: AudioData | undefined): void {
   if (audio) registered.set(itemId, audio);
@@ -33,9 +22,9 @@ export function clearAudio(): void {
   registered.clear();
 }
 
-/** Decoded audio of footage item `itemId`, or undefined while it is not available. */
-export function getAudio(itemId: number): AudioData | undefined {
-  return registered.get(itemId) ?? source(itemId);
+/** Audio registered for footage item `itemId`, if any. */
+export function registeredAudio(itemId: number): AudioData | undefined {
+  return registered.get(itemId);
 }
 
 class PlanarAudio implements AudioData {

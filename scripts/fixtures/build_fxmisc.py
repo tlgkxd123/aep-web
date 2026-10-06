@@ -16,7 +16,7 @@ from io import BytesIO
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from aepfix import REFS, BlendingMode, Suite, add, fill, gtr, shape_group, tr  # noqa: E402
+from aepfix import REFS, BlendingMode, MaskMode, Shape, Suite, add, add_mask, fill, gtr, shape_group, tr  # noqa: E402
 
 import py_aep  # noqa: E402
 from py_aep import ImportOptions  # noqa: E402
@@ -27,6 +27,8 @@ from py_aep.enums.property import PropertyControlType  # noqa: E402
 from py_aep.models.properties.gradient import Gradient, GradientAlphaStop, GradientColorStop  # noqa: E402
 
 EFFECTS = ["ADBE Polar Coordinates", "ADBE AudSpect", "PEDG2"]
+#: Accepted approximations, "comp@frame" -> reason (still held to a mean error of 1/255).
+KNOWN: dict[str, str] = {}
 DONORS = [
     os.environ.get("FXMISC_DONOR"),
     str(REFS / "fxmisc.aep"),
@@ -124,14 +126,19 @@ def keyed(prop, values, fps=24.0, first=0):
 # --- Test tones -------------------------------------------------------------------
 
 def write_wav(name: str, seconds: float, sample, rate: int = 44100) -> Path:
+    """16-bit WAVE; `sample(t)` returns one value (mono) or a tuple (one per channel)."""
     AUDIO.mkdir(parents=True, exist_ok=True)
     path = AUDIO / f"{name}.wav"
     frames = bytearray()
+    channels = 1
     for i in range(int(seconds * rate)):
-        v = max(-1.0, min(1.0, sample(i / rate)))
-        frames += struct.pack("<h", int(round(v * 32767)))
+        values = sample(i / rate)
+        values = values if isinstance(values, tuple) else (values,)
+        channels = len(values)
+        for v in values:
+            frames += struct.pack("<h", int(round(max(-1.0, min(1.0, v)) * 32767)))
     with wave.open(str(path), "wb") as w:
-        w.setnchannels(1)
+        w.setnchannels(channels)
         w.setsampwidth(2)
         w.setframerate(rate)
         w.writeframes(bytes(frames))
@@ -153,7 +160,25 @@ TONES = {
     "fxmisc_sweep": (2.0, lambda t: 0.5 * math.sin(2 * math.pi * (20 * t + 990 * t * t / 2.0))),
     "fxmisc_noise": (2.0, lambda t: 0.3 * _noise_samples[min(len(_noise_samples) - 1, int(t * 44100))]),
     "fxmisc_bass": (2.0, lambda t: 0.5 * math.sin(2 * math.pi * 55 * t) * (0.6 + 0.4 * math.sin(2 * math.pi * 1.5 * t)) + 0.3 * math.sin(2 * math.pi * 92 * t)),
+    # Silence, then a 440 Hz tone from 1 s: the bar height around the onset shows where the window sits.
+    "fxmisc_onset": (2.5, lambda t: 0.5 * math.sin(2 * math.pi * 440 * t) if t >= 1.0 else 0.0),
+    "fxmisc_stereo": (2.0, lambda t: (0.5 * math.sin(2 * math.pi * 440 * t), 0.5 * math.sin(2 * math.pi * 300 * t))),
+    "fxmisc_music": (3.0, lambda t: _music(t)),
+    # 440 Hz on for [0.25, 0.5) of every half second: locates the analysis window at any time.
+    "fxmisc_gate": (4.0, lambda t: 0.5 * math.sin(2 * math.pi * 440 * t) if t % 0.5 >= 0.25 else 0.0),
 }
+
+
+def _music(t):
+    """A deterministic bass-heavy loop: pitch-dropping kicks every 0.5 s, a bass line, hats; stereo."""
+    beat = t % 0.5
+    kick = 0.6 * math.exp(-beat * 9.0) * math.sin(2 * math.pi * (45.0 * beat + 60.0 * (1 - math.exp(-beat * 30.0)) / 30.0))
+    note = [55.0, 55.0, 73.4, 65.4, 49.0, 55.0][int(t / 0.5) % 6]
+    env = min(1.0, (t % 0.5) * 40.0) * (0.5 + 0.5 * math.exp(-(t % 0.5) * 3.0))
+    bass = 0.25 * env * (math.sin(2 * math.pi * note * t) + 0.35 * math.sin(4 * math.pi * note * t) + 0.15 * math.sin(6 * math.pi * note * t))
+    hat = 0.08 * math.exp(-((t + 0.25) % 0.5) * 60.0) * _noise_samples[int(t * 44100) % len(_noise_samples)]
+    wobble = 0.12 * math.sin(2 * math.pi * 110.0 * t) * (0.5 + 0.5 * math.sin(2 * math.pi * 3.0 * t))
+    return (kick + bass + hat + wobble, kick + bass - hat + 0.8 * wobble)
 
 
 suite = Suite("fxmisc")
@@ -201,15 +226,13 @@ def bars_source(name, w, h):
     """White bars standing on a horizontal baseline, on transparency (a spectrum-like image)."""
     comp = folder.add_comp(name, w, h, 1.0, 1.0, 24.0)
     layer = comp.add_shape()
-    g = shape_group(layer)
-    # Separate rectangles: AE ignores the Repeater offset written by py-aep.
+    # One group per bar: AE ignores static rectangle positions and Repeater offsets written by py-aep.
     for k in range(w // 10):
         height = 6.0 + (k * 7) % 30
-        add(g, "ADBE Vector Shape - Rect", **{
-            "ADBE Vector Rect Size": [4.0, height],
-            "ADBE Vector Rect Position": [-w / 2 + 8.0 + 10.0 * k, 10.0 - height / 2],
-        })
-    fill(g, [1.0, 1.0, 1.0])
+        g = shape_group(layer)
+        add(g, "ADBE Vector Shape - Rect", **{"ADBE Vector Rect Size": [4.0, height]})
+        gtr(g, "ADBE Vector Position", [-w / 2 + 8.0 + 10.0 * k, 10.0 - height / 2])
+        fill(g, [1.0, 1.0, 1.0])
     base = shape_group(layer)
     add(base, "ADBE Vector Shape - Rect", **{"ADBE Vector Rect Size": [float(w - 10), 3.0]})
     gtr(base, "ADBE Vector Position", [0.0, 11.5])
@@ -243,15 +266,37 @@ for conversion, label in ((1, "r2p"), (2, "p2r")):
 SPECTRUM_DEFAULTS = {"p14": [1.0, 0.3, 0.7, 1.0], "p15": [0.2, 0.6, 1.0, 1.0], "p20": 1, "p21": 1}
 
 
-def spectrum_comp(comp, audio, w, h, audio_start=0.0, **params):
-    sound = comp.add(tone(audio))
-    sound.start_time = audio_start
-    solid = comp.add_solid([0.0, 0.0, 0.0], "spectrum", w, h)
+def spectrum_comp(comp, audio, w, h, audio_start=0.0, sound=None, masks=(), solid_color=(0.0, 0.0, 0.0), **params):
+    """Adds the audio layer (unless given) and a solid with Audio Spectrum; returns the solid and the effect."""
+    if sound is None:
+        sound = comp.add(tone(audio))
+        sound.start_time = audio_start
+    solid = comp.add_solid(list(solid_color), "spectrum", w, h)
+    for shape in masks:
+        add_mask(solid, shape, MaskMode.NONE)
     fx = effect(solid, "ADBE AudSpect")
     set_layer_param(param(fx, 1), sound)
     for index, value in {**SPECTRUM_DEFAULTS, **params}.items():
         param(fx, int(index[1:])).value = value
-    return fx
+    return solid, fx
+
+
+KAPPA = 0.5522847498
+
+
+def circle(cx, cy, r):
+    """A closed four-vertex circle starting at the top and running top, left, bottom, right (as AE's ellipse mask tool draws)."""
+    k = r * KAPPA
+    return Shape(
+        [[cx, cy - r], [cx - r, cy], [cx, cy + r], [cx + r, cy]],
+        [[k, 0.0], [0.0, -k], [-k, 0.0], [0.0, k]],
+        [[-k, 0.0], [0.0, k], [k, 0.0], [0.0, -k]],
+        closed=True,
+    )
+
+
+def open_curve(points):
+    return Shape([list(p) for p in points], [[0.0, 0.0]] * len(points), [[0.0, 0.0]] * len(points), closed=False)
 
 
 @case("fxmisc_as_default", frames=(12,), width=240, height=160)
@@ -312,6 +357,241 @@ def _(comp):
     )
 
 
+# Window placement: bars of a 440 Hz tone that starts at 1 s, frame by frame around the onset.
+LOBE = dict(p2=[20.0, 150.0], p3=[220.0, 150.0], p6=400.0, p7=480.0, p8=81, p9=100.0, p12=1.0, p13=0.0)
+ONSET_FRAMES = tuple(range(18, 37))
+
+
+def onset_case(name, frames=ONSET_FRAMES, configure=None, **params):
+    @case(name, frames=frames, width=240, height=160, duration=2.5)
+    def _(comp):
+        sound = comp.add(tone("fxmisc_onset"))
+        if configure:
+            configure(sound)
+        spectrum_comp(comp, None, 240, 160, sound=sound, **{**LOBE, **params})
+
+
+onset_case("fxmisc_as_onset_90", p10=90.0)
+onset_case("fxmisc_as_onset_200", p10=200.0)
+onset_case("fxmisc_as_onset_off", p10=90.0, p11=100.0)
+onset_case("fxmisc_as_onset_neg", p10=90.0, p11=-150.0)
+onset_case("fxmisc_as_onset_start", configure=lambda s: setattr(s, "start_time", 0.25), p10=90.0)
+onset_case("fxmisc_as_onset_in", configure=lambda s: setattr(s, "in_point", 1.1), p10=90.0)
+
+
+@case("fxmisc_as_onset_stretch", frames=tuple(range(42, 55)), width=240, height=160, duration=3.0)
+def _(comp):
+    sound = comp.add(tone("fxmisc_onset"))
+    sound.stretch = 200.0
+    spectrum_comp(comp, None, 240, 160, sound=sound, **{**LOBE, "p10": 90.0})
+
+
+# Channels: left 440 Hz, right 300 Hz, both at 0.5.
+@case("fxmisc_as_stereo", frames=(12,), width=240, height=160)
+def _(comp):
+    spectrum_comp(comp, "fxmisc_stereo", 240, 160, p2=[20.0, 150.0], p3=[220.0, 150.0], p8=100, p9=200.0, p12=1.0, p13=0.0)
+
+
+# The audio layer is a precomp: a 440 Hz layer starting at 0.25 s and a two-tone layer with its audio switched off.
+AUDIO_PRECOMP = folder.add_comp("fxmisc_src_audio", 240, 160, 1.0, 2.5, 24.0)
+AUDIO_PRECOMP.add(tone("fxmisc_sine440")).start_time = 0.25
+AUDIO_PRECOMP.add(tone("fxmisc_two_tones")).audio_enabled = False
+
+
+@case("fxmisc_as_precomp", frames=(6, 12), width=240, height=160)
+def _(comp):
+    sound = comp.add(AUDIO_PRECOMP)
+    sound.start_time = 0.1
+    spectrum_comp(comp, None, 240, 160, sound=sound, p2=[20.0, 150.0], p3=[220.0, 150.0], p8=100, p9=200.0, p12=1.0, p13=0.0)
+
+
+# Stroke profiles: nine separated bars (25 px apart, at fractional positions) per thickness / softness.
+PROFILE = dict(p2=[20.3, 130.0], p3=[220.3, 130.0], p6=400.0, p7=480.0, p8=9, p9=100.0, p14=[1.0, 0.1, 0.1, 1.0], p15=[0.1, 0.3, 1.0, 1.0])
+for thickness, softness, tag in ((8.0, 0.0, "t8s0"), (8.0, 1.0, "t8s1"), (8.0, 0.5, "t8s05"), (2.0, 1.0, "t2s1"), (13.0, 0.25, "t13s025")):
+
+    @case(f"fxmisc_as_prof_{tag}", frames=(12,), width=240, height=160)
+    def _(comp, thickness=thickness, softness=softness):
+        spectrum_comp(comp, "fxmisc_sine440", 240, 160, **{**PROFILE, "p12": thickness, "p13": softness})
+
+
+DEFAULT_LIKE = dict(p2=[20.0, 140.0], p3=[220.0, 140.0])
+
+
+@case("fxmisc_as_blend", frames=(12,), width=240, height=160)
+def _(comp):
+    spectrum_comp(comp, "fxmisc_music", 240, 160, p2=[20.0, 100.0], p3=[220.0, 100.0], p8=64, p9=400.0, p12=6.0, p13=0.5, p16=1, p21=3)
+
+
+@case("fxmisc_as_noblend", frames=(12,), width=240, height=160)
+def _(comp):
+    spectrum_comp(comp, "fxmisc_music", 240, 160, p2=[20.0, 100.0], p3=[220.0, 100.0], p8=64, p9=400.0, p12=6.0, p13=0.5, p16=0, p21=3)
+
+
+@case("fxmisc_as_hue", frames=(12,), width=240, height=160)
+def _(comp):
+    spectrum_comp(comp, "fxmisc_sine440", 240, 160, **DEFAULT_LIKE, p17=90.0)
+
+
+@case("fxmisc_as_hue_plain", frames=(12,), width=240, height=160)
+def _(comp):
+    spectrum_comp(comp, "fxmisc_sine440", 240, 160, **DEFAULT_LIKE, p17=90.0, p18=0, p19=0)
+
+
+@case("fxmisc_as_composite", frames=(12,), width=240, height=160)
+def _(comp):
+    spectrum_comp(comp, "fxmisc_sine440", 240, 160, solid_color=(0.3, 0.5, 0.2), **DEFAULT_LIKE, p23=1)
+
+
+@case("fxmisc_as_avg", frames=(12, 13, 14), width=240, height=160)
+def _(comp):
+    spectrum_comp(comp, "fxmisc_music", 240, 160, p2=[20.0, 140.0], p3=[220.0, 140.0], p6=20.0, p7=400.0, p8=64, p9=600.0, p22=1)
+
+
+@case("fxmisc_as_avg_sine", frames=(12,), width=240, height=160)
+def _(comp):
+    spectrum_comp(comp, "fxmisc_sine440", 240, 160, **DEFAULT_LIKE, p22=1)
+
+
+@case("fxmisc_as_avg_lobe", frames=(12,), width=240, height=160)
+def _(comp):
+    spectrum_comp(comp, "fxmisc_sine440", 240, 160, **LOBE, p22=1)
+
+
+@case("fxmisc_as_avg_gate", frames=tuple(range(4, 22, 2)), width=240, height=160, duration=1.0)
+def _(comp):
+    spectrum_comp(comp, "fxmisc_gate", 240, 160, **LOBE, p22=1)
+
+
+# Averaged spectra draw near zero; the largest Maximum Height shows their shape and scale.
+@case("fxmisc_as_avg_big", frames=(12,), width=240, height=160)
+def _(comp):
+    spectrum_comp(comp, "fxmisc_sine440", 240, 160, **{**LOBE, "p9": 32000.0}, p22=1)
+
+
+@case("fxmisc_as_avg_big_gate", frames=(4, 6, 8, 10), width=240, height=160, duration=1.0)
+def _(comp):
+    spectrum_comp(comp, "fxmisc_gate", 240, 160, **{**LOBE, "p9": 32000.0}, p22=1)
+
+
+@case("fxmisc_as_avg_big_music", frames=(12, 13, 14), width=240, height=160)
+def _(comp):
+    spectrum_comp(comp, "fxmisc_music", 240, 160, p2=[20.0, 150.0], p3=[220.0, 150.0], p6=20.0, p7=400.0, p8=64, p9=32000.0, p22=1)
+
+
+HUE_MUSIC = dict(p2=[20.0, 140.0], p3=[220.0, 140.0], p6=20.0, p7=400.0, p8=64, p9=300.0, p12=4.0, p17=120.0)
+for dynamic, symmetry, tag in ((1, 0, "dyn"), (0, 1, "sym"), (1, 1, "both")):
+
+    @case(f"fxmisc_as_hue_{tag}", frames=(12,), width=240, height=160)
+    def _(comp, dynamic=dynamic, symmetry=symmetry):
+        spectrum_comp(comp, "fxmisc_music", 240, 160, **HUE_MUSIC, p18=dynamic, p19=symmetry)
+
+
+@case("fxmisc_as_blend_lines", frames=(12,), width=240, height=160)
+def _(comp):
+    spectrum_comp(comp, "fxmisc_music", 240, 160, p2=[20.0, 100.0], p3=[220.0, 100.0], p8=64, p9=400.0, p12=6.0, p13=0.5, p16=1, p20=2, p21=1)
+
+
+@case("fxmisc_as_noaudio", frames=(12,), width=240, height=160)
+def _(comp):
+    # The Audio Layer is a precomp without sound (a "put the song here" placeholder).
+    silent = folder.add_comp("fxmisc_src_silent", 240, 160, 1.0, 2.0, 24.0)
+    silent.add_solid([0.5, 0.5, 0.5], "placeholder", 240, 160)
+    sound = comp.add(silent)
+    sound.enabled = False
+    spectrum_comp(comp, None, 240, 160, sound=sound, **DEFAULT_LIKE)
+
+
+@case("fxmisc_as_dots_ab", frames=(12,), width=240, height=160)
+def _(comp):
+    spectrum_comp(comp, "fxmisc_noise", 240, 160, p2=[20.0, 80.0], p3=[220.0, 80.0], p8=32, p9=400.0, p12=4.0, p20=3, p21=3)
+
+
+# The gated tone, every frame for 3.5 s: where the window sits as time goes on.
+for duration, fps, step, tag in ((90.0, 24.0, 1, "90"), (170.0, 24.0, 1, "170"), (170.0, 60.0, 2, "170_60")):
+
+    @case(f"fxmisc_as_gate_{tag}", frames=tuple(range(0, int(3.5 * fps), step)), width=240, height=160, duration=3.5, fps=fps)
+    def _(comp, duration=duration):
+        spectrum_comp(comp, "fxmisc_gate", 240, 160, **{**LOBE, "p10": duration})
+
+
+@case("fxmisc_as_music", frames=(12, 13, 14), width=240, height=160)
+def _(comp):
+    spectrum_comp(comp, "fxmisc_music", 240, 160, p2=[20.0, 140.0], p3=[220.0, 140.0], p6=20.0, p7=400.0, p8=64, p9=600.0, p22=0)
+
+
+# Paths: masks of the effect's layer (mode None) and the polar path.
+RING = dict(p6=20.0, p7=400.0, p8=64, p9=300.0, p12=3.0, p13=0.5)
+
+
+@case("fxmisc_as_mask_a", frames=(12,), width=240, height=160)
+def _(comp):
+    spectrum_comp(comp, "fxmisc_music", 240, 160, masks=[circle(120.0, 80.0, 40.0)], p4=1, p21=1, **RING)
+
+
+@case("fxmisc_as_mask_b", frames=(12,), width=240, height=160)
+def _(comp):
+    spectrum_comp(comp, "fxmisc_music", 240, 160, masks=[circle(120.0, 80.0, 40.0)], p4=1, p21=2, **RING)
+
+
+@case("fxmisc_as_mask_second", frames=(12,), width=240, height=160)
+def _(comp):
+    spectrum_comp(
+        comp, "fxmisc_music", 240, 160,
+        masks=[open_curve([(20.0, 30.0), (220.0, 30.0)]), open_curve([(20.0, 140.0), (100.0, 70.0), (220.0, 110.0)])],
+        p4=2, p21=3, **RING,
+    )
+
+
+@case("fxmisc_as_polar", frames=(12,), width=240, height=160)
+def _(comp):
+    spectrum_comp(comp, "fxmisc_music", 240, 160, p2=[120.0, 80.0], p3=[200.0, 60.0], p5=1, p21=1, **RING)
+
+
+@case("fxmisc_as_polar_ab", frames=(12,), width=240, height=160)
+def _(comp):
+    spectrum_comp(comp, "fxmisc_music", 240, 160, p2=[110.0, 85.0], p3=[150.0, 85.0], p5=1, p21=3, **RING)
+
+
+@case("fxmisc_as_polar_top", frames=(12,), width=240, height=160)
+def _(comp):
+    # 440 Hz in the last of 50 bands: where the band range ends on the circle.
+    spectrum_comp(comp, "fxmisc_sine440", 240, 160, p2=[120.0, 80.0], p3=[200.0, 80.0], p5=1, p6=200.0, p7=445.0, p8=50, p9=150.0, p12=3.0)
+
+
+for display, tag in ((2, "lines"), (3, "dots")):
+
+    @case(f"fxmisc_as_polar_{tag}", frames=(12,), width=240, height=160)
+    def _(comp, display=display):
+        spectrum_comp(comp, "fxmisc_music", 240, 160, p2=[120.0, 80.0], p3=[200.0, 80.0], p5=1, p20=display, p21=1, **RING)
+
+
+# The user's settings (Trap Nation visualizers): Side B, Thickness 4, Softness 0.5, 2000 bands of bass.
+USER = dict(p6=20.0, p7=250.0, p8=2000, p9=600.0, p10=170.0, p12=4.0, p13=0.5, p14=[1.0, 1.0, 1.0, 1.0], p15=[1.0, 1.0, 1.0, 1.0], p21=2)
+USER_FRAMES = (12, 30, 48)
+
+
+@case("fxmisc_as_user_line", frames=USER_FRAMES, width=480, height=270, duration=3.0)
+def _(comp):
+    spectrum_comp(comp, "fxmisc_music", 480, 270, p2=[0.0, 100.0], p3=[480.0, 100.0], **USER)
+
+
+@case("fxmisc_as_user_ring", frames=USER_FRAMES, width=480, height=270, duration=3.0)
+def _(comp):
+    comp.add_solid([0.0, 0.0, 0.0], "bg", 480, 270)
+    sound = comp.add(tone("fxmisc_music"))
+    for duration, color in ((170.0, [1.0, 1.0, 1.0, 1.0]), (130.0, [1.0, 0.706, 0.0, 1.0]), (90.0, [1.0, 0.5, 0.0, 1.0])):
+        spectrum_comp(comp, None, 480, 270, sound=sound, masks=[circle(240.0, 135.0, 68.0)], **{**USER, "p4": 1, "p10": duration, "p14": color, "p15": color})
+
+
+@case("fxmisc_as_user_polarfx", frames=USER_FRAMES, width=480, height=270, duration=3.0)
+def _(comp):
+    solid, _ = spectrum_comp(
+        comp, "fxmisc_music", 480, 270,
+        **{**USER, "p2": [0.0, 135.0], "p3": [240.0, 135.0], "p6": 25.0, "p7": 125.0, "p10": 195.0, "p11": 88.0},
+    )
+    effect(solid, "ADBE Polar Coordinates", p1=1.0, p2=1)
+
+
 # --- Deep Glow 2 --------------------------------------------------------------------
 
 
@@ -365,5 +645,6 @@ def _(comp):
 suite.save()
 manifest = REFS / suite.manifest_file
 data = json.loads(manifest.read_text(encoding="utf-8"))
-data["audio"] = sorted(f"fxmisc_audio/{name}.wav" for name in footage)
+data["media"] = sorted(f"fixtures/fxmisc_audio/{name}.wav" for name in footage)
+data["known"] = KNOWN
 manifest.write_text(json.dumps(data, indent=1) + "\n", encoding="utf-8")

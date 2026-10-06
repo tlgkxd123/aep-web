@@ -5,6 +5,7 @@
 // gets "pending" the first time and is told to render again when they arrive.
 import type { FootageItem } from "../aep/model.ts";
 import { sequenceFrameName } from "../aep/footage.ts";
+import { decodeAudio, registeredAudio, type AudioData } from "./audio.ts";
 import { frameBytes, releaseFrame, type FootageFrame } from "./frames.ts";
 import { decodePsd, isPsd } from "./psd.ts";
 import { decodeTiff, isTiff } from "./tiff.ts";
@@ -14,6 +15,12 @@ export type FrameState =
   | { status: "ready"; frame: FootageFrame }
   | { status: "pending" }
   /** No file for it among the located files. */
+  | { status: "missing"; path: string }
+  | { status: "error"; message: string };
+
+export type AudioState =
+  | { status: "ready"; audio: AudioData }
+  | { status: "pending" }
   | { status: "missing"; path: string }
   | { status: "error"; message: string };
 
@@ -37,6 +44,9 @@ interface ItemMedia {
   frames: Map<number, Blob | null>;
   requested: Set<number>;
   failed: Map<number, string>;
+  audio?: AudioData;
+  audioDecoding?: boolean;
+  audioError?: string;
 }
 
 const VIDEO_EXTENSIONS = new Set(["mp4", "m4v", "mov", "qt", "3gp", "webm", "mkv", "avi", "mxf"]);
@@ -176,6 +186,31 @@ export class FootageStore {
           (frame) => this.put(key, frame),
           (e: Error) => media.failed.set(index, e.message || "cannot decode the file"),
         ).finally(() => media.requested.delete(index)),
+      );
+    }
+    return { status: "pending" };
+  }
+
+  /** The item's decoded audio; the first call starts decoding and reports "pending". */
+  audio(item: FootageItem): AudioState {
+    const registered = registeredAudio(item.id);
+    if (registered) return { status: "ready", audio: registered };
+    const media = this.mediaOf(item);
+    if (!media || !media.blob) return { status: "missing", path: media?.path ?? item.name };
+    if (media.audio) return { status: "ready", audio: media.audio };
+    if (media.audioError) return { status: "error", message: media.audioError };
+    if (!media.audioDecoding) {
+      media.audioDecoding = true;
+      const blob = media.blob;
+      this.track(
+        blob
+          .arrayBuffer()
+          .then((bytes) => decodeAudio(new Uint8Array(bytes)))
+          .then(
+            (audio) => (media.audio = audio),
+            (e: Error) => (media.audioError = e.message || "cannot decode the audio"),
+          )
+          .finally(() => (media.audioDecoding = false)),
       );
     }
     return { status: "pending" };

@@ -1,6 +1,6 @@
 // Summarizes the Audio Spectrum settings a project uses.
 //
-//   node scripts/audspect-usage.ts <project.aep>
+//   node scripts/audspect-usage.ts <project.aep> [--all]
 import { readFileSync } from "node:fs";
 import type { PropertyGroup } from "../src/aep/model.ts";
 import { parseProject } from "../src/aep/parse.ts";
@@ -20,7 +20,8 @@ for (const item of project.items.values()) {
         const value = JSON.stringify(p.value);
         return p.keyframes.length ? `${value}(k${p.keyframes.length})` : p.expressionEnabled ? `${value}(expr)` : value;
       };
-      console.log(`${item.name} > ${layer.name} (${layer.width}x${layer.height}): ` + [4, 5, 6, 7, 8, 9, 10, 12, 13, 20, 21, 22, 23].map((i) => `${names[i]}=${v(i)}`).join(" "));
+      const shown = process.argv.includes("--all") ? names.map((_, i) => i).slice(1) : [4, 5, 6, 7, 8, 9, 10, 12, 13, 20, 21, 22, 23];
+      console.log(`${item.name} > ${layer.name} (${layer.width}x${layer.height}): ` + shown.map((i) => `${names[i]}=${v(i)}`).join(" "));
     }
   }
 }
