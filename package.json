@@ -11,6 +11,8 @@
     "corpus": "node scripts/corpus-report.ts"
   },
   "dependencies": {
+    "fflate": "^0.8.3",
+    "mp4-muxer": "^5.2.2",
     "react": "^19.1.0",
     "react-dom": "^19.1.0"
   },

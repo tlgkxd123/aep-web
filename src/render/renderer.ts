@@ -34,6 +34,11 @@ export interface RenderOptions {
   scale?: number;
 }
 
+/** Pixels of a comp dimension rendered at `scale` (1/3 of 1920 is 640, not 641). */
+export function scaledSize(size: number, scale: number): number {
+  return scale === 1 ? size : Math.max(1, Math.ceil(size * scale - 1e-6));
+}
+
 interface Programs {
   layer: WebGLProgram;
   mask: WebGLProgram;
@@ -181,8 +186,8 @@ export class Renderer {
 
   private renderComp(comp: CompItem, time: number, depth: number): Target {
     const scale = depth === 0 ? this.scale : 1;
-    const width = Math.ceil(comp.width * scale) + 2 * PAD;
-    const height = Math.ceil(comp.height * scale) + 2 * PAD;
+    const width = scaledSize(comp.width, scale) + 2 * PAD;
+    const height = scaledSize(comp.height, scale) + 2 * PAD;
     let accumulated = this.pool.acquire(width, height);
     if (depth > MAX_DEPTH) {
       this.warnings.add(`compositions nested deeper than ${MAX_DEPTH} levels were not rendered`);
@@ -277,8 +282,8 @@ export class Renderer {
     if (!content) return null;
     const masked = this.applyEffects(layer, time, this.applyMasks(layer, time, content), depth);
     const scale = depth === 0 ? this.scale : 1;
-    const width = Math.ceil(comp.width * scale) + 2 * PAD;
-    const height = Math.ceil(comp.height * scale) + 2 * PAD;
+    const width = scaledSize(comp.width, scale) + 2 * PAD;
+    const height = scaledSize(comp.height, scale) + 2 * PAD;
     const out = this.pool.acquire(width, height);
     const world = worldMatrix(layer, comp, time);
     const toTarget = scale === 1 ? Mat4.translation(PAD, PAD, 0) : Mat4.translation(PAD, PAD, 0).mul(Mat4.scale(scale, scale, 1));
