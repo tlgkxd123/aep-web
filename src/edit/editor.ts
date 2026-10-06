@@ -128,6 +128,8 @@ export interface CompSettingsEdit {
   resolutionFactor?: [number, number];
   /** Start timecode in seconds. */
   displayStartTime?: number;
+  /** Work area [start, end) in comp seconds. */
+  workArea?: [number, number];
 }
 
 export interface CommandOptions {
@@ -874,6 +876,10 @@ export class Editor {
         if (edit.pixelAspect !== undefined) setRatio(view, CDTA.pixelAspect, edit.pixelAspect, false);
         if (edit.resolutionFactor) edit.resolutionFactor.forEach((f, i) => view.setUint16(CDTA.resolutionFactor + i * 2, f));
         if (edit.displayStartTime !== undefined) setRatio(view, CDTA.displayStartTime, edit.displayStartTime);
+        if (edit.workArea) {
+          setRatio(view, CDTA.workAreaStart, edit.workArea[0], false);
+          setRatio(view, CDTA.workAreaEnd, edit.workArea[1], false);
+        }
         const fps = edit.frameRate !== undefined && edit.frameRate !== before.frameRate ? edit.frameRate : undefined;
         if (fps !== undefined) {
           writeFrameRate(view, fps);

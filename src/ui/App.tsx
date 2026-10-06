@@ -419,7 +419,24 @@ export function App() {
         return;
       }
       if (!activeComp || e.ctrlKey || e.metaKey || e.altKey) return;
-      const toolKey = editor && !e.shiftKey ? TOOL_KEYS[e.key.toLowerCase()] : undefined;
+      const letter = e.key.toLowerCase();
+      if ((letter === "b" || letter === "n") && !e.shiftKey && editor) {
+        // B: work area start at the current time; N: work area end after the current frame (AE).
+        e.preventDefault();
+        const frame = activeComp.frameDuration || 1 / (activeComp.frameRate || 24);
+        const t = views[activeComp.id]?.time ?? 0;
+        const start = activeComp.workAreaStart;
+        const end = start + activeComp.workAreaDuration;
+        const area: [number, number] =
+          letter === "b" ? [t, end > t ? end : activeComp.duration] : [start < t + frame ? start : 0, Math.min(activeComp.duration, t + frame)];
+        try {
+          editor.setCompSettings(activeComp, { workArea: area });
+        } catch (err) {
+          setEditError((err as Error).message);
+        }
+        return;
+      }
+      const toolKey = editor && !e.shiftKey ? TOOL_KEYS[letter] : undefined;
       if (toolKey) {
         e.preventDefault();
         setTool(toolKey);
