@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { chunkLabel, type Chunk } from "../aep/riff.ts";
 import { bytesLabel } from "./format.ts";
+import { Icon } from "./icons.tsx";
 
 const HEX_LIMIT = 4096;
 
@@ -15,14 +16,14 @@ function HexView({ chunk }: { chunk: Chunk }) {
   }
   return (
     <div className="hex">
-      <div className="panel-toolbar">
-        <strong>{chunkLabel(chunk)}</strong>
-        <span className="meta">
+      <div className="hex-head">
+        <strong className="mono">{chunkLabel(chunk)}</strong>
+        <span className="dim">
           offset {chunk.offset} · {bytesLabel(chunk.data.length)}
           {chunk.data.length > HEX_LIMIT ? ` · first ${bytesLabel(HEX_LIMIT)} shown` : ""}
         </span>
       </div>
-      {chunk.error && <p className="error">{chunk.error}</p>}
+      {chunk.error && <p className="chunk-error">{chunk.error}</p>}
       <pre>{lines.join("\n")}</pre>
     </div>
   );
@@ -32,21 +33,33 @@ function ChunkRow({ chunk, depth, selected, onSelect }: { chunk: Chunk; depth: n
   const [open, setOpen] = useState(depth < 1);
   const kids = chunk.children ?? [];
   return (
-    <>
-      <li
-        className={`row ${selected === chunk ? "selected" : ""}`}
-        style={{ paddingLeft: 8 + depth * 14 }}
+    <div role="treeitem" aria-level={depth + 1} aria-expanded={kids.length ? open : undefined} aria-selected={selected === chunk}>
+      <div
+        className={`chunk-row ${selected === chunk ? "selected" : ""}`}
+        style={{ paddingLeft: 6 + depth * 14 }}
         onClick={() => {
           onSelect(chunk);
           if (kids.length) setOpen(!open);
         }}
       >
-        <span className="icon">{kids.length ? (open ? "▾" : "▸") : "·"}</span>
-        <span className="name mono">{chunkLabel(chunk)}</span>
-        <span className="meta">{kids.length ? `${kids.length} children` : bytesLabel(chunk.data.length)}</span>
-      </li>
-      {open && kids.map((child, i) => <ChunkRow key={i} chunk={child} depth={depth + 1} selected={selected} onSelect={onSelect} />)}
-    </>
+        {kids.length ? (
+          <span className={`twirl ${open ? "open" : ""}`} aria-hidden="true">
+            <Icon name="twirl" size={10} />
+          </span>
+        ) : (
+          <span className="twirl-space" />
+        )}
+        <span className="cell-text mono">{chunkLabel(chunk)}</span>
+        <span className="dim chunk-meta">{kids.length ? `${kids.length} children` : bytesLabel(chunk.data.length)}</span>
+      </div>
+      {open && kids.length > 0 && (
+        <div role="group">
+          {kids.map((child, i) => (
+            <ChunkRow key={i} chunk={child} depth={depth + 1} selected={selected} onSelect={onSelect} />
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -55,10 +68,10 @@ export function ChunkPanel({ root }: { root: Chunk }) {
   const [selected, setSelected] = useState<Chunk | undefined>();
   return (
     <div className="chunks">
-      <ul className="tree">
+      <div className="chunk-tree" role="tree" aria-label="RIFX chunks">
         <ChunkRow chunk={root} depth={0} selected={selected} onSelect={setSelected} />
-      </ul>
-      {selected ? <HexView chunk={selected} /> : <p className="empty">Select a chunk to see its bytes.</p>}
+      </div>
+      {selected ? <HexView chunk={selected} /> : <p className="panel-empty">Select a chunk to see its bytes.</p>}
     </div>
   );
 }
