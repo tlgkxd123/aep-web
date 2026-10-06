@@ -104,6 +104,17 @@ export class Renderer {
     return out;
   }
 
+  /** Straight-alpha RGBA of one comp pixel of a rendered comp. */
+  readPixel(target: Target, x: number, y: number): [number, number, number, number] {
+    const gl = this.gl;
+    bindTarget(gl, target);
+    const px = new Uint8Array(4);
+    gl.readPixels(Math.floor(x) + PAD, target.height - 1 - (Math.floor(y) + PAD), 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, px);
+    const a = px[3];
+    const straight = (c: number) => (a ? Math.min(255, Math.round((c * 255) / a)) : 0);
+    return [straight(px[0]), straight(px[1]), straight(px[2]), a];
+  }
+
   /** Draws a rendered comp onto the canvas, scaled to fit, over the given background. */
   present(target: Target, comp: CompItem, background: [number, number, number, number] = [0, 0, 0, 0]): void {
     const gl = this.gl;

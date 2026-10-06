@@ -980,7 +980,8 @@ export function parseProject(bytes: Uint8Array): Project {
     version = `${major}.${(word >>> 15) & 0x0f}x${word & 0xff}`;
   }
   const nnhd = findChild(root, "nnhd");
-  const expressionEngine = utf8Of(findChild(findList(root, "ExEn"), "Utf8"));
+  // Projects without an ExEn chunk predate the JavaScript engine and use the legacy one.
+  const expressionEngine = utf8Of(findChild(findList(root, "ExEn"), "Utf8")) || "extendscript";
 
   parser.parseEffectDefinitions(root);
   const rootList = findList(root, "Fold");
@@ -1005,7 +1006,8 @@ export function parseProject(bytes: Uint8Array): Project {
   return {
     version,
     expressionEngine,
-    bitsPerChannel: nnhd ? new Bytes(nnhd.data).u8(24) : 8,
+    // nnhd stores the depth as 0 / 1 / 2.
+    bitsPerChannel: ({ 0: 8, 1: 16, 2: 32 } as Record<number, number>)[nnhd ? new Bytes(nnhd.data).u8(24) : 0] ?? 8,
     rootFolder,
     items: parser.items,
     effectTypes: parser.effectTypes,

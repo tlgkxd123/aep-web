@@ -17,22 +17,22 @@ Scope: a TypeScript .aep parser plus a browser inspector that shows project item
 - [x] G2: every .aep file in the sample corpus parses without an exception, and the corpus holds at least 500 files
   CHECK: node scripts/corpus-report.ts --require-parse
   EXPECT: CORPUS-PARSE-PASSED
-  EVIDENCE: automatic-evidence=v1; definition-sha256=d246bebbf6a208860b63b66f513506106d44a5ff5b3b657cf64643ee8afa46bd; exit=0; EXPECT=matched; output-sha256=f881d6c74b92d0ddf2d7a0ebadc48650e58f914d4e66dbe69e7c020d37e88433; output-bytes=1133; shell=C:\WINDOWS\system32\cmd.exe; cwd=C:\Users\schxm\projects\aep-web; path=a39720789bd5/52 entries
+  EVIDENCE: automatic-evidence=v1; definition-sha256=d246bebbf6a208860b63b66f513506106d44a5ff5b3b657cf64643ee8afa46bd; exit=0; EXPECT=matched; output-sha256=5992b8448027385b535156e03379f71acaa6f8850b91cd693b555c0471115303; output-bytes=1133; shell=C:\WINDOWS\system32\cmd.exe; cwd=C:\Users\schxm\projects\aep-web; path=a39720789bd5/52 entries
 
 - [x] G3: parsed items, layers, property values and keyframes agree with the ExtendScript JSON exports (items and layers at least 99.5 percent, property values and keyframes at least 98 percent, every exported layer found)
   CHECK: node scripts/corpus-report.ts --require-match
   EXPECT: CORPUS-MATCH-PASSED
-  EVIDENCE: automatic-evidence=v1; definition-sha256=756e21995337b2fdc6735395b65ef8b17dfd1e238350d7c7fd7f519259d991a4; exit=0; EXPECT=matched; output-sha256=a1261db06966c0ace37170abe18df9b9c85ad2dfd4947306ee00e537016f1624; output-bytes=1133; shell=C:\WINDOWS\system32\cmd.exe; cwd=C:\Users\schxm\projects\aep-web; path=a39720789bd5/52 entries
+  EVIDENCE: automatic-evidence=v1; definition-sha256=756e21995337b2fdc6735395b65ef8b17dfd1e238350d7c7fd7f519259d991a4; exit=0; EXPECT=matched; output-sha256=41a3cf6d21d8ab829c852c9fd23ee5f3f43f9ae4e5254fd79c7b21945c92e740; output-bytes=1133; shell=C:\WINDOWS\system32\cmd.exe; cwd=C:\Users\schxm\projects\aep-web; path=a39720789bd5/52 entries
 
 - [x] G4: loading a sample .aep in the inspector UI renders its composition, a layer and a transform property
   CHECK: npx vitest run tests/ui.test.tsx
   EXPECT: /Test Files\s+1 passed/
-  EVIDENCE: automatic-evidence=v1; definition-sha256=5d97d6296cee67cea0f05c2097f1f7f05ee00d17ba68762ed619f24d34fa3cb4; exit=0; EXPECT=matched; output-sha256=21dc979049d48f4aea2335c72bf4280e16b5e4ee53a7be0c0988b66094297caa; output-bytes=272; shell=C:\WINDOWS\system32\cmd.exe; cwd=C:\Users\schxm\projects\aep-web; path=a39720789bd5/52 entries
+  EVIDENCE: automatic-evidence=v1; definition-sha256=5d97d6296cee67cea0f05c2097f1f7f05ee00d17ba68762ed619f24d34fa3cb4; exit=0; EXPECT=matched; output-sha256=27b5caf0085e48f165872044a9d09ffb755f279601fceb84404d10031d5c9968; output-bytes=272; shell=C:\WINDOWS\system32\cmd.exe; cwd=C:\Users\schxm\projects\aep-web; path=a39720789bd5/52 entries
 
 - [x] G5: the production bundle builds
   CHECK: npx vite build
   EXPECT: /built in/
-  EVIDENCE: automatic-evidence=v1; definition-sha256=202b6423274a1e776d6ddcc8d133917c5c706a45d1cd69c285f24b4a854abbd3; exit=0; EXPECT=matched; output-sha256=2ea61f41cb7a2019f0c19b4b40a62baeb6de9447648e8c6f5aa544933bddd937; output-bytes=350; shell=C:\WINDOWS\system32\cmd.exe; cwd=C:\Users\schxm\projects\aep-web; path=a39720789bd5/52 entries
+  EVIDENCE: automatic-evidence=v1; definition-sha256=202b6423274a1e776d6ddcc8d133917c5c706a45d1cd69c285f24b4a854abbd3; exit=0; EXPECT=matched; output-sha256=f4c676c31d7c16719beab47b233a1419ef0da18344eae9a232af705762ae99c8; output-bytes=350; shell=C:\WINDOWS\system32\cmd.exe; cwd=C:\Users\schxm\projects\aep-web; path=a39720789bd5/52 entries
 
 - [x] G7: layer world matrices, parenting and camera rays reproduce After Effects' sourcePointToComp and compPointToSource results within 0.005 px (2D, parented, 3D, keyframed layers; one-node, two-node, keyed-zoom and default cameras)
   CHECK: node scripts/geometry-report.ts --require

@@ -274,6 +274,8 @@ for (const file of walk(samplesDir)) {
   }
   if (!Array.isArray(json.items)) continue;
   compared++;
+  if ("bitsPerChannel" in json) tallies.items.check("project.bitsPerChannel", project.bitsPerChannel, json.bitsPerChannel, rel);
+  if ("expressionEngine" in json) tallies.items.check("project.expressionEngine", project.expressionEngine, json.expressionEngine, rel);
   for (const jItem of json.items as Json[]) {
     const item = project.items.get(jItem.id);
     const where = `${rel} item ${jItem.id} "${jItem.name}"`;
