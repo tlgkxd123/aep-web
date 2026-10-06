@@ -188,6 +188,32 @@ function Switch({ icon, on, label, blank, onToggle }: { icon: IconName; on: bool
   );
 }
 
+/** A comp switch in the Timeline header: a toggle when the project is editable, else its state. */
+function CompSwitchButton({ comp, name, icon, title }: { comp: CompItem; name: "draft3d" | "frameBlending" | "motionBlur"; icon: IconName; title: string }) {
+  const editing = useEditing();
+  const { editor } = editing;
+  const on = !!comp[name];
+  if (!editor) {
+    return (
+      <span className={`tl-tool ${on ? "on" : ""}`} title={title} aria-hidden="true">
+        <Icon name={icon} size={15} />
+      </span>
+    );
+  }
+  return (
+    <button
+      type="button"
+      className={`tl-tool ${on ? "on" : ""}`}
+      title={title}
+      aria-label={title}
+      aria-pressed={on}
+      onClick={() => attempt(editing, () => editor.setCompSwitch(comp, name, !on))}
+    >
+      <Icon name={icon} size={15} />
+    </button>
+  );
+}
+
 /** Pixels at either end of a layer bar that trim its in or out point instead of moving it. */
 const TRIM_GRIP = 5;
 
@@ -1006,25 +1032,23 @@ export const TimelinePanel = memo(function TimelinePanel({
               <span className="tl-tool" title="Composition Mini-Flowchart" aria-hidden="true">
                 <Icon name="miniFlow" size={15} />
               </span>
-              <span className={`tl-tool ${comp.draft3d ? "on" : ""}`} title="Draft 3D" aria-hidden="true">
-                <Icon name="draft3d" size={15} />
-              </span>
+              <CompSwitchButton comp={comp} name="draft3d" icon="draft3d" title="Draft 3D" />
               <button
                 type="button"
                 className={`tl-tool ${hideShy ? "on" : ""}`}
                 title="Hide all layers for which the Shy switch is set"
                 aria-label="Hide shy layers"
                 aria-pressed={hideShy}
-                onClick={() => setHideShy(!hideShy)}
+                onClick={() => {
+                  setHideShy(!hideShy);
+                  // AE keeps this switch in the composition.
+                  if (editor) attempt(editing, () => editor.setCompSwitch(comp, "hideShyLayers", !hideShy));
+                }}
               >
                 <Icon name="shyOn" size={15} />
               </button>
-              <span className={`tl-tool ${comp.frameBlending ? "on" : ""}`} title="Enables Frame Blending" aria-hidden="true">
-                <Icon name="frameBlend" size={15} />
-              </span>
-              <span className={`tl-tool ${comp.motionBlur ? "on" : ""}`} title="Enables Motion Blur" aria-hidden="true">
-                <Icon name="motionBlur" size={15} />
-              </span>
+              <CompSwitchButton comp={comp} name="frameBlending" icon="frameBlend" title="Enables Frame Blending for all layers with the Frame Blend switch set" />
+              <CompSwitchButton comp={comp} name="motionBlur" icon="motionBlur" title="Enables Motion Blur for all layers with the Motion Blur switch set" />
               <span className="tl-tool" title="Graph Editor" aria-hidden="true">
                 <Icon name="graphEditor" size={15} />
               </span>

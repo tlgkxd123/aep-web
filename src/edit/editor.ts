@@ -74,6 +74,15 @@ export function canSetExpression(prop: Property): boolean {
   return !!prop.chunk && !prop.synthesized && prop.propertyValueType !== PropertyValueType.NO_VALUE;
 }
 
+/** [byte, bit] of each comp switch in cdta, as decodeCdta reads them. */
+const COMP_SWITCHES = {
+  draft3d: [138, 7],
+  frameBlending: [139, 4],
+  motionBlur: [139, 3],
+  hideShyLayers: [139, 0],
+} as const;
+export type CompSwitch = keyof typeof COMP_SWITCHES;
+
 const LAYER_BLOCK_ENDS = new Set(["Layr", "DLay", "SLay", "CLay", "SecL", "CIFO", "CIF2", "CIF3", "Gide"]);
 
 interface HistoryEntry {
@@ -838,6 +847,16 @@ export class Editor {
   // ---------------------------------------------------------------- compositions
 
   /** Composition Settings. A frame-rate change keeps keyframes at the same times in seconds. */
+  /** The Timeline's comp switches (Draft 3D, Frame Blending, Motion Blur, Hide Shy Layers), bits of the cdta chunk. */
+  setCompSwitch(comp: CompItem, name: CompSwitch, on: boolean): void {
+    this.run(`${on ? "Enable" : "Disable"} ${name}`, [comp], {}, (tx) => {
+      const cdta = findChild(comp.chunk, "cdta");
+      if (!cdta) throw new Error(`composition "${comp.name}" has no cdta chunk`);
+      const [byte, bit] = COMP_SWITCHES[name];
+      tx.patch(cdta, (_, bytes) => setBit(bytes, byte, bit, on));
+    });
+  }
+
   setCompSettings(comp: CompItem, edit: CompSettingsEdit): void {
     this.run("Composition settings", this.allComps(), {}, (tx) => {
       const list = comp.chunk;
