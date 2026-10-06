@@ -8,3 +8,5 @@ refs/ours
 refs/probe
 *.log
 __pycache__
+refs/fixtures/effect-donors.json
+*registros/
