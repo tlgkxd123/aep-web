@@ -36,13 +36,19 @@ function searchRoots(): string[] {
   return [...user, ...drives].filter((d) => existsSync(d));
 }
 
-/** Media files under the search roots, by lower-case file name. Built once, on first need. */
+/** Media files under the search roots, by lower-case file name. Rebuilt when the roots change (a drive is plugged in or removed). */
 let index: Promise<Map<string, string[]>> | undefined;
+let indexedRoots = "";
 
 function buildIndex(): Promise<Map<string, string[]>> {
+  const roots = searchRoots();
+  if (roots.join("|") !== indexedRoots) {
+    indexedRoots = roots.join("|");
+    index = undefined;
+  }
   return (index ??= (async () => {
     const byName = new Map<string, string[]>();
-    const stack = searchRoots();
+    const stack = [...roots];
     let visited = 0;
     while (stack.length) {
       const dir = stack.pop()!;
@@ -81,13 +87,17 @@ export async function resolveFootage(path: string): Promise<string | null> {
   if (existsSync(path) && statSync(path).isFile() && mediaType(path)) return path;
   const parts = split(path);
   const candidates = (await buildIndex()).get(parts[parts.length - 1] ?? "") ?? [];
+  // A bare frame-number name ("1430.png") says nothing about which folder it came
+  // from, so such files also need their parent folder to match.
+  const stem = (parts[parts.length - 1] ?? "").replace(/\.[^.]*$/, "");
+  const minScore = /[a-z]/i.test(stem) ? 1 : 2;
   let best: string | null = null;
   let bestScore = 0;
   for (const candidate of candidates) {
     const score = commonTail(parts, split(candidate));
     if (score > bestScore) [best, bestScore] = [candidate, score];
   }
-  return best;
+  return bestScore >= minScore ? best : null;
 }
 
 function readBody(req: IncomingMessage): Promise<string> {

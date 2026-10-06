@@ -12,7 +12,8 @@ const bytes = readFileSync(path);
 const project = parseProject(new Uint8Array(bytes.buffer, bytes.byteOffset, bytes.byteLength));
 for (const item of project.items.values()) {
   if (item.kind !== "footage" || item.mainSource.sourceType !== "FileSource") continue;
-  const file = item.mainSource.file;
+  const { file, sequence } = item.mainSource;
   const found = await resolveFootage(file);
-  console.log(`${found === file ? "found  " : found ? "relink " : "MISSING"} ${item.name}  ->  ${found ?? file}`);
+  const range = sequence ? `  [sequence ${sequence.startFrame}-${sequence.endFrame}]` : "";
+  console.log(`${found === file ? "found  " : found ? "relink " : "MISSING"} ${item.name}  ->  ${found ?? file}${range}`);
 }
