@@ -9,7 +9,7 @@ import { cameraAt, localTransform, Mat4, worldMatrix, type Camera } from "../aep
 import "./features.ts";
 import { bindTarget, compile, TargetPool, unitQuad, type GL, type Target } from "./gl.ts";
 import { maskCoverage } from "./masks.ts";
-import { contentProviders, effectRenderer, type LayerImage, type RenderContext } from "./registry.ts";
+import { contentProviders, effectRenderer, type LayerImage, type RenderContext, type RendererOptions } from "./registry.ts";
 import { rasterizeShapeLayer } from "./shapes.ts";
 import { COMPOSITE_FS, FILL_FS, FULLSCREEN_VS, LAYER_FS, LAYER_VS, MASK_FS, MatteMode } from "./shaders.ts";
 
@@ -44,6 +44,7 @@ function findProperty(nodes: PropertyNode[], path: string[]): Property | undefin
 
 export class Renderer {
   readonly gl: GL;
+  readonly options: RendererOptions = { approximateMissingPlugins: false };
   private readonly quad: WebGLVertexArrayObject;
   private readonly programs: Programs;
   private readonly pool: TargetPool;
@@ -297,6 +298,7 @@ export class Renderer {
     const gl = this.gl;
     return {
       gl,
+      options: this.options,
       pool: this.pool,
       pad: PAD,
       project: this.project,
