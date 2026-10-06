@@ -1,6 +1,6 @@
 // Layer commands: new solid / null / shape / adjustment layers, layers from
 // project items, delete, duplicate and stacking order. New layer and solid
-// blocks are py-aep's output (see templates.ts) with the fields that vary
+// blocks are py-aep's output (see layer-templates.ts) with the fields that vary
 // between layers patched in.
 import { decodeCdta, decodeLdta } from "../aep/decode.ts";
 import type { CompItem, FolderItem, Item, Layer, Project } from "../aep/model.ts";
@@ -8,11 +8,11 @@ import { findChild, findList, type Chunk } from "../aep/riff.ts";
 import type { Transaction } from "./chunks.ts";
 import type { Editor } from "./editor.ts";
 import { fixedUtf8, LAYER_SWITCHES, LDTA, setBit, setRatio } from "./encode.ts";
-import { allocateId } from "./items.ts";
-import { setChunkData, setTimebase, tdmnName, template } from "./templates.ts";
+import { allocateId } from "./layer-items.ts";
+import { setChunkData, setTimebase, tdmnName, template } from "./layer-templates.ts";
 import { setParentKeepingTransform, writeTransform } from "./transform-ops.ts";
 
-export { chunkBytes, chunksFromBytes } from "./templates.ts";
+export { chunkBytes, chunksFromBytes } from "./layer-templates.ts";
 
 // ---------------------------------------------------------------- pure builders
 

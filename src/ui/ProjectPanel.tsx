@@ -1,6 +1,7 @@
 import { memo, useEffect, useMemo, useState, type KeyboardEvent } from "react";
 import type { Item, Project } from "../aep/model.ts";
 import { footageStore } from "../media/store.ts";
+import { ITEM_MIME, useEditing } from "./editing.tsx";
 import { bitsPerChannel, colorCss, fpsLabel, fpsShort, labelColor, labelName, timecode } from "./format.ts";
 import { Icon } from "./icons.tsx";
 import { ItemIcon } from "./itemIcons.tsx";
@@ -139,6 +140,8 @@ export const ProjectPanel = memo(function ProjectPanel({
   const [query, setQuery] = useState("");
   const [sort, setSort] = useState<{ key: SortKey; dir: 1 | -1 }>({ key: "name", dir: 1 });
   useFootageVersion();
+  // New solids and the Solids folder change the item tree inside the same project object.
+  const { revision } = useEditing();
 
   useEffect(() => {
     setExpanded(new Set(ancestors(project, selectedId)));
@@ -151,7 +154,7 @@ export const ProjectPanel = memo(function ProjectPanel({
       for (const layer of item.layers) counts.set(layer.sourceId, (counts.get(layer.sourceId) ?? 0) + 1);
     }
     return counts;
-  }, [project]);
+  }, [project, revision]);
 
   const rows = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -173,7 +176,7 @@ export const ProjectPanel = memo(function ProjectPanel({
     };
     walk(project.rootFolder.items, 0);
     return out;
-  }, [project, expanded, query, sort]);
+  }, [project, expanded, query, sort, revision]);
 
   const toggle = (id: number) =>
     setExpanded((prev) => {
@@ -240,6 +243,16 @@ export const ProjectPanel = memo(function ProjectPanel({
                   aria-selected={item.id === selectedId}
                   aria-expanded={isFolder ? open : undefined}
                   className={`proj-row ${item.id === selectedId ? "selected" : ""} ${missing ? "missing" : ""}`}
+                  draggable={isFolder ? undefined : true}
+                  onDragStart={
+                    isFolder
+                      ? undefined
+                      : (e) => {
+                          e.dataTransfer.setData(ITEM_MIME, String(item.id));
+                          e.dataTransfer.effectAllowed = "copy";
+                          onSelect(item.id);
+                        }
+                  }
                   onClick={() => onSelect(item.id)}
                   onDoubleClick={() => (isFolder ? toggle(item.id) : onOpenItem(item.id))}
                   title={pathText(item) || undefined}

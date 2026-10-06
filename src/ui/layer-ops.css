@@ -1,0 +1,291 @@
+/* ---------- layer operations: submenus, viewer tools, timeline editing, Solid Settings ---------- */
+/* Loaded before styles.css: rules that refine a styles.css rule carry an extra class to win. */
+
+.menu-item-wrap {
+  position: relative;
+}
+
+.menu-pop.menu-sub-pop {
+  top: -5px;
+  left: calc(100% - 2px);
+}
+
+.menu-item.open:not(:disabled) {
+  background: #3a3a3a;
+  color: var(--text-hi);
+}
+
+/* Composition panel. Cursors are drawn here: a turning arrow for Rotation and crossed arrows round a ring for Pan Behind. */
+
+.comp-svg.tool-rotation {
+  cursor:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24'%3E%3Cg fill='none' stroke-linecap='round' stroke-linejoin='round'%3E%3Cg stroke='%23000' stroke-width='3.6'%3E%3Cpath d='M18 12.5a6 6 0 1 1-2-4.9'/%3E%3Cpath d='M17 3.8v4.1h-4.1'/%3E%3C/g%3E%3Cg stroke='%23fff' stroke-width='1.5'%3E%3Cpath d='M18 12.5a6 6 0 1 1-2-4.9'/%3E%3Cpath d='M17 3.8v4.1h-4.1'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E")
+      12 12,
+    crosshair;
+}
+
+.comp-svg.tool-anchor {
+  cursor:
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24'%3E%3Cg fill='none' stroke-linecap='round' stroke-linejoin='round'%3E%3Cg stroke='%23000' stroke-width='3.4'%3E%3Cpath d='M12 2.5v6M12 15.5v6M2.5 12h6M15.5 12h6M10 4.5l2-2 2 2M10 19.5l2 2 2-2M4.5 10l-2 2 2 2M19.5 10l2 2-2 2'/%3E%3Ccircle cx='12' cy='12' r='2.6'/%3E%3C/g%3E%3Cg stroke='%23fff' stroke-width='1.4'%3E%3Cpath d='M12 2.5v6M12 15.5v6M2.5 12h6M15.5 12h6M10 4.5l2-2 2 2M10 19.5l2 2 2-2M4.5 10l-2 2 2 2M19.5 10l2 2-2 2'/%3E%3Ccircle cx='12' cy='12' r='2.6'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E")
+      12 12,
+    move;
+}
+
+.sel-grip {
+  fill: transparent;
+}
+
+.sel-anchor {
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+  filter: drop-shadow(0 0 1px rgb(0 0 0 / 85%));
+  pointer-events: none;
+}
+
+.viewer.item-over .comp-frame {
+  outline: 1px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* Timeline */
+
+.tl-layer.drop-before > * {
+  box-shadow: inset 0 2px 0 var(--accent);
+}
+
+.tl-layer.drop-after > * {
+  box-shadow: inset 0 -2px 0 var(--accent);
+}
+
+.tl-rename,
+.hot-input {
+  height: 16px;
+  padding: 0 3px;
+  border: 1px solid var(--accent);
+  border-radius: 2px;
+  background: var(--field);
+  color: var(--text-hi);
+  font-variant-numeric: tabular-nums;
+}
+
+.tl-rename {
+  flex: 1;
+  min-width: 0;
+}
+
+.hot-input {
+  width: auto;
+  min-width: 0;
+}
+
+.hot.scrub {
+  user-select: none;
+  touch-action: none;
+}
+
+.hot.scrub:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: 1px;
+  border-radius: 1px;
+}
+
+.hot-parts {
+  display: inline-flex;
+  align-items: center;
+}
+
+.hot-sep {
+  margin-right: 1px;
+  color: var(--hot);
+}
+
+.scale-link {
+  display: grid;
+  place-items: center;
+  width: 14px;
+  height: 14px;
+  padding: 0;
+  border-radius: 2px;
+  cursor: pointer;
+}
+
+.scale-link.on {
+  color: var(--text);
+}
+
+.scale-link:hover,
+button.stopwatch:hover {
+  color: var(--text-hi);
+}
+
+button.stopwatch {
+  height: 14px;
+  padding: 0;
+  cursor: pointer;
+}
+
+button.stopwatch.on:hover {
+  color: var(--hot);
+}
+
+button.hot-link {
+  padding: 0;
+  cursor: pointer;
+}
+
+/* Solid Settings */
+
+.dialog.solid-dialog {
+  display: grid;
+  gap: 12px;
+  width: min(430px, calc(100vw - 40px));
+}
+
+.dialog.solid-dialog h2 {
+  margin-bottom: 0;
+}
+
+.ae-field {
+  height: 22px;
+  padding: 0 6px;
+  border: 1px solid #484848;
+  border-radius: 3px;
+  background: var(--field);
+  color: var(--text-hi);
+}
+
+.ae-field:focus {
+  border-color: var(--accent);
+  outline: none;
+}
+
+select.ae-field {
+  padding-right: 2px;
+}
+
+.sd-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.sd-name input {
+  flex: 1;
+  min-width: 0;
+}
+
+.sd-group {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 6px 12px 12px;
+  border: 1px solid #3c3c3c;
+  border-radius: var(--radius);
+}
+
+.sd-group legend {
+  padding: 0 4px;
+  color: var(--text-dim);
+}
+
+.sd-size {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+}
+
+.sd-dims {
+  display: grid;
+  gap: 6px;
+}
+
+.sd-dims .sd-row > span:first-child {
+  width: 44px;
+  text-align: right;
+}
+
+.sd-num {
+  width: 64px;
+  text-align: right;
+}
+
+.sd-lock {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+}
+
+.sd-lock input,
+.sd-color input {
+  position: absolute;
+  opacity: 0;
+}
+
+.sd-lock input {
+  width: 1px;
+  height: 1px;
+}
+
+.sd-lock input:focus-visible + .ae-check-box,
+.sd-color input:focus-visible + .sd-swatch {
+  outline: 1px solid var(--accent);
+  outline-offset: 1px;
+}
+
+.sd-readout {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 3px 8px;
+  margin: 0 0 0 52px;
+  color: var(--text-dim);
+}
+
+.sd-readout dd {
+  margin: 0;
+  color: var(--text);
+}
+
+.ae-secondary.sd-comp-size {
+  justify-self: start;
+  height: 24px;
+  padding: 0 14px;
+  border-radius: 12px;
+  font-weight: 400;
+}
+
+.sd-color {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: max-content;
+  cursor: pointer;
+}
+
+.sd-color input {
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  cursor: pointer;
+}
+
+.sd-swatch {
+  width: 44px;
+  height: 20px;
+  border: 1px solid #5c5c5c;
+  border-radius: 2px;
+}
+
+.dialog-actions.sd-actions {
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.ae-primary:disabled {
+  opacity: 0.45;
+  cursor: default;
+}

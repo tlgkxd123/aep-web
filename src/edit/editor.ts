@@ -17,7 +17,7 @@ import {
 import { findChild, findList, readRifx, type Chunk, type RifxFile } from "../aep/riff.ts";
 import { writeRifx } from "../aep/write.ts";
 import { applyStates, chunkPath, readDoubles, Transaction, utf8Chunk, type ChunkChange } from "./chunks.ts";
-import { syncItems } from "./items.ts";
+import { syncItems } from "./layer-items.ts";
 import {
   CDTA,
   DEFAULT_INFLUENCE,
@@ -80,7 +80,7 @@ interface HistoryEntry {
   change: ChunkChange;
   comps: CompItem[];
   coalesce?: string;
-  /** The command added or removed project items, so the item tree is re-read with the comps. */
+  /** Changed the item tree: the whole project is re-derived after it, its undo and its redo. */
   items?: boolean;
 }
 

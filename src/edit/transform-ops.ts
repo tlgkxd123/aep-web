@@ -7,7 +7,7 @@ import { valueAtTime } from "../aep/evaluate.ts";
 import type { CompItem, Layer, Property, PropertyGroup } from "../aep/model.ts";
 import { localTransform, Mat4, worldMatrix } from "../aep/transform.ts";
 import type { CommandOptions, Editor } from "./editor.ts";
-import { materializeTransformProp } from "./templates.ts";
+import { materializeTransformProp } from "./layer-templates.ts";
 
 type Vec2 = [number, number];
 /** 2x2 linear map, row-major: [a, b, c, d] maps (x, y) to (a·x + b·y, c·x + d·y). */
@@ -463,4 +463,51 @@ export function panBehind(editor: Editor, comp: CompItem, layer: Layer, delta: V
     },
     { coalesce: options.coalesce },
   );
+}
+
+// ---------------------------------------------------------------- Timeline value fields
+
+const EDIT_KEYS = new Map(EDIT_PROPS.map(([key, matchName]) => [matchName, key]));
+
+/** Whether the Timeline can edit this Transform property through `setTransformValue`. */
+export const isTransformValue = (matchName: string) => EDIT_KEYS.has(matchName) || /^ADBE Position_[012]$/.test(matchName);
+
+/**
+ * One Transform property set at `time` the way the Timeline's value fields
+ * do: the static value, or a keyframe when the stopwatch is on. Components
+ * left out of `value` keep their value; separated Position dimensions take a number.
+ */
+export function setTransformValue(
+  editor: Editor,
+  comp: CompItem,
+  layer: Layer,
+  matchName: string,
+  value: number | (number | undefined)[],
+  time: number,
+  options: CommandOptions = {},
+): void {
+  const separated = /^ADBE Position_([012])$/.exec(matchName);
+  let edit: TransformEdit;
+  if (separated) {
+    const position: number[] = [];
+    position[Number(separated[1])] = value as number;
+    edit = { position };
+  } else {
+    const key = EDIT_KEYS.get(matchName);
+    if (!key) throw new Error(`"${matchName}" is not a Transform value`);
+    edit = { [key]: value } as TransformEdit;
+  }
+  const name = transformProp(layer, matchName)?.name ?? "Transform";
+  const id = layer.id;
+  editor.perform(`Change ${name}`, [comp], () => writeTransform(editor, comp, id, edit, time), options);
+}
+
+/** The stopwatch of a Transform property, which AE may have left out of the file while it held its default. */
+export function toggleTransformStopwatch(editor: Editor, comp: CompItem, layer: Layer, matchName: string, time: number): void {
+  const animated = !!transformProp(layer, matchName)?.keyframes.length;
+  const id = layer.id;
+  editor.perform(animated ? "Remove keyframes" : "Add keyframe", [comp], () => {
+    const target = editable(editor, comp, id, matchName);
+    if (target) editor.toggleStopwatch(comp, target.layer, target.prop, time);
+  });
 }
