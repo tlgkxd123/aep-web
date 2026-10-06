@@ -1,0 +1,5754 @@
+{
+ "groupChildren": {
+  "ADBE Effect Built In Params": [
+   {
+    "matchName": "ADBE Effect Mask Parade",
+    "name": "Masks",
+    "group": true
+   },
+   {
+    "matchName": "ADBE Effect Mask Opacity",
+    "name": "Effect Opacity",
+    "value": 100.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0,
+    "max": 100
+   },
+   {
+    "matchName": "ADBE Force CPU GPU",
+    "name": "GPU Rendering",
+    "value": 1.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 1,
+    "max": 3,
+    "canVaryOverTime": false
+   }
+  ],
+  "ADBE Mask Atom": [
+   {
+    "matchName": "ADBE Mask Shape",
+    "name": "Mask Path",
+    "value": null,
+    "pvt": 6419,
+    "dimensions": 1,
+    "isSpatial": true
+   },
+   {
+    "matchName": "ADBE Mask Feather",
+    "name": "Mask Feather",
+    "value": [
+     0.0,
+     0.0
+    ],
+    "pvt": 6416,
+    "dimensions": 2,
+    "min": 0,
+    "max": 32000
+   },
+   {
+    "matchName": "ADBE Mask Opacity",
+    "name": "Mask Opacity",
+    "value": 100.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0,
+    "max": 100
+   },
+   {
+    "matchName": "ADBE Mask Offset",
+    "name": "Mask Expansion",
+    "value": 0.0,
+    "pvt": 6417,
+    "dimensions": 1
+   }
+  ],
+  "ADBE Blend Options Group": [
+   {
+    "matchName": "ADBE Global Angle2",
+    "name": "Global Light Angle",
+    "value": 120.0,
+    "pvt": 6417,
+    "dimensions": 1
+   },
+   {
+    "matchName": "ADBE Global Altitude2",
+    "name": "Global Light Altitude",
+    "value": 30.0,
+    "pvt": 6417,
+    "dimensions": 1
+   },
+   {
+    "matchName": "ADBE Adv Blend Group",
+    "name": "Advanced Blending",
+    "group": true
+   }
+  ],
+  "ADBE Adv Blend Group": [
+   {
+    "matchName": "ADBE Layer Fill Opacity2",
+    "name": "Fill Opacity",
+    "value": 100.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0,
+    "max": 100
+   },
+   {
+    "matchName": "ADBE R Channel Blend",
+    "name": "Red",
+    "value": 1.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "integer": true,
+    "min": 0,
+    "max": 1
+   },
+   {
+    "matchName": "ADBE G Channel Blend",
+    "name": "Green",
+    "value": 1.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "integer": true,
+    "min": 0,
+    "max": 1
+   },
+   {
+    "matchName": "ADBE B Channel Blend",
+    "name": "Blue",
+    "value": 1.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "integer": true,
+    "min": 0,
+    "max": 1
+   },
+   {
+    "matchName": "ADBE Blend Interior",
+    "name": "Blend Interior Styles as Group",
+    "value": 0.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "integer": true,
+    "min": 0,
+    "max": 1
+   },
+   {
+    "matchName": "ADBE Blend Ranges",
+    "name": "Use Blend Ranges from Source",
+    "value": 1.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "integer": true,
+    "min": 0,
+    "max": 1
+   }
+  ],
+  "ADBE Material Options Group": [
+   {
+    "matchName": "ADBE Casts Shadows",
+    "name": "Casts Shadows",
+    "value": 0.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "integer": true,
+    "canVaryOverTime": false
+   },
+   {
+    "matchName": "ADBE Light Transmission",
+    "name": "Light Transmission",
+    "value": 0.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0,
+    "max": 100
+   },
+   {
+    "matchName": "ADBE Accepts Shadows",
+    "name": "Accepts Shadows",
+    "value": 1.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "integer": true,
+    "canVaryOverTime": false
+   },
+   {
+    "matchName": "ADBE Accepts Lights",
+    "name": "Accepts Lights",
+    "value": 1.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "integer": true,
+    "canVaryOverTime": false
+   },
+   {
+    "matchName": "ADBE Shadow Color",
+    "name": "Shadow Color",
+    "value": [
+     0.0,
+     0.0,
+     0.0,
+     1.0
+    ],
+    "pvt": 6418,
+    "dimensions": 4,
+    "isSpatial": true,
+    "color": true,
+    "min": -3921568.62745098,
+    "max": 3921568.62745098
+   },
+   {
+    "matchName": "ADBE Appears in Reflections",
+    "name": "Appears in Reflections",
+    "value": 1.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "integer": true,
+    "canVaryOverTime": false
+   },
+   {
+    "matchName": "ADBE Ambient Coefficient",
+    "name": "Ambient",
+    "value": 100.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0,
+    "max": 100
+   },
+   {
+    "matchName": "ADBE Diffuse Coefficient",
+    "name": "Diffuse",
+    "value": 50.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0,
+    "max": 100
+   },
+   {
+    "matchName": "ADBE Specular Coefficient",
+    "name": "Specular Intensity",
+    "value": 50.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0,
+    "max": 100
+   },
+   {
+    "matchName": "ADBE Shininess Coefficient",
+    "name": "Specular Shininess",
+    "value": 5.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0,
+    "max": 100
+   },
+   {
+    "matchName": "ADBE Metal Coefficient",
+    "name": "Metal",
+    "value": 100.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0,
+    "max": 100
+   },
+   {
+    "matchName": "ADBE Reflection Coefficient",
+    "name": "Reflection Intensity",
+    "value": 0.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0,
+    "max": 100
+   },
+   {
+    "matchName": "ADBE Glossiness Coefficient",
+    "name": "Reflection Sharpness",
+    "value": 100.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0,
+    "max": 100
+   },
+   {
+    "matchName": "ADBE Fresnel Coefficient",
+    "name": "Reflection Rolloff",
+    "value": 0.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0,
+    "max": 100
+   },
+   {
+    "matchName": "ADBE Transparency Coefficient",
+    "name": "Transparency",
+    "value": 0.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0,
+    "max": 100
+   },
+   {
+    "matchName": "ADBE Transp Rolloff",
+    "name": "Transparency Rolloff",
+    "value": 0.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0,
+    "max": 100
+   },
+   {
+    "matchName": "ADBE Index of Refraction",
+    "name": "Index of Refraction",
+    "value": 1.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 1,
+    "max": 5
+   }
+  ],
+  "ADBE Extrsn Options Group": [
+   {
+    "matchName": "ADBE Bevel Styles",
+    "name": "Bevel Style",
+    "value": 1.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 1,
+    "max": 4,
+    "canVaryOverTime": false
+   },
+   {
+    "matchName": "ADBE Bevel Direction",
+    "name": "Bevel Direction",
+    "value": 1.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "integer": true,
+    "min": 1,
+    "max": 2,
+    "canVaryOverTime": false
+   },
+   {
+    "matchName": "ADBE Bevel Depth",
+    "name": "Bevel Depth",
+    "value": 2.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0,
+    "max": 100
+   },
+   {
+    "matchName": "ADBE Hole Bevel Depth",
+    "name": "Hole Bevel Depth",
+    "value": 100.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0,
+    "max": 100
+   },
+   {
+    "matchName": "ADBE Extrsn Depth",
+    "name": "Extrusion Depth",
+    "value": 0.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0,
+    "max": 10000
+   }
+  ],
+  "ADBE Plane Options Group": [
+   {
+    "matchName": "ADBE Plane Curvature",
+    "name": "Curvature",
+    "value": 0.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": -100,
+    "max": 100
+   },
+   {
+    "matchName": "ADBE Plane Subdivision",
+    "name": "Segments",
+    "value": 4.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 2,
+    "max": 256
+   }
+  ],
+  "ADBE Audio Group": [
+   {
+    "matchName": "ADBE Audio Levels",
+    "name": "Audio Levels",
+    "value": [
+     0.0,
+     0.0
+    ],
+    "pvt": 6416,
+    "dimensions": 2,
+    "min": -192,
+    "max": 24
+   }
+  ],
+  "ADBE Source Options Group": [
+   {
+    "matchName": "ADBE Layer Source Alternate",
+    "name": "Item Cache Entry",
+    "value": null,
+    "pvt": 6412,
+    "dimensions": 1,
+    "canVaryOverTime": true
+   }
+  ],
+  "ADBE Light Options Group": [
+   {
+    "matchName": "ADBE Light Env Atom",
+    "name": "Source",
+    "group": true
+   },
+   {
+    "matchName": "ADBE Light Backgd Visible",
+    "name": "Background Visible",
+    "value": 0.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "integer": true,
+    "canVaryOverTime": false
+   },
+   {
+    "matchName": "ADBE Light Backgd Opacity",
+    "name": "Background Opacity",
+    "value": 100.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0,
+    "max": 100
+   },
+   {
+    "matchName": "ADBE Light Backgd Blur",
+    "name": "Background Blur",
+    "value": 0.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0,
+    "max": 100
+   },
+   {
+    "matchName": "ADBE Light Intensity",
+    "name": "Intensity",
+    "value": 100.0,
+    "pvt": 6417,
+    "dimensions": 1
+   },
+   {
+    "matchName": "ADBE Light Color",
+    "name": "Color",
+    "value": [
+     1.0,
+     1.0,
+     1.0,
+     1.0
+    ],
+    "pvt": 6418,
+    "dimensions": 4,
+    "isSpatial": true,
+    "color": true,
+    "min": -3921568.62745098,
+    "max": 3921568.62745098
+   },
+   {
+    "matchName": "ADBE Light Cone Angle",
+    "name": "Cone Angle",
+    "value": 90.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0,
+    "max": 180
+   },
+   {
+    "matchName": "ADBE Light Cone Feather 2",
+    "name": "Cone Feather",
+    "value": 50.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0,
+    "max": 100
+   },
+   {
+    "matchName": "ADBE Light Falloff Type",
+    "name": "Falloff",
+    "value": 1.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 1,
+    "max": 3
+   },
+   {
+    "matchName": "ADBE Light Falloff Start",
+    "name": "Radius",
+    "value": 500.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0
+   },
+   {
+    "matchName": "ADBE Light Falloff Distance",
+    "name": "Falloff Distance",
+    "value": 500.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0
+   },
+   {
+    "matchName": "ADBE Casts Shadows",
+    "name": "Casts Shadows",
+    "value": 0.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "integer": true,
+    "canVaryOverTime": false
+   },
+   {
+    "matchName": "ADBE Light Shadow Darkness",
+    "name": "Shadow Darkness",
+    "value": 100.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0
+   },
+   {
+    "matchName": "ADBE Light Shadow Diffusion",
+    "name": "Shadow Diffusion",
+    "value": 0.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0
+   }
+  ],
+  "ADBE Camera Options Group": [
+   {
+    "matchName": "ADBE Camera Zoom",
+    "name": "Zoom",
+    "value": 0.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 1
+   },
+   {
+    "matchName": "ADBE Camera Depth of Field",
+    "name": "Depth of Field",
+    "value": 0.0,
+    "pvt": 6417,
+    "dimensions": 1
+   },
+   {
+    "matchName": "ADBE Camera Focus Distance",
+    "name": "Focus Distance",
+    "value": 0.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0
+   },
+   {
+    "matchName": "ADBE Camera Aperture",
+    "name": "Aperture",
+    "value": 25.3093363329584,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0
+   },
+   {
+    "matchName": "ADBE Camera Blur Level",
+    "name": "Blur Level",
+    "value": 100.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0
+   },
+   {
+    "matchName": "ADBE Camera Focus Area Width",
+    "name": "Focus Area Width",
+    "value": 0.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0
+   },
+   {
+    "matchName": "ADBE Camera Split Blur Level",
+    "name": "Near, Far Blur Level",
+    "value": [
+     100.0,
+     100.0
+    ],
+    "pvt": 6416,
+    "dimensions": 2,
+    "min": 0
+   },
+   {
+    "matchName": "ADBE Iris Shape",
+    "name": "Iris Shape",
+    "value": 1.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 1,
+    "max": 10
+   },
+   {
+    "matchName": "ADBE Iris Rotation",
+    "name": "Iris Rotation",
+    "value": 0.0,
+    "pvt": 6417,
+    "dimensions": 1
+   },
+   {
+    "matchName": "ADBE Iris Roundness",
+    "name": "Iris Roundness",
+    "value": 0.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0,
+    "max": 100
+   },
+   {
+    "matchName": "ADBE Iris Aspect Ratio",
+    "name": "Iris Aspect Ratio",
+    "value": 1.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0.00999999977648,
+    "max": 100
+   },
+   {
+    "matchName": "ADBE Iris Diffraction Fringe",
+    "name": "Iris Diffraction Fringe",
+    "value": 0.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0,
+    "max": 500
+   },
+   {
+    "matchName": "ADBE Iris Highlight Gain",
+    "name": "Highlight Gain",
+    "value": 0.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0,
+    "max": 100
+   },
+   {
+    "matchName": "ADBE Iris Highlight Threshold",
+    "name": "Highlight Threshold",
+    "value": 1.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0,
+    "max": 1
+   },
+   {
+    "matchName": "ADBE Iris Hightlight Saturation",
+    "name": "Highlight Saturation",
+    "value": 0.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0,
+    "max": 100
+   }
+  ],
+  "ADBE Layer Styles": [
+   {
+    "matchName": "ADBE Blend Options Group",
+    "name": "Blending Options",
+    "group": true
+   },
+   {
+    "matchName": "dropShadow/enabled",
+    "name": "Drop Shadow",
+    "group": true,
+    "enabled": false
+   },
+   {
+    "matchName": "innerShadow/enabled",
+    "name": "Inner Shadow",
+    "group": true,
+    "enabled": false
+   },
+   {
+    "matchName": "outerGlow/enabled",
+    "name": "Outer Glow",
+    "group": true,
+    "enabled": false
+   },
+   {
+    "matchName": "innerGlow/enabled",
+    "name": "Inner Glow",
+    "group": true,
+    "enabled": false
+   },
+   {
+    "matchName": "bevelEmboss/enabled",
+    "name": "Bevel and Emboss",
+    "group": true,
+    "enabled": false
+   },
+   {
+    "matchName": "chromeFX/enabled",
+    "name": "Satin",
+    "group": true,
+    "enabled": false
+   },
+   {
+    "matchName": "solidFill/enabled",
+    "name": "Color Overlay",
+    "group": true,
+    "enabled": false
+   },
+   {
+    "matchName": "gradientFill/enabled",
+    "name": "Gradient Overlay",
+    "group": true,
+    "enabled": false
+   },
+   {
+    "matchName": "patternFill/enabled",
+    "name": "Pattern Overlay",
+    "group": true,
+    "enabled": false
+   },
+   {
+    "matchName": "frameFX/enabled",
+    "name": "Stroke",
+    "group": true,
+    "enabled": false
+   }
+  ],
+  "ADBE Text Properties": [
+   {
+    "matchName": "ADBE Text Document",
+    "name": "Source Text",
+    "value": null,
+    "pvt": 6424,
+    "dimensions": 1
+   },
+   {
+    "matchName": "ADBE Text Path Options",
+    "name": "Path Options",
+    "group": true
+   },
+   {
+    "matchName": "ADBE Text More Options",
+    "name": "More Options",
+    "group": true
+   },
+   {
+    "matchName": "ADBE Text Animators",
+    "name": "Animators",
+    "group": true
+   }
+  ],
+  "ADBE Text Path Options": [
+   {
+    "matchName": "ADBE Text Path",
+    "name": "Path",
+    "value": 0.0,
+    "pvt": 6419,
+    "dimensions": 1,
+    "canVaryOverTime": false
+   },
+   {
+    "matchName": "ADBE Text Reverse Path",
+    "name": "Reverse Path",
+    "value": 0.0,
+    "pvt": 6417,
+    "dimensions": 1
+   },
+   {
+    "matchName": "ADBE Text Perpendicular To Path",
+    "name": "Perpendicular To Path",
+    "value": 1.0,
+    "pvt": 6417,
+    "dimensions": 1
+   },
+   {
+    "matchName": "ADBE Text Force Align Path",
+    "name": "Force Alignment",
+    "value": 0.0,
+    "pvt": 6417,
+    "dimensions": 1
+   },
+   {
+    "matchName": "ADBE Text First Margin",
+    "name": "First Margin",
+    "value": 0.0,
+    "pvt": 6417,
+    "dimensions": 1
+   },
+   {
+    "matchName": "ADBE Text Last Margin",
+    "name": "Last Margin",
+    "value": 0.0,
+    "pvt": 6417,
+    "dimensions": 1
+   }
+  ],
+  "ADBE Text More Options": [
+   {
+    "matchName": "ADBE Text Anchor Point Option",
+    "name": "Anchor Point Grouping",
+    "value": 1.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 1,
+    "max": 4,
+    "canVaryOverTime": false
+   },
+   {
+    "matchName": "ADBE Text Anchor Point Align",
+    "name": "Grouping Alignment",
+    "value": [
+     0.0,
+     0.0
+    ],
+    "pvt": 6416,
+    "dimensions": 2
+   },
+   {
+    "matchName": "ADBE Text Render Order",
+    "name": "Fill & Stroke",
+    "value": 1.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 1,
+    "max": 3,
+    "canVaryOverTime": false
+   },
+   {
+    "matchName": "ADBE Text Character Blend Mode",
+    "name": "Inter-Character Blending",
+    "value": 1.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 1,
+    "max": 29,
+    "canVaryOverTime": false
+   },
+   {
+    "matchName": "ADBE Text Variable Font Spacing",
+    "name": "Variable Font Spacing",
+    "value": 1.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 1,
+    "max": 3,
+    "canVaryOverTime": false
+   }
+  ],
+  "ADBE Vector Shape - Star": [
+   {
+    "matchName": "ADBE Vector Shape Direction",
+    "name": "Shape Direction",
+    "value": 1.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 1,
+    "max": 3,
+    "canVaryOverTime": false
+   },
+   {
+    "matchName": "ADBE Vector Star Type",
+    "name": "Type",
+    "value": 1.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 1,
+    "max": 2,
+    "canVaryOverTime": false
+   },
+   {
+    "matchName": "ADBE Vector Star Points",
+    "name": "Points",
+    "value": 5.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 3
+   },
+   {
+    "matchName": "ADBE Vector Star Position",
+    "name": "Position",
+    "value": [
+     0.0,
+     0.0
+    ],
+    "pvt": 6415,
+    "dimensions": 2,
+    "isSpatial": true
+   },
+   {
+    "matchName": "ADBE Vector Star Rotation",
+    "name": "Rotation",
+    "value": 0.0,
+    "pvt": 6417,
+    "dimensions": 1
+   },
+   {
+    "matchName": "ADBE Vector Star Inner Radius",
+    "name": "Inner Radius",
+    "value": 50.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0
+   },
+   {
+    "matchName": "ADBE Vector Star Outer Radius",
+    "name": "Outer Radius",
+    "value": 100.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0
+   },
+   {
+    "matchName": "ADBE Vector Star Inner Roundess",
+    "name": "Inner Roundness",
+    "value": 0.0,
+    "pvt": 6417,
+    "dimensions": 1
+   },
+   {
+    "matchName": "ADBE Vector Star Outer Roundess",
+    "name": "Outer Roundness",
+    "value": 0.0,
+    "pvt": 6417,
+    "dimensions": 1
+   }
+  ],
+  "ADBE Vector Graphic - Fill": [
+   {
+    "matchName": "ADBE Vector Blend Mode",
+    "name": "Blend Mode",
+    "value": 1.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 1,
+    "max": 29,
+    "canVaryOverTime": false
+   },
+   {
+    "matchName": "ADBE Vector Composite Order",
+    "name": "Composite",
+    "value": 1.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 1,
+    "max": 2,
+    "canVaryOverTime": false
+   },
+   {
+    "matchName": "ADBE Vector Fill Rule",
+    "name": "Fill Rule",
+    "value": 1.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 1,
+    "max": 2,
+    "canVaryOverTime": false
+   },
+   {
+    "matchName": "ADBE Vector Fill Color",
+    "name": "Color",
+    "value": [
+     1.0,
+     0.0,
+     0.0,
+     1.0
+    ],
+    "pvt": 6418,
+    "dimensions": 4,
+    "isSpatial": true,
+    "color": true,
+    "min": -3921568.62745098,
+    "max": 3921568.62745098
+   },
+   {
+    "matchName": "ADBE Vector Fill Opacity",
+    "name": "Opacity",
+    "value": 100.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0,
+    "max": 100
+   }
+  ],
+  "ADBE Vector Graphic - G-Fill": [
+   {
+    "matchName": "ADBE Vector Blend Mode",
+    "name": "Blend Mode",
+    "value": 1.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 1,
+    "max": 29,
+    "canVaryOverTime": false
+   },
+   {
+    "matchName": "ADBE Vector Composite Order",
+    "name": "Composite",
+    "value": 1.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 1,
+    "max": 2,
+    "canVaryOverTime": false
+   },
+   {
+    "matchName": "ADBE Vector Fill Rule",
+    "name": "Fill Rule",
+    "value": 1.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 1,
+    "max": 2,
+    "canVaryOverTime": false
+   },
+   {
+    "matchName": "ADBE Vector Grad Type",
+    "name": "Type",
+    "value": 1.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 1,
+    "max": 2,
+    "canVaryOverTime": false
+   },
+   {
+    "matchName": "ADBE Vector Grad Start Pt",
+    "name": "Start Point",
+    "value": [
+     0.0,
+     0.0
+    ],
+    "pvt": 6415,
+    "dimensions": 2,
+    "isSpatial": true
+   },
+   {
+    "matchName": "ADBE Vector Grad End Pt",
+    "name": "End Point",
+    "value": [
+     100.0,
+     0.0
+    ],
+    "pvt": 6415,
+    "dimensions": 2,
+    "isSpatial": true
+   },
+   {
+    "matchName": "ADBE Vector Grad HiLite Length",
+    "name": "Highlight Length",
+    "value": 0.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": -100,
+    "max": 100
+   },
+   {
+    "matchName": "ADBE Vector Grad HiLite Angle",
+    "name": "Highlight Angle",
+    "value": 0.0,
+    "pvt": 6417,
+    "dimensions": 1
+   },
+   {
+    "matchName": "ADBE Vector Grad Scale",
+    "name": "Scale",
+    "value": [
+     100.0,
+     100.0
+    ],
+    "pvt": 6416,
+    "dimensions": 2
+   },
+   {
+    "matchName": "ADBE Vector Grad Rotation",
+    "name": "Rotation",
+    "value": 0.0,
+    "pvt": 6417,
+    "dimensions": 1
+   },
+   {
+    "matchName": "ADBE Vector Grad Colors",
+    "name": "Colors",
+    "value": null,
+    "pvt": 6412,
+    "dimensions": 1,
+    "isSpatial": true
+   },
+   {
+    "matchName": "ADBE Vector Fill Opacity",
+    "name": "Opacity",
+    "value": 100.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0,
+    "max": 100
+   }
+  ],
+  "ADBE Vector Graphic - G-Stroke": [
+   {
+    "matchName": "ADBE Vector Blend Mode",
+    "name": "Blend Mode",
+    "value": 1.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 1,
+    "max": 29,
+    "canVaryOverTime": false
+   },
+   {
+    "matchName": "ADBE Vector Composite Order",
+    "name": "Composite",
+    "value": 1.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 1,
+    "max": 2,
+    "canVaryOverTime": false
+   },
+   {
+    "matchName": "ADBE Vector Grad Type",
+    "name": "Type",
+    "value": 1.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 1,
+    "max": 2,
+    "canVaryOverTime": false
+   },
+   {
+    "matchName": "ADBE Vector Grad Start Pt",
+    "name": "Start Point",
+    "value": [
+     0.0,
+     0.0
+    ],
+    "pvt": 6415,
+    "dimensions": 2,
+    "isSpatial": true
+   },
+   {
+    "matchName": "ADBE Vector Grad End Pt",
+    "name": "End Point",
+    "value": [
+     100.0,
+     0.0
+    ],
+    "pvt": 6415,
+    "dimensions": 2,
+    "isSpatial": true
+   },
+   {
+    "matchName": "ADBE Vector Grad HiLite Length",
+    "name": "Highlight Length",
+    "value": 0.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": -100,
+    "max": 100
+   },
+   {
+    "matchName": "ADBE Vector Grad HiLite Angle",
+    "name": "Highlight Angle",
+    "value": 0.0,
+    "pvt": 6417,
+    "dimensions": 1
+   },
+   {
+    "matchName": "ADBE Vector Grad Scale",
+    "name": "Scale",
+    "value": [
+     100.0,
+     100.0
+    ],
+    "pvt": 6416,
+    "dimensions": 2
+   },
+   {
+    "matchName": "ADBE Vector Grad Rotation",
+    "name": "Rotation",
+    "value": 0.0,
+    "pvt": 6417,
+    "dimensions": 1
+   },
+   {
+    "matchName": "ADBE Vector Grad Colors",
+    "name": "Colors",
+    "value": null,
+    "pvt": 6412,
+    "dimensions": 1,
+    "isSpatial": true
+   },
+   {
+    "matchName": "ADBE Vector Stroke Opacity",
+    "name": "Opacity",
+    "value": 100.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0,
+    "max": 100
+   },
+   {
+    "matchName": "ADBE Vector Stroke Width",
+    "name": "Stroke Width",
+    "value": 2.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0
+   },
+   {
+    "matchName": "ADBE Vector Stroke Line Cap",
+    "name": "Line Cap",
+    "value": 1.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 1,
+    "max": 3,
+    "canVaryOverTime": false
+   },
+   {
+    "matchName": "ADBE Vector Stroke Line Join",
+    "name": "Line Join",
+    "value": 1.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 1,
+    "max": 3,
+    "canVaryOverTime": false
+   },
+   {
+    "matchName": "ADBE Vector Stroke Miter Limit",
+    "name": "Miter Limit",
+    "value": 4.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 1
+   },
+   {
+    "matchName": "ADBE Vector Stroke Dashes",
+    "name": "Dashes",
+    "group": true
+   },
+   {
+    "matchName": "ADBE Vector Stroke Taper",
+    "name": "Taper",
+    "group": true
+   },
+   {
+    "matchName": "ADBE Vector Stroke Wave",
+    "name": "Wave",
+    "group": true
+   }
+  ],
+  "ADBE Vector Graphic - Stroke": [
+   {
+    "matchName": "ADBE Vector Blend Mode",
+    "name": "Blend Mode",
+    "value": 1.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 1,
+    "max": 29,
+    "canVaryOverTime": false
+   },
+   {
+    "matchName": "ADBE Vector Composite Order",
+    "name": "Composite",
+    "value": 1.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 1,
+    "max": 2,
+    "canVaryOverTime": false
+   },
+   {
+    "matchName": "ADBE Vector Stroke Color",
+    "name": "Color",
+    "value": [
+     1.0,
+     1.0,
+     1.0,
+     1.0
+    ],
+    "pvt": 6418,
+    "dimensions": 4,
+    "isSpatial": true,
+    "color": true,
+    "min": -3921568.62745098,
+    "max": 3921568.62745098
+   },
+   {
+    "matchName": "ADBE Vector Stroke Opacity",
+    "name": "Opacity",
+    "value": 100.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0,
+    "max": 100
+   },
+   {
+    "matchName": "ADBE Vector Stroke Width",
+    "name": "Stroke Width",
+    "value": 2.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0
+   },
+   {
+    "matchName": "ADBE Vector Stroke Line Cap",
+    "name": "Line Cap",
+    "value": 1.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 1,
+    "max": 3,
+    "canVaryOverTime": false
+   },
+   {
+    "matchName": "ADBE Vector Stroke Line Join",
+    "name": "Line Join",
+    "value": 1.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 1,
+    "max": 3,
+    "canVaryOverTime": false
+   },
+   {
+    "matchName": "ADBE Vector Stroke Miter Limit",
+    "name": "Miter Limit",
+    "value": 4.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 1
+   }
+  ],
+  "ADBE Vector Stroke Dashes": [
+   {
+    "matchName": "ADBE Vector Stroke Dash 1",
+    "name": "Dash",
+    "value": 10.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0
+   },
+   {
+    "matchName": "ADBE Vector Stroke Gap 1",
+    "name": "Gap",
+    "value": 10.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0
+   },
+   {
+    "matchName": "ADBE Vector Stroke Dash 2",
+    "name": "Dash 2",
+    "value": 10.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0
+   },
+   {
+    "matchName": "ADBE Vector Stroke Gap 2",
+    "name": "Gap 2",
+    "value": 10.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0
+   },
+   {
+    "matchName": "ADBE Vector Stroke Dash 3",
+    "name": "Dash 3",
+    "value": 10.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0
+   },
+   {
+    "matchName": "ADBE Vector Stroke Gap 3",
+    "name": "Gap 3",
+    "value": 10.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0
+   },
+   {
+    "matchName": "ADBE Vector Stroke Offset",
+    "name": "Offset",
+    "value": 0.0,
+    "pvt": 6417,
+    "dimensions": 1
+   }
+  ],
+  "ADBE Vector Stroke Taper": [
+   {
+    "matchName": "ADBE Vector Taper Length Units",
+    "name": "Length Units",
+    "value": 1.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 1,
+    "max": 2,
+    "canVaryOverTime": false
+   },
+   {
+    "matchName": "ADBE Vector Taper Start Length",
+    "name": "Start Length",
+    "value": 0.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0,
+    "max": 100
+   },
+   {
+    "matchName": "ADBE Vector Taper End Length",
+    "name": "End Length",
+    "value": 0.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0,
+    "max": 100
+   },
+   {
+    "matchName": "ADBE Vector Taper StartWidthPx",
+    "name": "Start Length",
+    "value": 0.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0
+   },
+   {
+    "matchName": "ADBE Vector Taper EndWidthPx",
+    "name": "End Length",
+    "value": 0.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0
+   },
+   {
+    "matchName": "ADBE Vector Taper Start Width",
+    "name": "Start Width",
+    "value": 0.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0,
+    "max": 100
+   },
+   {
+    "matchName": "ADBE Vector Taper End Width",
+    "name": "End Width",
+    "value": 0.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0,
+    "max": 100
+   },
+   {
+    "matchName": "ADBE Vector Taper Start Ease",
+    "name": "Start Ease",
+    "value": 0.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": -100,
+    "max": 100
+   },
+   {
+    "matchName": "ADBE Vector Taper End Ease",
+    "name": "End Ease",
+    "value": 0.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": -100,
+    "max": 100
+   }
+  ],
+  "ADBE Vector Stroke Wave": [
+   {
+    "matchName": "ADBE Vector Taper Wave Amount",
+    "name": "Amount",
+    "value": 0.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0,
+    "max": 100
+   },
+   {
+    "matchName": "ADBE Vector Taper Wave Units",
+    "name": "Units",
+    "value": 1.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 1,
+    "max": 2,
+    "canVaryOverTime": false
+   },
+   {
+    "matchName": "ADBE Vector Taper Wavelength",
+    "name": "Wavelength",
+    "value": 100.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0
+   },
+   {
+    "matchName": "ADBE Vector Taper Wave Cycles",
+    "name": "Cycles",
+    "value": 10.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0
+   },
+   {
+    "matchName": "ADBE Vector Taper Wave Phase",
+    "name": "Phase",
+    "value": 0.0,
+    "pvt": 6417,
+    "dimensions": 1
+   }
+  ],
+  "ADBE Vector Group": [
+   {
+    "matchName": "ADBE Vector Blend Mode",
+    "name": "Blend Mode",
+    "value": 1.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 1,
+    "max": 29,
+    "canVaryOverTime": false
+   }
+  ],
+  "ADBE Vector Transform Group": [
+   {
+    "matchName": "ADBE Vector Anchor",
+    "name": "Anchor Point",
+    "value": [
+     0.0,
+     0.0
+    ],
+    "pvt": 6415,
+    "dimensions": 2,
+    "isSpatial": true
+   },
+   {
+    "matchName": "ADBE Vector Position",
+    "name": "Position",
+    "value": [
+     0.0,
+     0.0
+    ],
+    "pvt": 6415,
+    "dimensions": 2,
+    "isSpatial": true
+   },
+   {
+    "matchName": "ADBE Vector Scale",
+    "name": "Scale",
+    "value": [
+     100.0,
+     100.0
+    ],
+    "pvt": 6416,
+    "dimensions": 2,
+    "min": 0
+   },
+   {
+    "matchName": "ADBE Vector Skew",
+    "name": "Skew",
+    "value": 0.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": -85,
+    "max": 85
+   },
+   {
+    "matchName": "ADBE Vector Skew Axis",
+    "name": "Skew Axis",
+    "value": 0.0,
+    "pvt": 6417,
+    "dimensions": 1
+   },
+   {
+    "matchName": "ADBE Vector Rotation",
+    "name": "Rotation",
+    "value": 0.0,
+    "pvt": 6417,
+    "dimensions": 1
+   },
+   {
+    "matchName": "ADBE Vector Group Opacity",
+    "name": "Opacity",
+    "value": 100.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0,
+    "max": 100
+   }
+  ],
+  "ADBE Vector Materials Group": [
+   {
+    "matchName": "ADBE Vec3D Front RGB",
+    "name": "Front Color",
+    "value": [
+     1.0,
+     0.0,
+     0.0,
+     1.0
+    ],
+    "pvt": 6418,
+    "dimensions": 4,
+    "isSpatial": true,
+    "color": true,
+    "min": -3921568.62745098,
+    "max": 3921568.62745098
+   },
+   {
+    "matchName": "ADBE Vec3D Front Ambient",
+    "name": "Front Ambient",
+    "value": 100.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0,
+    "max": 100
+   },
+   {
+    "matchName": "ADBE Vec3D Front Diffuse",
+    "name": "Front Diffuse",
+    "value": 50.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0,
+    "max": 100
+   },
+   {
+    "matchName": "ADBE Vec3D Front Specular",
+    "name": "Front Specular Intensity",
+    "value": 50.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0,
+    "max": 100
+   },
+   {
+    "matchName": "ADBE Vec3D Front Shininess",
+    "name": "Front Specular Shininess",
+    "value": 5.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0,
+    "max": 100
+   },
+   {
+    "matchName": "ADBE Vec3D Front Metal",
+    "name": "Front Metal",
+    "value": 100.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0,
+    "max": 100
+   },
+   {
+    "matchName": "ADBE Vec3D Front Reflection",
+    "name": "Front Reflection Intensity",
+    "value": 0.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0,
+    "max": 100
+   },
+   {
+    "matchName": "ADBE Vec3D Front Gloss",
+    "name": "Front Reflection Sharpness",
+    "value": 100.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0,
+    "max": 100
+   },
+   {
+    "matchName": "ADBE Vec3D Front Fresnel",
+    "name": "Front Reflection Rolloff",
+    "value": 0.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0,
+    "max": 100
+   },
+   {
+    "matchName": "ADBE Vec3D Front Xparency",
+    "name": "Front Transparency",
+    "value": 0.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0,
+    "max": 100
+   },
+   {
+    "matchName": "ADBE Vec3D Front XparRoll",
+    "name": "Front Transparency Rolloff",
+    "value": 0.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0,
+    "max": 100
+   },
+   {
+    "matchName": "ADBE Vec3D Front IOR",
+    "name": "Front Index of Refraction",
+    "value": 1.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 1,
+    "max": 5
+   },
+   {
+    "matchName": "ADBE Vec3D Bevel RGB",
+    "name": "Bevel Color",
+    "value": [
+     1.0,
+     0.0,
+     0.0,
+     1.0
+    ],
+    "pvt": 6418,
+    "dimensions": 4,
+    "isSpatial": true,
+    "color": true,
+    "min": -3921568.62745098,
+    "max": 3921568.62745098
+   },
+   {
+    "matchName": "ADBE Vec3D Bevel Ambient",
+    "name": "Bevel Ambient",
+    "value": 100.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0,
+    "max": 100
+   },
+   {
+    "matchName": "ADBE Vec3D Bevel Diffuse",
+    "name": "Bevel Diffuse",
+    "value": 50.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0,
+    "max": 100
+   },
+   {
+    "matchName": "ADBE Vec3D Bevel Specular",
+    "name": "Bevel Specular Intensity",
+    "value": 50.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0,
+    "max": 100
+   },
+   {
+    "matchName": "ADBE Vec3D Bevel Shininess",
+    "name": "Bevel Specular Shininess",
+    "value": 5.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0,
+    "max": 100
+   },
+   {
+    "matchName": "ADBE Vec3D Bevel Metal",
+    "name": "Bevel Metal",
+    "value": 100.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0,
+    "max": 100
+   },
+   {
+    "matchName": "ADBE Vec3D Bevel Reflection",
+    "name": "Bevel Reflection Intensity",
+    "value": 0.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0,
+    "max": 100
+   },
+   {
+    "matchName": "ADBE Vec3D Bevel Gloss",
+    "name": "Bevel Reflection Sharpness",
+    "value": 100.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0,
+    "max": 100
+   },
+   {
+    "matchName": "ADBE Vec3D Bevel Fresnel",
+    "name": "Bevel Reflection Rolloff",
+    "value": 0.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0,
+    "max": 100
+   },
+   {
+    "matchName": "ADBE Vec3D Bevel Xparency",
+    "name": "Bevel Transparency",
+    "value": 0.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0,
+    "max": 100
+   },
+   {
+    "matchName": "ADBE Vec3D Bevel XparRoll",
+    "name": "Bevel Transparency Rolloff",
+    "value": 0.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0,
+    "max": 100
+   },
+   {
+    "matchName": "ADBE Vec3D Bevel IOR",
+    "name": "Bevel Index of Refraction",
+    "value": 1.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 1,
+    "max": 5
+   },
+   {
+    "matchName": "ADBE Vec3D Side RGB",
+    "name": "Side Color",
+    "value": [
+     1.0,
+     0.0,
+     0.0,
+     1.0
+    ],
+    "pvt": 6418,
+    "dimensions": 4,
+    "isSpatial": true,
+    "color": true,
+    "min": -3921568.62745098,
+    "max": 3921568.62745098
+   },
+   {
+    "matchName": "ADBE Vec3D Side Ambient",
+    "name": "Side Ambient",
+    "value": 100.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0,
+    "max": 100
+   },
+   {
+    "matchName": "ADBE Vec3D Side Diffuse",
+    "name": "Side Diffuse",
+    "value": 50.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0,
+    "max": 100
+   },
+   {
+    "matchName": "ADBE Vec3D Side Specular",
+    "name": "Side Specular Intensity",
+    "value": 50.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0,
+    "max": 100
+   },
+   {
+    "matchName": "ADBE Vec3D Side Shininess",
+    "name": "Side Specular Shininess",
+    "value": 5.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0,
+    "max": 100
+   },
+   {
+    "matchName": "ADBE Vec3D Side Metal",
+    "name": "Side Metal",
+    "value": 100.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0,
+    "max": 100
+   },
+   {
+    "matchName": "ADBE Vec3D Side Reflection",
+    "name": "Side Reflection Intensity",
+    "value": 0.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0,
+    "max": 100
+   },
+   {
+    "matchName": "ADBE Vec3D Side Gloss",
+    "name": "Side Reflection Sharpness",
+    "value": 100.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0,
+    "max": 100
+   },
+   {
+    "matchName": "ADBE Vec3D Side Fresnel",
+    "name": "Side Reflection Rolloff",
+    "value": 0.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0,
+    "max": 100
+   },
+   {
+    "matchName": "ADBE Vec3D Side Xparency",
+    "name": "Side Transparency",
+    "value": 0.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0,
+    "max": 100
+   },
+   {
+    "matchName": "ADBE Vec3D Side XparRoll",
+    "name": "Side Transparency Rolloff",
+    "value": 0.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0,
+    "max": 100
+   },
+   {
+    "matchName": "ADBE Vec3D Side IOR",
+    "name": "Side Index of Refraction",
+    "value": 1.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 1,
+    "max": 5
+   },
+   {
+    "matchName": "ADBE Vec3D Back RGB",
+    "name": "Back Color",
+    "value": [
+     1.0,
+     0.0,
+     0.0,
+     1.0
+    ],
+    "pvt": 6418,
+    "dimensions": 4,
+    "isSpatial": true,
+    "color": true,
+    "min": -3921568.62745098,
+    "max": 3921568.62745098
+   },
+   {
+    "matchName": "ADBE Vec3D Back Ambient",
+    "name": "Back Ambient",
+    "value": 100.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0,
+    "max": 100
+   },
+   {
+    "matchName": "ADBE Vec3D Back Diffuse",
+    "name": "Back Diffuse",
+    "value": 50.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0,
+    "max": 100
+   },
+   {
+    "matchName": "ADBE Vec3D Back Specular",
+    "name": "Back Specular Intensity",
+    "value": 50.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0,
+    "max": 100
+   },
+   {
+    "matchName": "ADBE Vec3D Back Shininess",
+    "name": "Back Specular Shininess",
+    "value": 5.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0,
+    "max": 100
+   },
+   {
+    "matchName": "ADBE Vec3D Back Metal",
+    "name": "Back Metal",
+    "value": 100.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0,
+    "max": 100
+   },
+   {
+    "matchName": "ADBE Vec3D Back Reflection",
+    "name": "Back Reflection Intensity",
+    "value": 0.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0,
+    "max": 100
+   },
+   {
+    "matchName": "ADBE Vec3D Back Gloss",
+    "name": "Back Reflection Sharpness",
+    "value": 100.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0,
+    "max": 100
+   },
+   {
+    "matchName": "ADBE Vec3D Back Fresnel",
+    "name": "Back Reflection Rolloff",
+    "value": 0.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0,
+    "max": 100
+   },
+   {
+    "matchName": "ADBE Vec3D Back Xparency",
+    "name": "Back Transparency",
+    "value": 0.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0,
+    "max": 100
+   },
+   {
+    "matchName": "ADBE Vec3D Back XparRoll",
+    "name": "Back Transparency Rolloff",
+    "value": 0.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0,
+    "max": 100
+   },
+   {
+    "matchName": "ADBE Vec3D Back IOR",
+    "name": "Back Index of Refraction",
+    "value": 1.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 1,
+    "max": 5
+   }
+  ],
+  "ADBE Vector Shape - Ellipse": [
+   {
+    "matchName": "ADBE Vector Shape Direction",
+    "name": "Shape Direction",
+    "value": 1.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 1,
+    "max": 3,
+    "canVaryOverTime": false
+   },
+   {
+    "matchName": "ADBE Vector Ellipse Size",
+    "name": "Size",
+    "value": [
+     100.0,
+     100.0
+    ],
+    "pvt": 6416,
+    "dimensions": 2,
+    "min": 0
+   },
+   {
+    "matchName": "ADBE Vector Ellipse Position",
+    "name": "Position",
+    "value": [
+     0.0,
+     0.0
+    ],
+    "pvt": 6415,
+    "dimensions": 2,
+    "isSpatial": true
+   }
+  ],
+  "ADBE Vector Shape - Rect": [
+   {
+    "matchName": "ADBE Vector Shape Direction",
+    "name": "Shape Direction",
+    "value": 1.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 1,
+    "max": 3,
+    "canVaryOverTime": false
+   },
+   {
+    "matchName": "ADBE Vector Rect Size",
+    "name": "Size",
+    "value": [
+     100.0,
+     100.0
+    ],
+    "pvt": 6416,
+    "dimensions": 2,
+    "min": 0
+   },
+   {
+    "matchName": "ADBE Vector Rect Position",
+    "name": "Position",
+    "value": [
+     0.0,
+     0.0
+    ],
+    "pvt": 6415,
+    "dimensions": 2,
+    "isSpatial": true
+   },
+   {
+    "matchName": "ADBE Vector Rect Roundness",
+    "name": "Roundness",
+    "value": 0.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0
+   }
+  ],
+  "ADBE Vector Filter - Repeater": [
+   {
+    "matchName": "ADBE Vector Repeater Copies",
+    "name": "Copies",
+    "value": 1.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0
+   },
+   {
+    "matchName": "ADBE Vector Repeater Offset",
+    "name": "Offset",
+    "value": 0.0,
+    "pvt": 6417,
+    "dimensions": 1
+   },
+   {
+    "matchName": "ADBE Vector Repeater Order",
+    "name": "Composite",
+    "value": 1.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 1,
+    "max": 2,
+    "canVaryOverTime": false
+   },
+   {
+    "matchName": "ADBE Vector Repeater Transform",
+    "name": "Transform",
+    "group": true
+   }
+  ],
+  "ADBE Vector Repeater Transform": [
+   {
+    "matchName": "ADBE Vector Repeater Anchor",
+    "name": "Anchor Point",
+    "value": [
+     0.0,
+     0.0
+    ],
+    "pvt": 6415,
+    "dimensions": 2,
+    "isSpatial": true
+   },
+   {
+    "matchName": "ADBE Vector Repeater Position",
+    "name": "Position",
+    "value": [
+     0.0,
+     0.0
+    ],
+    "pvt": 6415,
+    "dimensions": 2,
+    "isSpatial": true
+   },
+   {
+    "matchName": "ADBE Vector Repeater Scale",
+    "name": "Scale",
+    "value": [
+     100.0,
+     100.0
+    ],
+    "pvt": 6416,
+    "dimensions": 2,
+    "min": 0
+   },
+   {
+    "matchName": "ADBE Vector Repeater Rotation",
+    "name": "Rotation",
+    "value": 0.0,
+    "pvt": 6417,
+    "dimensions": 1
+   },
+   {
+    "matchName": "ADBE Vector Repeater Opacity 1",
+    "name": "Start Opacity",
+    "value": 100.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0,
+    "max": 100
+   },
+   {
+    "matchName": "ADBE Vector Repeater Opacity 2",
+    "name": "End Opacity",
+    "value": 100.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0,
+    "max": 100
+   }
+  ],
+  "ADBE Vector Shape - Group": [
+   {
+    "matchName": "ADBE Vector Shape Direction",
+    "name": "Shape Direction",
+    "value": 1.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 1,
+    "max": 3,
+    "canVaryOverTime": false
+   },
+   {
+    "matchName": "ADBE Vector Shape",
+    "name": "Path",
+    "value": null,
+    "pvt": 6419,
+    "dimensions": 1,
+    "isSpatial": true
+   }
+  ],
+  "ADBE Vector Filter - Merge": [
+   {
+    "matchName": "ADBE Vector Merge Type",
+    "name": "Mode",
+    "value": 1.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 1,
+    "max": 5,
+    "canVaryOverTime": false
+   }
+  ],
+  "ADBE Vector Filter - Offset": [
+   {
+    "matchName": "ADBE Vector Offset Amount",
+    "name": "Amount",
+    "value": 10.0,
+    "pvt": 6417,
+    "dimensions": 1
+   },
+   {
+    "matchName": "ADBE Vector Offset Line Join",
+    "name": "Line Join",
+    "value": 1.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 1,
+    "max": 3,
+    "canVaryOverTime": false
+   },
+   {
+    "matchName": "ADBE Vector Offset Miter Limit",
+    "name": "Miter Limit",
+    "value": 4.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 1
+   },
+   {
+    "matchName": "ADBE Vector Offset Copies",
+    "name": "Copies",
+    "value": 1.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0
+   },
+   {
+    "matchName": "ADBE Vector Offset Copy Offset",
+    "name": "Copy Offset",
+    "value": 1.0,
+    "pvt": 6417,
+    "dimensions": 1
+   }
+  ],
+  "ADBE Vector Filter - PB": [
+   {
+    "matchName": "ADBE Vector PuckerBloat Amount",
+    "name": "Amount",
+    "value": 10.0,
+    "pvt": 6417,
+    "dimensions": 1
+   }
+  ],
+  "ADBE Vector Filter - RC": [
+   {
+    "matchName": "ADBE Vector RoundCorner Radius",
+    "name": "Radius",
+    "value": 10.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0
+   }
+  ],
+  "ADBE Vector Filter - Trim": [
+   {
+    "matchName": "ADBE Vector Trim Start",
+    "name": "Start",
+    "value": 0.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0,
+    "max": 100
+   },
+   {
+    "matchName": "ADBE Vector Trim End",
+    "name": "End",
+    "value": 100.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0,
+    "max": 100
+   },
+   {
+    "matchName": "ADBE Vector Trim Offset",
+    "name": "Offset",
+    "value": 0.0,
+    "pvt": 6417,
+    "dimensions": 1
+   },
+   {
+    "matchName": "ADBE Vector Trim Type",
+    "name": "Trim Multiple Shapes",
+    "value": 1.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 1,
+    "max": 2,
+    "canVaryOverTime": false
+   }
+  ],
+  "ADBE Vector Filter - Twist": [
+   {
+    "matchName": "ADBE Vector Twist Angle",
+    "name": "Angle",
+    "value": 10.0,
+    "pvt": 6417,
+    "dimensions": 1
+   },
+   {
+    "matchName": "ADBE Vector Twist Center",
+    "name": "Center",
+    "value": [
+     0.0,
+     0.0
+    ],
+    "pvt": 6415,
+    "dimensions": 2,
+    "isSpatial": true
+   }
+  ],
+  "ADBE Vector Filter - Roughen": [
+   {
+    "matchName": "ADBE Vector Roughen Size",
+    "name": "Size",
+    "value": 10.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0
+   },
+   {
+    "matchName": "ADBE Vector Roughen Detail",
+    "name": "Detail",
+    "value": 10.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0,
+    "max": 100
+   },
+   {
+    "matchName": "ADBE Vector Roughen Points",
+    "name": "Points",
+    "value": 1.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 1,
+    "max": 2
+   },
+   {
+    "matchName": "ADBE Vector Temporal Freq",
+    "name": "Wiggles/Second",
+    "value": 2.0,
+    "pvt": 6417,
+    "dimensions": 1
+   },
+   {
+    "matchName": "ADBE Vector Correlation",
+    "name": "Correlation",
+    "value": 50.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0,
+    "max": 100
+   },
+   {
+    "matchName": "ADBE Vector Temporal Phase",
+    "name": "Temporal Phase",
+    "value": 0.0,
+    "pvt": 6417,
+    "dimensions": 1
+   },
+   {
+    "matchName": "ADBE Vector Spatial Phase",
+    "name": "Spatial Phase",
+    "value": 0.0,
+    "pvt": 6417,
+    "dimensions": 1
+   },
+   {
+    "matchName": "ADBE Vector Random Seed",
+    "name": "Random Seed",
+    "value": 0.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0,
+    "max": 10000
+   }
+  ],
+  "ADBE Vector Filter - Wiggler": [
+   {
+    "matchName": "ADBE Vector Xform Temporal Freq",
+    "name": "Wiggles/Second",
+    "value": 2.0,
+    "pvt": 6417,
+    "dimensions": 1
+   },
+   {
+    "matchName": "ADBE Vector Correlation",
+    "name": "Correlation",
+    "value": 50.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0,
+    "max": 100
+   },
+   {
+    "matchName": "ADBE Vector Temporal Phase",
+    "name": "Temporal Phase",
+    "value": 0.0,
+    "pvt": 6417,
+    "dimensions": 1
+   },
+   {
+    "matchName": "ADBE Vector Spatial Phase",
+    "name": "Spatial Phase",
+    "value": 0.0,
+    "pvt": 6417,
+    "dimensions": 1
+   },
+   {
+    "matchName": "ADBE Vector Random Seed",
+    "name": "Random Seed",
+    "value": 0.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0,
+    "max": 10000
+   },
+   {
+    "matchName": "ADBE Vector Wiggler Transform",
+    "name": "Transform",
+    "group": true
+   }
+  ],
+  "ADBE Vector Wiggler Transform": [
+   {
+    "matchName": "ADBE Vector Wiggler Anchor",
+    "name": "Anchor Point",
+    "value": [
+     0.0,
+     0.0
+    ],
+    "pvt": 6415,
+    "dimensions": 2,
+    "isSpatial": true
+   },
+   {
+    "matchName": "ADBE Vector Wiggler Position",
+    "name": "Position",
+    "value": [
+     0.0,
+     0.0
+    ],
+    "pvt": 6415,
+    "dimensions": 2,
+    "isSpatial": true
+   },
+   {
+    "matchName": "ADBE Vector Wiggler Scale",
+    "name": "Scale",
+    "value": [
+     0.0,
+     0.0
+    ],
+    "pvt": 6416,
+    "dimensions": 2
+   },
+   {
+    "matchName": "ADBE Vector Wiggler Rotation",
+    "name": "Rotation",
+    "value": 0.0,
+    "pvt": 6417,
+    "dimensions": 1
+   }
+  ],
+  "ADBE Vector Filter - Zigzag": [
+   {
+    "matchName": "ADBE Vector Zigzag Size",
+    "name": "Size",
+    "value": 5.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0
+   },
+   {
+    "matchName": "ADBE Vector Zigzag Detail",
+    "name": "Ridges per segment",
+    "value": 10.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0,
+    "max": 100
+   },
+   {
+    "matchName": "ADBE Vector Zigzag Points",
+    "name": "Points",
+    "value": 1.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 1,
+    "max": 2
+   }
+  ],
+  "ADBE Text Selector": [
+   {
+    "matchName": "ADBE Text Percent Start",
+    "name": "Start",
+    "value": 0.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": -100,
+    "max": 100
+   },
+   {
+    "matchName": "ADBE Text Percent End",
+    "name": "End",
+    "value": 100.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": -100,
+    "max": 100
+   },
+   {
+    "matchName": "ADBE Text Percent Offset",
+    "name": "Offset",
+    "value": 0.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": -100,
+    "max": 100
+   },
+   {
+    "matchName": "ADBE Text Index Start",
+    "name": "Start",
+    "value": 0.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": -99999,
+    "max": 99999
+   },
+   {
+    "matchName": "ADBE Text Index End",
+    "name": "End",
+    "value": 0.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": -99999,
+    "max": 99999
+   },
+   {
+    "matchName": "ADBE Text Index Offset",
+    "name": "Offset",
+    "value": 0.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": -99999,
+    "max": 99999
+   },
+   {
+    "matchName": "ADBE Text Range Advanced",
+    "name": "Advanced",
+    "group": true
+   }
+  ],
+  "ADBE Text Range Advanced": [
+   {
+    "matchName": "ADBE Text Range Units",
+    "name": "Units",
+    "value": 1.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 1,
+    "max": 2,
+    "canVaryOverTime": false
+   },
+   {
+    "matchName": "ADBE Text Range Type2",
+    "name": "Based On",
+    "value": 1.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 1,
+    "max": 4,
+    "canVaryOverTime": false
+   },
+   {
+    "matchName": "ADBE Text Selector Mode",
+    "name": "Mode",
+    "value": 1.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 1,
+    "max": 6
+   },
+   {
+    "matchName": "ADBE Text Selector Max Amount",
+    "name": "Amount",
+    "value": 100.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": -100,
+    "max": 100
+   },
+   {
+    "matchName": "ADBE Text Range Shape",
+    "name": "Shape",
+    "value": 1.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 1,
+    "max": 6,
+    "canVaryOverTime": false
+   },
+   {
+    "matchName": "ADBE Text Selector Smoothness",
+    "name": "Smoothness",
+    "value": 100.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0,
+    "max": 100
+   },
+   {
+    "matchName": "ADBE Text Levels Max Ease",
+    "name": "Ease High",
+    "value": 0.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": -100,
+    "max": 100
+   },
+   {
+    "matchName": "ADBE Text Levels Min Ease",
+    "name": "Ease Low",
+    "value": 0.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": -100,
+    "max": 100
+   },
+   {
+    "matchName": "ADBE Text Randomize Order",
+    "name": "Randomize Order",
+    "value": 0.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "canVaryOverTime": false
+   },
+   {
+    "matchName": "ADBE Text Random Seed",
+    "name": "Random Seed",
+    "value": 0.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0,
+    "max": 10000
+   }
+  ],
+  "ADBE Text Wiggly Selector": [
+   {
+    "matchName": "ADBE Text Selector Mode",
+    "name": "Mode",
+    "value": 1.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 1,
+    "max": 6
+   },
+   {
+    "matchName": "ADBE Text Wiggly Max Amount",
+    "name": "Max Amount",
+    "value": 100.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": -100,
+    "max": 100
+   },
+   {
+    "matchName": "ADBE Text Wiggly Min Amount",
+    "name": "Min Amount",
+    "value": -100.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": -100,
+    "max": 100
+   },
+   {
+    "matchName": "ADBE Text Range Type2",
+    "name": "Based On",
+    "value": 1.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 1,
+    "max": 4,
+    "canVaryOverTime": false
+   },
+   {
+    "matchName": "ADBE Text Temporal Freq",
+    "name": "Wiggles/Second",
+    "value": 2.0,
+    "pvt": 6417,
+    "dimensions": 1
+   },
+   {
+    "matchName": "ADBE Text Character Correlation",
+    "name": "Correlation",
+    "value": 50.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0,
+    "max": 100
+   },
+   {
+    "matchName": "ADBE Text Temporal Phase",
+    "name": "Temporal Phase",
+    "value": 0.0,
+    "pvt": 6417,
+    "dimensions": 1
+   },
+   {
+    "matchName": "ADBE Text Spatial Phase",
+    "name": "Spatial Phase",
+    "value": 0.0,
+    "pvt": 6417,
+    "dimensions": 1
+   },
+   {
+    "matchName": "ADBE Text Wiggly Lock Dim",
+    "name": "Lock Dimensions",
+    "value": 0.0,
+    "pvt": 6417,
+    "dimensions": 1
+   },
+   {
+    "matchName": "ADBE Text Wiggly Random Seed",
+    "name": "Random Seed",
+    "value": 0.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0,
+    "max": 10000
+   }
+  ],
+  "ADBE Text Expressible Selector": [
+   {
+    "matchName": "ADBE Text Range Type2",
+    "name": "Based On",
+    "value": 1.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 1,
+    "max": 4,
+    "canVaryOverTime": false
+   },
+   {
+    "matchName": "ADBE Text Expressible Amount",
+    "name": "Amount",
+    "value": [
+     100.0,
+     100.0,
+     100.0
+    ],
+    "pvt": 6414,
+    "dimensions": 3,
+    "min": -100,
+    "max": 100
+   }
+  ],
+  "ADBE Text Animator Properties": [
+   {
+    "matchName": "ADBE Text Anchor Point 3D",
+    "name": "Anchor Point",
+    "value": [
+     0,
+     0,
+     0
+    ],
+    "pvt": 6413,
+    "dimensions": 3,
+    "isSpatial": true
+   },
+   {
+    "matchName": "ADBE Text Position 3D",
+    "name": "Position",
+    "value": [
+     0,
+     0,
+     0
+    ],
+    "pvt": 6413,
+    "dimensions": 3,
+    "isSpatial": true
+   },
+   {
+    "matchName": "ADBE Text Scale 3D",
+    "name": "Scale",
+    "value": [
+     100,
+     100,
+     100
+    ],
+    "pvt": 6414,
+    "dimensions": 3
+   },
+   {
+    "matchName": "ADBE Text Skew",
+    "name": "Skew",
+    "value": 0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": -70,
+    "max": 70
+   },
+   {
+    "matchName": "ADBE Text Skew Axis",
+    "name": "Skew Axis",
+    "value": 0,
+    "pvt": 6417,
+    "dimensions": 1
+   },
+   {
+    "matchName": "ADBE Text Rotation X",
+    "name": "X Rotation",
+    "value": 0,
+    "pvt": 6417,
+    "dimensions": 1
+   },
+   {
+    "matchName": "ADBE Text Rotation Y",
+    "name": "Y Rotation",
+    "value": 0,
+    "pvt": 6417,
+    "dimensions": 1
+   },
+   {
+    "matchName": "ADBE Text Rotation",
+    "name": "Rotation",
+    "value": 0,
+    "pvt": 6417,
+    "dimensions": 1
+   },
+   {
+    "matchName": "ADBE Text Opacity",
+    "name": "Opacity",
+    "value": 100,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0,
+    "max": 100
+   },
+   {
+    "matchName": "ADBE Text Fill Opacity",
+    "name": "Fill Opacity",
+    "value": 100,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0,
+    "max": 100
+   },
+   {
+    "matchName": "ADBE Text Stroke Opacity",
+    "name": "Stroke Opacity",
+    "value": 100,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0,
+    "max": 100
+   },
+   {
+    "matchName": "ADBE Text Fill Color",
+    "name": "Fill Color",
+    "value": [
+     1,
+     0,
+     0,
+     1
+    ],
+    "pvt": 6418,
+    "dimensions": 4,
+    "isSpatial": true,
+    "color": true,
+    "min": -3921568.62745098,
+    "max": 3921568.62745098
+   },
+   {
+    "matchName": "ADBE Text Stroke Color",
+    "name": "Stroke Color",
+    "value": [
+     1,
+     0,
+     0,
+     1
+    ],
+    "pvt": 6418,
+    "dimensions": 4,
+    "isSpatial": true,
+    "color": true,
+    "min": -3921568.62745098,
+    "max": 3921568.62745098
+   },
+   {
+    "matchName": "ADBE Text Fill Hue",
+    "name": "Fill Hue",
+    "value": 0,
+    "pvt": 6417,
+    "dimensions": 1
+   },
+   {
+    "matchName": "ADBE Text Stroke Hue",
+    "name": "Stroke Hue",
+    "value": 0,
+    "pvt": 6417,
+    "dimensions": 1
+   },
+   {
+    "matchName": "ADBE Text Fill Saturation",
+    "name": "Fill Saturation",
+    "value": 0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": -100,
+    "max": 100
+   },
+   {
+    "matchName": "ADBE Text Stroke Saturation",
+    "name": "Stroke Saturation",
+    "value": 0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": -100,
+    "max": 100
+   },
+   {
+    "matchName": "ADBE Text Fill Brightness",
+    "name": "Fill Brightness",
+    "value": 0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": -100,
+    "max": 100
+   },
+   {
+    "matchName": "ADBE Text Stroke Brightness",
+    "name": "Stroke Brightness",
+    "value": 0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": -100,
+    "max": 100
+   },
+   {
+    "matchName": "ADBE 3DText Front RGB",
+    "name": "Front Color",
+    "value": [
+     1,
+     0,
+     0,
+     1
+    ],
+    "pvt": 6418,
+    "dimensions": 4,
+    "isSpatial": true,
+    "color": true,
+    "min": -3921568.62745098,
+    "max": 3921568.62745098
+   },
+   {
+    "matchName": "ADBE 3DText Front Hue",
+    "name": "Front Hue",
+    "value": 0,
+    "pvt": 6417,
+    "dimensions": 1
+   },
+   {
+    "matchName": "ADBE 3DText Front Sat",
+    "name": "Front Saturation",
+    "value": 0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": -100,
+    "max": 100
+   },
+   {
+    "matchName": "ADBE 3DText Front Bright",
+    "name": "Front Brightness",
+    "value": 0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": -100,
+    "max": 100
+   },
+   {
+    "matchName": "ADBE 3DText Front Opacity",
+    "name": "Front Opacity",
+    "value": 100,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0,
+    "max": 100
+   },
+   {
+    "matchName": "ADBE 3DText Front Ambient",
+    "name": "Front Ambient",
+    "value": 100,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0,
+    "max": 100
+   },
+   {
+    "matchName": "ADBE 3DText Front Diffuse",
+    "name": "Front Diffuse",
+    "value": 50,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0,
+    "max": 100
+   },
+   {
+    "matchName": "ADBE 3DText Front Specular",
+    "name": "Front Specular Intensity",
+    "value": 50,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0,
+    "max": 100
+   },
+   {
+    "matchName": "ADBE 3DText Front Shininess",
+    "name": "Front Specular Shininess",
+    "value": 5,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0,
+    "max": 100
+   },
+   {
+    "matchName": "ADBE 3DText Front Metal",
+    "name": "Front Metal",
+    "value": 100,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0,
+    "max": 100
+   },
+   {
+    "matchName": "ADBE 3DText Front Reflection",
+    "name": "Front Reflection Intensity",
+    "value": 0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0,
+    "max": 100
+   },
+   {
+    "matchName": "ADBE 3DText Front Gloss",
+    "name": "Front Reflection Sharpness",
+    "value": 100,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0,
+    "max": 100
+   },
+   {
+    "matchName": "ADBE 3DText Front Fresnel",
+    "name": "Front Reflection Rolloff",
+    "value": 0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0,
+    "max": 100
+   },
+   {
+    "matchName": "ADBE 3DText Front Xparency",
+    "name": "Front Transparency",
+    "value": 0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0,
+    "max": 100
+   },
+   {
+    "matchName": "ADBE 3DText Front XparRoll",
+    "name": "Front Transparency Rolloff",
+    "value": 0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0,
+    "max": 100
+   },
+   {
+    "matchName": "ADBE 3DText Front IOR",
+    "name": "Front Index of Refraction",
+    "value": 1,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 1,
+    "max": 5
+   },
+   {
+    "matchName": "ADBE 3DText Bevel RGB",
+    "name": "Bevel Color",
+    "value": [
+     1,
+     0,
+     0,
+     1
+    ],
+    "pvt": 6418,
+    "dimensions": 4,
+    "isSpatial": true,
+    "color": true,
+    "min": -3921568.62745098,
+    "max": 3921568.62745098
+   },
+   {
+    "matchName": "ADBE 3DText Bevel Hue",
+    "name": "Bevel Hue",
+    "value": 0,
+    "pvt": 6417,
+    "dimensions": 1
+   },
+   {
+    "matchName": "ADBE 3DText Bevel Sat",
+    "name": "Bevel Saturation",
+    "value": 0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": -100,
+    "max": 100
+   },
+   {
+    "matchName": "ADBE 3DText Bevel Bright",
+    "name": "Bevel Brightness",
+    "value": 0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": -100,
+    "max": 100
+   },
+   {
+    "matchName": "ADBE 3DText Bevel Opacity",
+    "name": "Bevel Opacity",
+    "value": 100,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0,
+    "max": 100
+   },
+   {
+    "matchName": "ADBE 3DText Bevel Ambient",
+    "name": "Bevel Ambient",
+    "value": 100,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0,
+    "max": 100
+   },
+   {
+    "matchName": "ADBE 3DText Bevel Diffuse",
+    "name": "Bevel Diffuse",
+    "value": 50,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0,
+    "max": 100
+   },
+   {
+    "matchName": "ADBE 3DText Bevel Specular",
+    "name": "Bevel Specular Intensity",
+    "value": 50,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0,
+    "max": 100
+   },
+   {
+    "matchName": "ADBE 3DText Bevel Shininess",
+    "name": "Bevel Specular Shininess",
+    "value": 5,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0,
+    "max": 100
+   },
+   {
+    "matchName": "ADBE 3DText Bevel Metal",
+    "name": "Bevel Metal",
+    "value": 100,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0,
+    "max": 100
+   },
+   {
+    "matchName": "ADBE 3DText Bevel Reflection",
+    "name": "Bevel Reflection Intensity",
+    "value": 0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0,
+    "max": 100
+   },
+   {
+    "matchName": "ADBE 3DText Bevel Gloss",
+    "name": "Bevel Reflection Sharpness",
+    "value": 100,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0,
+    "max": 100
+   },
+   {
+    "matchName": "ADBE 3DText Bevel Fresnel",
+    "name": "Bevel Reflection Rolloff",
+    "value": 0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0,
+    "max": 100
+   },
+   {
+    "matchName": "ADBE 3DText Bevel Xparency",
+    "name": "Bevel Transparency",
+    "value": 0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0,
+    "max": 100
+   },
+   {
+    "matchName": "ADBE 3DText Bevel XparRoll",
+    "name": "Bevel Transparency Rolloff",
+    "value": 0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0,
+    "max": 100
+   },
+   {
+    "matchName": "ADBE 3DText Bevel IOR",
+    "name": "Bevel Index of Refraction",
+    "value": 1,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 1,
+    "max": 5
+   },
+   {
+    "matchName": "ADBE 3DText Side RGB",
+    "name": "Side Color",
+    "value": [
+     1,
+     0,
+     0,
+     1
+    ],
+    "pvt": 6418,
+    "dimensions": 4,
+    "isSpatial": true,
+    "color": true,
+    "min": -3921568.62745098,
+    "max": 3921568.62745098
+   },
+   {
+    "matchName": "ADBE 3DText Side Hue",
+    "name": "Side Hue",
+    "value": 0,
+    "pvt": 6417,
+    "dimensions": 1
+   },
+   {
+    "matchName": "ADBE 3DText Side Sat",
+    "name": "Side Saturation",
+    "value": 0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": -100,
+    "max": 100
+   },
+   {
+    "matchName": "ADBE 3DText Side Bright",
+    "name": "Side Brightness",
+    "value": 0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": -100,
+    "max": 100
+   },
+   {
+    "matchName": "ADBE 3DText Side Opacity",
+    "name": "Side Opacity",
+    "value": 100,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0,
+    "max": 100
+   },
+   {
+    "matchName": "ADBE 3DText Side Ambient",
+    "name": "Side Ambient",
+    "value": 100,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0,
+    "max": 100
+   },
+   {
+    "matchName": "ADBE 3DText Side Diffuse",
+    "name": "Side Diffuse",
+    "value": 50,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0,
+    "max": 100
+   },
+   {
+    "matchName": "ADBE 3DText Side Specular",
+    "name": "Side Specular Intensity",
+    "value": 50,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0,
+    "max": 100
+   },
+   {
+    "matchName": "ADBE 3DText Side Shininess",
+    "name": "Side Specular Shininess",
+    "value": 5,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0,
+    "max": 100
+   },
+   {
+    "matchName": "ADBE 3DText Side Metal",
+    "name": "Side Metal",
+    "value": 100,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0,
+    "max": 100
+   },
+   {
+    "matchName": "ADBE 3DText Side Reflection",
+    "name": "Side Reflection Intensity",
+    "value": 0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0,
+    "max": 100
+   },
+   {
+    "matchName": "ADBE 3DText Side Gloss",
+    "name": "Side Reflection Sharpness",
+    "value": 100,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0,
+    "max": 100
+   },
+   {
+    "matchName": "ADBE 3DText Side Fresnel",
+    "name": "Side Reflection Rolloff",
+    "value": 0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0,
+    "max": 100
+   },
+   {
+    "matchName": "ADBE 3DText Side Xparency",
+    "name": "Side Transparency",
+    "value": 0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0,
+    "max": 100
+   },
+   {
+    "matchName": "ADBE 3DText Side XparRoll",
+    "name": "Side Transparency Rolloff",
+    "value": 0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0,
+    "max": 100
+   },
+   {
+    "matchName": "ADBE 3DText Side IOR",
+    "name": "Side Index of Refraction",
+    "value": 1,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 1,
+    "max": 5
+   },
+   {
+    "matchName": "ADBE 3DText Back RGB",
+    "name": "Back Color",
+    "value": [
+     1,
+     0,
+     0,
+     1
+    ],
+    "pvt": 6418,
+    "dimensions": 4,
+    "isSpatial": true,
+    "color": true,
+    "min": -3921568.62745098,
+    "max": 3921568.62745098
+   },
+   {
+    "matchName": "ADBE 3DText Back Hue",
+    "name": "Back Hue",
+    "value": 0,
+    "pvt": 6417,
+    "dimensions": 1
+   },
+   {
+    "matchName": "ADBE 3DText Back Sat",
+    "name": "Back Saturation",
+    "value": 0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": -100,
+    "max": 100
+   },
+   {
+    "matchName": "ADBE 3DText Back Bright",
+    "name": "Back Brightness",
+    "value": 0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": -100,
+    "max": 100
+   },
+   {
+    "matchName": "ADBE 3DText Back Opacity",
+    "name": "Back Opacity",
+    "value": 100,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0,
+    "max": 100
+   },
+   {
+    "matchName": "ADBE 3DText Back Ambient",
+    "name": "Back Ambient",
+    "value": 100,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0,
+    "max": 100
+   },
+   {
+    "matchName": "ADBE 3DText Back Diffuse",
+    "name": "Back Diffuse",
+    "value": 50,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0,
+    "max": 100
+   },
+   {
+    "matchName": "ADBE 3DText Back Specular",
+    "name": "Back Specular Intensity",
+    "value": 50,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0,
+    "max": 100
+   },
+   {
+    "matchName": "ADBE 3DText Back Shininess",
+    "name": "Back Specular Shininess",
+    "value": 5,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0,
+    "max": 100
+   },
+   {
+    "matchName": "ADBE 3DText Back Metal",
+    "name": "Back Metal",
+    "value": 100,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0,
+    "max": 100
+   },
+   {
+    "matchName": "ADBE 3DText Back Reflection",
+    "name": "Back Reflection Intensity",
+    "value": 0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0,
+    "max": 100
+   },
+   {
+    "matchName": "ADBE 3DText Back Gloss",
+    "name": "Back Reflection Sharpness",
+    "value": 100,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0,
+    "max": 100
+   },
+   {
+    "matchName": "ADBE 3DText Back Fresnel",
+    "name": "Back Reflection Rolloff",
+    "value": 0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0,
+    "max": 100
+   },
+   {
+    "matchName": "ADBE 3DText Back Xparency",
+    "name": "Back Transparency",
+    "value": 0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0,
+    "max": 100
+   },
+   {
+    "matchName": "ADBE 3DText Back XparRoll",
+    "name": "Back Transparency Rolloff",
+    "value": 0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0,
+    "max": 100
+   },
+   {
+    "matchName": "ADBE 3DText Back IOR",
+    "name": "Back Index of Refraction",
+    "value": 1,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 1,
+    "max": 5
+   },
+   {
+    "matchName": "ADBE 3DText Bevel Depth",
+    "name": "Bevel Depth",
+    "value": 2,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0,
+    "max": 100
+   },
+   {
+    "matchName": "ADBE 3DText Extrude Depth",
+    "name": "Extrusion Depth",
+    "value": 0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0,
+    "max": 10000
+   },
+   {
+    "matchName": "ADBE Text Stroke Width",
+    "name": "Stroke Width",
+    "value": 0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": -1000,
+    "max": 1000
+   },
+   {
+    "matchName": "ADBE Text Line Anchor",
+    "name": "Line Anchor",
+    "value": 50,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0,
+    "max": 100
+   },
+   {
+    "matchName": "ADBE Text Track Type",
+    "name": "Tracking Type",
+    "value": 1,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 1,
+    "max": 3
+   },
+   {
+    "matchName": "ADBE Text Tracking Amount",
+    "name": "Tracking Amount",
+    "value": 0,
+    "pvt": 6417,
+    "dimensions": 1
+   },
+   {
+    "matchName": "ADBE Text Character Change Type",
+    "name": "Character Alignment",
+    "value": 1,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 1,
+    "max": 4,
+    "canVaryOverTime": false
+   },
+   {
+    "matchName": "ADBE Text Character Range",
+    "name": "Character Range",
+    "value": 1,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 1,
+    "max": 2,
+    "canVaryOverTime": false
+   },
+   {
+    "matchName": "ADBE Text Character Replace",
+    "name": "Character Value",
+    "value": 0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0,
+    "max": 65535
+   },
+   {
+    "matchName": "ADBE Text Character Offset",
+    "name": "Character Offset",
+    "value": 0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": -65535,
+    "max": 65535
+   },
+   {
+    "matchName": "ADBE Text Line Spacing",
+    "name": "Line Spacing",
+    "value": [
+     0,
+     0
+    ],
+    "pvt": 6416,
+    "dimensions": 2
+   },
+   {
+    "matchName": "ADBE Text Blur",
+    "name": "Blur",
+    "value": [
+     0,
+     0
+    ],
+    "pvt": 6416,
+    "dimensions": 2,
+    "min": 0,
+    "max": 10000
+   },
+   {
+    "matchName": "ADBE Text VF Axis 1",
+    "name": "",
+    "value": 0,
+    "pvt": 3145784,
+    "dimensions": 1
+   },
+   {
+    "matchName": "ADBE Text VF Axis 2",
+    "name": "",
+    "value": 0,
+    "pvt": 3145784,
+    "dimensions": 1
+   },
+   {
+    "matchName": "ADBE Text VF Axis 3",
+    "name": "",
+    "value": 0,
+    "pvt": 3145784,
+    "dimensions": 1
+   },
+   {
+    "matchName": "ADBE Text VF Axis 4",
+    "name": "",
+    "value": 0,
+    "pvt": 3145784,
+    "dimensions": 1
+   },
+   {
+    "matchName": "ADBE Text VF Axis 5",
+    "name": "",
+    "value": 0,
+    "pvt": 3145784,
+    "dimensions": 1
+   },
+   {
+    "matchName": "ADBE Text VF Axis 6",
+    "name": "",
+    "value": 0,
+    "pvt": 3145784,
+    "dimensions": 1
+   },
+   {
+    "matchName": "ADBE Text VF Axis 7",
+    "name": "",
+    "value": 0,
+    "pvt": 3145784,
+    "dimensions": 1
+   },
+   {
+    "matchName": "ADBE Text VF Axis 8",
+    "name": "",
+    "value": 0,
+    "pvt": 3145784,
+    "dimensions": 1
+   }
+  ],
+  "ADBE Text Animator": [
+   {
+    "matchName": "ADBE Text Selectors",
+    "name": "Selectors",
+    "group": true
+   },
+   {
+    "matchName": "ADBE Text Animator Properties",
+    "name": "Properties",
+    "group": true
+   }
+  ],
+  "ADBE Compositing Options Group": [
+   {
+    "matchName": "ADBE Casts Shadows",
+    "name": "Casts Shadows",
+    "value": 1.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "integer": true,
+    "canVaryOverTime": false
+   },
+   {
+    "matchName": "ADBE Accepts Shadows",
+    "name": "Accepts Shadows",
+    "value": 1.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "integer": true,
+    "canVaryOverTime": false
+   },
+   {
+    "matchName": "ADBE Accepts Lights",
+    "name": "Accepts Lights",
+    "value": 1.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "integer": true,
+    "canVaryOverTime": false
+   },
+   {
+    "matchName": "ADBE Appears in Reflections",
+    "name": "Appears in Reflections",
+    "value": 1.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "integer": true,
+    "canVaryOverTime": false
+   },
+   {
+    "matchName": "ADBE Shadow Color",
+    "name": "Shadow Color",
+    "value": [
+     0.0,
+     0.0,
+     0.0,
+     1.0
+    ],
+    "pvt": 6418,
+    "dimensions": 4,
+    "isSpatial": true,
+    "color": true,
+    "min": -3921568.62745098,
+    "max": 3921568.62745098
+   }
+  ],
+  "ADBE3D Para Mat Parade": [
+   {
+    "matchName": "ADBE3D Param Mat Atom",
+    "name": "Material",
+    "group": true
+   }
+  ],
+  "ADBE3D Param Mat Atom": [
+   {
+    "matchName": "ADBE3D Material Projection",
+    "name": "Projection Mode",
+    "value": 1.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 1,
+    "max": 2
+   },
+   {
+    "matchName": "ADBE3D Material Texturre Offset",
+    "name": "Texture Offset",
+    "value": [
+     0.0,
+     0.0
+    ],
+    "pvt": 6416,
+    "dimensions": 2
+   },
+   {
+    "matchName": "ADBE3D Material Rotation",
+    "name": "Rotation",
+    "value": 0.0,
+    "pvt": 6417,
+    "dimensions": 1
+   },
+   {
+    "matchName": "ADBE3D Material Scale",
+    "name": "Scale",
+    "value": [
+     100.0,
+     100.0
+    ],
+    "pvt": 6416,
+    "dimensions": 2
+   },
+   {
+    "matchName": "ADBE3D Base Color",
+    "name": "Base Color",
+    "value": [
+     0.8,
+     0.8,
+     0.8,
+     1.0
+    ],
+    "pvt": 6418,
+    "dimensions": 4,
+    "isSpatial": true,
+    "color": true,
+    "min": -3921568.62745098,
+    "max": 3921568.62745098
+   },
+   {
+    "matchName": "ADBE3D Roughness",
+    "name": "Roughness",
+    "value": 30.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0,
+    "max": 100
+   },
+   {
+    "matchName": "ADBE3D Metallic",
+    "name": "Metallic",
+    "value": 30.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0,
+    "max": 100
+   },
+   {
+    "matchName": "ADBE3D Emission",
+    "name": "Emission Color",
+    "value": [
+     0.99607843137255,
+     0.99607843137255,
+     0.99607843137255,
+     1.0
+    ],
+    "pvt": 6418,
+    "dimensions": 4,
+    "isSpatial": true,
+    "color": true,
+    "min": -3921568.62745098,
+    "max": 3921568.62745098
+   },
+   {
+    "matchName": "ADBE3D Emission Intensity",
+    "name": "Emission Intensity",
+    "value": 0.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0,
+    "max": 100
+   },
+   {
+    "matchName": "ADBE3D Ambient",
+    "name": "Ambient Response",
+    "value": 100.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0,
+    "max": 100
+   }
+  ],
+  "ADBE CubeMeshOptionsSGrp": [
+   {
+    "matchName": "ADBE CubeWidthStrm",
+    "name": "Width",
+    "value": 200.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0
+   },
+   {
+    "matchName": "ADBE CubeHeightStrm",
+    "name": "Height",
+    "value": 200.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0
+   },
+   {
+    "matchName": "ADBE CubeDepthStrm",
+    "name": "Depth",
+    "value": 200.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0
+   },
+   {
+    "matchName": "ADBE CubeSmoothingAngleStrm",
+    "name": "Smoothing Angle",
+    "value": 40.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0,
+    "max": 180
+   }
+  ],
+  "ADBE CubeBevelOptionsSGrp": [
+   {
+    "matchName": "ADBE CubeBevelRadiusStrm",
+    "name": "Radius",
+    "value": 0.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0
+   },
+   {
+    "matchName": "ADBE CubeBevelSidesStrm",
+    "name": "Sides",
+    "value": 20.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 1,
+    "max": 100
+   }
+  ],
+  "ADBE SphereMeshOptionsSGrp": [
+   {
+    "matchName": "ADBE SphereRadiusStrm",
+    "name": "Radius",
+    "value": 100.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0
+   },
+   {
+    "matchName": "ADBE SphereSidesStrm",
+    "name": "Sides",
+    "value": 48.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 3,
+    "max": 100
+   },
+   {
+    "matchName": "ADBE SphereSliceCapsStrm",
+    "name": "Slice Caps",
+    "value": 1.0,
+    "pvt": 6417,
+    "dimensions": 1
+   },
+   {
+    "matchName": "ADBE SphereStartAngleStrm",
+    "name": "Slice Start",
+    "value": 0.0,
+    "pvt": 6417,
+    "dimensions": 1
+   },
+   {
+    "matchName": "ADBE SphereEndAngleStrm",
+    "name": "Slice End",
+    "value": 360.0,
+    "pvt": 6417,
+    "dimensions": 1
+   },
+   {
+    "matchName": "ADBE SphereInvertSliceStrm",
+    "name": "Invert Slice",
+    "value": 0.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0,
+    "max": 1
+   },
+   {
+    "matchName": "ADBE SphereSmoothingAngleStrm",
+    "name": "Smoothing Angle",
+    "value": 40.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0,
+    "max": 180
+   }
+  ],
+  "ADBE PlaneMeshOptionsSGrp": [
+   {
+    "matchName": "ADBE PlaneWidthStrm",
+    "name": "Width",
+    "value": 200.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0
+   },
+   {
+    "matchName": "ADBE PlaneLengthStrm",
+    "name": "Length",
+    "value": 200.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0
+   },
+   {
+    "matchName": "ADBE PlaneCornerRadiusStrm",
+    "name": "Corner Radius",
+    "value": 1.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0
+   },
+   {
+    "matchName": "ADBE PlaneCornerSidesStrm",
+    "name": "Corner Sides",
+    "value": 20.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 1,
+    "max": 100
+   }
+  ],
+  "ADBE TorusMeshOptionsSGrp": [
+   {
+    "matchName": "ADBE TorusRingRadiusStrm",
+    "name": "Ring Radius",
+    "value": 100.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0
+   },
+   {
+    "matchName": "ADBE TorusPipeRadiusStrm",
+    "name": "Pipe Radius",
+    "value": 20.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0
+   },
+   {
+    "matchName": "ADBE TorusRingSidesStrm",
+    "name": "Ring Sides",
+    "value": 48.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 3,
+    "max": 100
+   },
+   {
+    "matchName": "ADBE TorusPipeSidesStrm",
+    "name": "Pipe Sides",
+    "value": 48.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 3,
+    "max": 100
+   },
+   {
+    "matchName": "ADBE TorusCapsStrm",
+    "name": "Caps",
+    "value": 1.0,
+    "pvt": 6417,
+    "dimensions": 1
+   },
+   {
+    "matchName": "ADBE TorusStartAngleStrm",
+    "name": "Slice Start",
+    "value": 0.0,
+    "pvt": 6417,
+    "dimensions": 1
+   },
+   {
+    "matchName": "ADBE TorusEndAngleStrm",
+    "name": "Slice End",
+    "value": 360.0,
+    "pvt": 6417,
+    "dimensions": 1
+   },
+   {
+    "matchName": "ADBE TorusInvertSliceStrm",
+    "name": "Invert Slice",
+    "value": 0.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0,
+    "max": 1
+   },
+   {
+    "matchName": "ADBE TorusSmoothingAngleStrm",
+    "name": "Smoothing Angle",
+    "value": 40.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0,
+    "max": 180
+   }
+  ],
+  "ADBE ConeMeshOptionsSGrp": [
+   {
+    "matchName": "ADBE ConeTopRadiusStrm",
+    "name": "Top Radius",
+    "value": 0.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0
+   },
+   {
+    "matchName": "ADBE ConeBottomRadiusStrm",
+    "name": "Bottom Radius",
+    "value": 100.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0
+   },
+   {
+    "matchName": "ADBE ConeHeightStrm",
+    "name": "Height",
+    "value": 200.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0
+   },
+   {
+    "matchName": "ADBE ConeSidesStrm",
+    "name": "Sides",
+    "value": 48.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 3,
+    "max": 100
+   },
+   {
+    "matchName": "ADBE ConeTopCapStrm",
+    "name": "Top Cap",
+    "value": 1.0,
+    "pvt": 6417,
+    "dimensions": 1
+   },
+   {
+    "matchName": "ADBE ConeBottomCapStrm",
+    "name": "Bottom Cap",
+    "value": 1.0,
+    "pvt": 6417,
+    "dimensions": 1
+   },
+   {
+    "matchName": "ADBE ConeSliceCapsStrm",
+    "name": "Slice Caps",
+    "value": 1.0,
+    "pvt": 6417,
+    "dimensions": 1
+   },
+   {
+    "matchName": "ADBE ConeStartAngleStrm",
+    "name": "Slice Start",
+    "value": 0.0,
+    "pvt": 6417,
+    "dimensions": 1
+   },
+   {
+    "matchName": "ADBE ConeEndAngleStrm",
+    "name": "Slice End",
+    "value": 360.0,
+    "pvt": 6417,
+    "dimensions": 1
+   },
+   {
+    "matchName": "ADBE ConeInvertSliceStrm",
+    "name": "Invert Slice",
+    "value": 0.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0,
+    "max": 1
+   },
+   {
+    "matchName": "ADBE ConeSmoothingAngleStrm",
+    "name": "Smoothing Angle",
+    "value": 40.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0,
+    "max": 180
+   }
+  ],
+  "ADBE ConeBevelBevelSGrp": [
+   {
+    "matchName": "ADBE ConeBevelTopRadiusStrm",
+    "name": "Top Radius",
+    "value": 0.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0
+   },
+   {
+    "matchName": "ADBE ConeBevelTopSidesStrm",
+    "name": "Top Sides",
+    "value": 20.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 1,
+    "max": 100
+   },
+   {
+    "matchName": "ADBE ConeBevelBottomRadiusStrm",
+    "name": "Bottom Radius",
+    "value": 0.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0
+   },
+   {
+    "matchName": "ADBE ConeBevelBottomSidesStrm",
+    "name": "Bottom Sides",
+    "value": 20.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 1,
+    "max": 100
+   }
+  ],
+  "ADBE CylinderMeshOptionsSGrp": [
+   {
+    "matchName": "ADBE CylinderRadiusStrm",
+    "name": "Radius",
+    "value": 100.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0
+   },
+   {
+    "matchName": "ADBE CylinderHeightStrm",
+    "name": "Height",
+    "value": 200.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0
+   },
+   {
+    "matchName": "ADBE CylinderSidesStrm",
+    "name": "Sides",
+    "value": 48.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 3,
+    "max": 100
+   },
+   {
+    "matchName": "ADBE CylinderTopCapStrm",
+    "name": "Top Cap",
+    "value": 1.0,
+    "pvt": 6417,
+    "dimensions": 1
+   },
+   {
+    "matchName": "ADBE CylinderBottomCapStrm",
+    "name": "Bottom Cap",
+    "value": 1.0,
+    "pvt": 6417,
+    "dimensions": 1
+   },
+   {
+    "matchName": "ADBE CylinderSliceCapsStrm",
+    "name": "Slice Caps",
+    "value": 1.0,
+    "pvt": 6417,
+    "dimensions": 1
+   },
+   {
+    "matchName": "ADBE CylinderStartAngleStrm",
+    "name": "Slice Start",
+    "value": 0.0,
+    "pvt": 6417,
+    "dimensions": 1
+   },
+   {
+    "matchName": "ADBE CylinderEndAngleStrm",
+    "name": "Slice End",
+    "value": 360.0,
+    "pvt": 6417,
+    "dimensions": 1
+   },
+   {
+    "matchName": "ADBE CylinderInvertSliceStrm",
+    "name": "Invert Slice",
+    "value": 0.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0,
+    "max": 1
+   },
+   {
+    "matchName": "ADBE CylinderSmoothingAngleStrm",
+    "name": "Smoothing Angle",
+    "value": 40.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0,
+    "max": 180
+   }
+  ],
+  "ADBE CylinderBevelOptionsSGrp": [
+   {
+    "matchName": "ADBE CylinderBevelRadiusStrm",
+    "name": "Radius",
+    "value": 0.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0
+   },
+   {
+    "matchName": "ADBE CylinderBevelSidesStrm",
+    "name": "Sides",
+    "value": 20.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 1,
+    "max": 100
+   }
+  ],
+  "ADBE Displacement Options": [
+   {
+    "matchName": "ADBE Displacement Intensity",
+    "name": "Intensity",
+    "value": 100.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": -1000,
+    "max": 1000
+   },
+   {
+    "matchName": "ADBE Subdivision Count",
+    "name": "Subdivision Count",
+    "value": 0.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0,
+    "max": 6,
+    "canVaryOverTime": false
+   }
+  ],
+  "dropShadow/enabled": [
+   {
+    "matchName": "dropShadow/mode2",
+    "name": "Blend Mode",
+    "value": 5.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "integer": true,
+    "min": 1,
+    "max": 33
+   },
+   {
+    "matchName": "dropShadow/color",
+    "name": "Color",
+    "value": [
+     0.0,
+     0.0,
+     0.0,
+     1.0
+    ],
+    "pvt": 6418,
+    "dimensions": 4,
+    "isSpatial": true,
+    "color": true,
+    "min": -3921568.62745098,
+    "max": 3921568.62745098
+   },
+   {
+    "matchName": "dropShadow/opacity",
+    "name": "Opacity",
+    "value": 75.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0,
+    "max": 100
+   },
+   {
+    "matchName": "dropShadow/useGlobalAngle",
+    "name": "Use Global Light",
+    "value": 0.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "integer": true,
+    "min": 0,
+    "max": 1
+   },
+   {
+    "matchName": "dropShadow/localLightingAngle",
+    "name": "Angle",
+    "value": 120.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "integer": true
+   },
+   {
+    "matchName": "dropShadow/distance",
+    "name": "Distance",
+    "value": 5.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0,
+    "max": 30000
+   },
+   {
+    "matchName": "dropShadow/chokeMatte",
+    "name": "Spread",
+    "value": 0.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0,
+    "max": 100
+   },
+   {
+    "matchName": "dropShadow/blur",
+    "name": "Size",
+    "value": 5.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0,
+    "max": 250
+   },
+   {
+    "matchName": "dropShadow/noise",
+    "name": "Noise",
+    "value": 0.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0,
+    "max": 100
+   },
+   {
+    "matchName": "dropShadow/layerConceals",
+    "name": "Layer Knocks Out Drop Shadow",
+    "value": 1.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "integer": true,
+    "min": 0,
+    "max": 1
+   }
+  ],
+  "innerShadow/enabled": [
+   {
+    "matchName": "innerShadow/mode2",
+    "name": "Blend Mode",
+    "value": 5.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "integer": true,
+    "min": 1,
+    "max": 33
+   },
+   {
+    "matchName": "innerShadow/color",
+    "name": "Color",
+    "value": [
+     0.0,
+     0.0,
+     0.0,
+     1.0
+    ],
+    "pvt": 6418,
+    "dimensions": 4,
+    "isSpatial": true,
+    "color": true,
+    "min": -3921568.62745098,
+    "max": 3921568.62745098
+   },
+   {
+    "matchName": "innerShadow/opacity",
+    "name": "Opacity",
+    "value": 75.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0,
+    "max": 100
+   },
+   {
+    "matchName": "innerShadow/useGlobalAngle",
+    "name": "Use Global Light",
+    "value": 0.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "integer": true,
+    "min": 0,
+    "max": 1
+   },
+   {
+    "matchName": "innerShadow/localLightingAngle",
+    "name": "Angle",
+    "value": 120.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "integer": true
+   },
+   {
+    "matchName": "innerShadow/distance",
+    "name": "Distance",
+    "value": 5.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0,
+    "max": 30000
+   },
+   {
+    "matchName": "innerShadow/chokeMatte",
+    "name": "Choke",
+    "value": 0.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0,
+    "max": 100
+   },
+   {
+    "matchName": "innerShadow/blur",
+    "name": "Size",
+    "value": 5.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0,
+    "max": 250
+   },
+   {
+    "matchName": "innerShadow/noise",
+    "name": "Noise",
+    "value": 0.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0,
+    "max": 100
+   }
+  ],
+  "outerGlow/enabled": [
+   {
+    "matchName": "outerGlow/mode2",
+    "name": "Blend Mode",
+    "value": 11.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "integer": true,
+    "min": 1,
+    "max": 33
+   },
+   {
+    "matchName": "outerGlow/opacity",
+    "name": "Opacity",
+    "value": 75.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0,
+    "max": 100
+   },
+   {
+    "matchName": "outerGlow/noise",
+    "name": "Noise",
+    "value": 0.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0,
+    "max": 100
+   },
+   {
+    "matchName": "outerGlow/AEColorChoice",
+    "name": "Color Type",
+    "value": 1.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "integer": true,
+    "min": 1,
+    "max": 2
+   },
+   {
+    "matchName": "outerGlow/color",
+    "name": "Color",
+    "value": [
+     1.0,
+     1.0,
+     0.74509803921569,
+     1.0
+    ],
+    "pvt": 6418,
+    "dimensions": 4,
+    "isSpatial": true,
+    "color": true,
+    "min": -3921568.62745098,
+    "max": 3921568.62745098
+   },
+   {
+    "matchName": "outerGlow/gradient",
+    "name": "Colors",
+    "value": null,
+    "pvt": 6412,
+    "dimensions": 1,
+    "isSpatial": true,
+    "canVaryOverTime": true
+   },
+   {
+    "matchName": "outerGlow/gradientSmoothness",
+    "name": "Gradient Smoothness",
+    "value": 100.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0,
+    "max": 100
+   },
+   {
+    "matchName": "outerGlow/glowTechnique",
+    "name": "Technique",
+    "value": 1.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "integer": true,
+    "min": 1,
+    "max": 2
+   },
+   {
+    "matchName": "outerGlow/chokeMatte",
+    "name": "Spread",
+    "value": 0.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0,
+    "max": 100
+   },
+   {
+    "matchName": "outerGlow/blur",
+    "name": "Size",
+    "value": 5.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0,
+    "max": 250
+   },
+   {
+    "matchName": "outerGlow/inputRange",
+    "name": "Range",
+    "value": 50.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 1,
+    "max": 100
+   },
+   {
+    "matchName": "outerGlow/shadingNoise",
+    "name": "Jitter",
+    "value": 0.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0,
+    "max": 100
+   }
+  ],
+  "innerGlow/enabled": [
+   {
+    "matchName": "innerGlow/mode2",
+    "name": "Blend Mode",
+    "value": 11.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "integer": true,
+    "min": 1,
+    "max": 33
+   },
+   {
+    "matchName": "innerGlow/opacity",
+    "name": "Opacity",
+    "value": 75.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0,
+    "max": 100
+   },
+   {
+    "matchName": "innerGlow/noise",
+    "name": "Noise",
+    "value": 0.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0,
+    "max": 100
+   },
+   {
+    "matchName": "innerGlow/AEColorChoice",
+    "name": "Color Type",
+    "value": 1.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "integer": true,
+    "min": 1,
+    "max": 2
+   },
+   {
+    "matchName": "innerGlow/color",
+    "name": "Color",
+    "value": [
+     1.0,
+     1.0,
+     0.74509803921569,
+     1.0
+    ],
+    "pvt": 6418,
+    "dimensions": 4,
+    "isSpatial": true,
+    "color": true,
+    "min": -3921568.62745098,
+    "max": 3921568.62745098
+   },
+   {
+    "matchName": "innerGlow/gradient",
+    "name": "Colors",
+    "value": null,
+    "pvt": 6412,
+    "dimensions": 1,
+    "isSpatial": true,
+    "canVaryOverTime": true
+   },
+   {
+    "matchName": "innerGlow/gradientSmoothness",
+    "name": "Gradient Smoothness",
+    "value": 100.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0,
+    "max": 100
+   },
+   {
+    "matchName": "innerGlow/glowTechnique",
+    "name": "Technique",
+    "value": 1.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "integer": true,
+    "min": 1,
+    "max": 2
+   },
+   {
+    "matchName": "innerGlow/innerGlowSource",
+    "name": "Source",
+    "value": 1.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "integer": true,
+    "min": 1,
+    "max": 2
+   },
+   {
+    "matchName": "innerGlow/chokeMatte",
+    "name": "Choke",
+    "value": 0.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0,
+    "max": 100
+   },
+   {
+    "matchName": "innerGlow/blur",
+    "name": "Size",
+    "value": 5.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0,
+    "max": 250
+   },
+   {
+    "matchName": "innerGlow/inputRange",
+    "name": "Range",
+    "value": 50.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 1,
+    "max": 100
+   },
+   {
+    "matchName": "innerGlow/shadingNoise",
+    "name": "Jitter",
+    "value": 0.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0,
+    "max": 100
+   }
+  ],
+  "bevelEmboss/enabled": [
+   {
+    "matchName": "bevelEmboss/bevelStyle",
+    "name": "Style",
+    "value": 2.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "integer": true,
+    "min": 1,
+    "max": 5
+   },
+   {
+    "matchName": "bevelEmboss/bevelTechnique",
+    "name": "Technique",
+    "value": 1.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "integer": true,
+    "min": 1,
+    "max": 3
+   },
+   {
+    "matchName": "bevelEmboss/strengthRatio",
+    "name": "Depth",
+    "value": 100.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 1,
+    "max": 1000
+   },
+   {
+    "matchName": "bevelEmboss/bevelDirection",
+    "name": "Direction",
+    "value": 1.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "integer": true,
+    "min": 1,
+    "max": 2
+   },
+   {
+    "matchName": "bevelEmboss/blur",
+    "name": "Size",
+    "value": 5.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0,
+    "max": 250
+   },
+   {
+    "matchName": "bevelEmboss/softness",
+    "name": "Soften",
+    "value": 0.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0,
+    "max": 16
+   },
+   {
+    "matchName": "bevelEmboss/useGlobalAngle",
+    "name": "Use Global Light",
+    "value": 0.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "integer": true,
+    "min": 0,
+    "max": 1
+   },
+   {
+    "matchName": "bevelEmboss/localLightingAngle",
+    "name": "Angle",
+    "value": 120.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "integer": true
+   },
+   {
+    "matchName": "bevelEmboss/localLightingAltitude",
+    "name": "Altitude",
+    "value": 30.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "integer": true
+   },
+   {
+    "matchName": "bevelEmboss/highlightMode",
+    "name": "Highlight Mode",
+    "value": 11.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "integer": true,
+    "min": 1,
+    "max": 33
+   },
+   {
+    "matchName": "bevelEmboss/highlightColor",
+    "name": "Highlight Color",
+    "value": [
+     1.0,
+     1.0,
+     1.0,
+     1.0
+    ],
+    "pvt": 6418,
+    "dimensions": 4,
+    "isSpatial": true,
+    "color": true,
+    "min": -3921568.62745098,
+    "max": 3921568.62745098
+   },
+   {
+    "matchName": "bevelEmboss/highlightOpacity",
+    "name": "Highlight Opacity",
+    "value": 75.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0,
+    "max": 100
+   },
+   {
+    "matchName": "bevelEmboss/shadowMode",
+    "name": "Shadow Mode",
+    "value": 5.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "integer": true,
+    "min": 1,
+    "max": 33
+   },
+   {
+    "matchName": "bevelEmboss/shadowColor",
+    "name": "Shadow Color",
+    "value": [
+     0.0,
+     0.0,
+     0.0,
+     1.0
+    ],
+    "pvt": 6418,
+    "dimensions": 4,
+    "isSpatial": true,
+    "color": true,
+    "min": -3921568.62745098,
+    "max": 3921568.62745098
+   },
+   {
+    "matchName": "bevelEmboss/shadowOpacity",
+    "name": "Shadow Opacity",
+    "value": 75.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0,
+    "max": 100
+   }
+  ],
+  "chromeFX/enabled": [
+   {
+    "matchName": "chromeFX/mode2",
+    "name": "Blend Mode",
+    "value": 5.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "integer": true,
+    "min": 1,
+    "max": 33
+   },
+   {
+    "matchName": "chromeFX/color",
+    "name": "Color",
+    "value": [
+     0.0,
+     0.0,
+     0.0,
+     1.0
+    ],
+    "pvt": 6418,
+    "dimensions": 4,
+    "isSpatial": true,
+    "color": true,
+    "min": -3921568.62745098,
+    "max": 3921568.62745098
+   },
+   {
+    "matchName": "chromeFX/opacity",
+    "name": "Opacity",
+    "value": 50.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0,
+    "max": 100
+   },
+   {
+    "matchName": "chromeFX/localLightingAngle",
+    "name": "Angle",
+    "value": 19.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "integer": true
+   },
+   {
+    "matchName": "chromeFX/distance",
+    "name": "Distance",
+    "value": 11.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 1,
+    "max": 250
+   },
+   {
+    "matchName": "chromeFX/blur",
+    "name": "Size",
+    "value": 14.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0,
+    "max": 250
+   },
+   {
+    "matchName": "chromeFX/invert",
+    "name": "Invert",
+    "value": 1.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "integer": true,
+    "min": 0,
+    "max": 1
+   }
+  ],
+  "solidFill/enabled": [
+   {
+    "matchName": "solidFill/mode2",
+    "name": "Blend Mode",
+    "value": 1.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "integer": true,
+    "min": 1,
+    "max": 33
+   },
+   {
+    "matchName": "solidFill/color",
+    "name": "Color",
+    "value": [
+     1.0,
+     0.0,
+     0.0,
+     1.0
+    ],
+    "pvt": 6418,
+    "dimensions": 4,
+    "isSpatial": true,
+    "color": true,
+    "min": -3921568.62745098,
+    "max": 3921568.62745098
+   },
+   {
+    "matchName": "solidFill/opacity",
+    "name": "Opacity",
+    "value": 100.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0,
+    "max": 100
+   }
+  ],
+  "gradientFill/enabled": [
+   {
+    "matchName": "gradientFill/mode2",
+    "name": "Blend Mode",
+    "value": 1.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "integer": true,
+    "min": 1,
+    "max": 33
+   },
+   {
+    "matchName": "gradientFill/opacity",
+    "name": "Opacity",
+    "value": 100.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0,
+    "max": 100
+   },
+   {
+    "matchName": "gradientFill/gradient",
+    "name": "Colors",
+    "value": null,
+    "pvt": 6412,
+    "dimensions": 1,
+    "isSpatial": true,
+    "canVaryOverTime": true
+   },
+   {
+    "matchName": "gradientFill/gradientSmoothness",
+    "name": "Gradient Smoothness",
+    "value": 100.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0,
+    "max": 100
+   },
+   {
+    "matchName": "gradientFill/angle",
+    "name": "Angle",
+    "value": 90.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "integer": true
+   },
+   {
+    "matchName": "gradientFill/type",
+    "name": "Style",
+    "value": 1.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "integer": true,
+    "min": 1,
+    "max": 5
+   },
+   {
+    "matchName": "gradientFill/reverse",
+    "name": "Reverse",
+    "value": 0.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "integer": true,
+    "min": 0,
+    "max": 1
+   },
+   {
+    "matchName": "gradientFill/align",
+    "name": "Align with Layer",
+    "value": 1.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "integer": true,
+    "min": 0,
+    "max": 1
+   },
+   {
+    "matchName": "gradientFill/scale",
+    "name": "Scale",
+    "value": 100.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 10,
+    "max": 150
+   },
+   {
+    "matchName": "gradientFill/offset",
+    "name": "Offset",
+    "value": [
+     0.0,
+     0.0
+    ],
+    "pvt": 6415,
+    "dimensions": 2,
+    "isSpatial": true
+   }
+  ],
+  "patternFill/enabled": [
+   {
+    "matchName": "patternFill/mode2",
+    "name": "Blend Mode",
+    "value": 1.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "integer": true,
+    "min": 1,
+    "max": 33
+   },
+   {
+    "matchName": "patternFill/opacity",
+    "name": "Opacity",
+    "value": 100.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0,
+    "max": 100
+   },
+   {
+    "matchName": "patternFill/align",
+    "name": "Link with Layer",
+    "value": 1.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "integer": true,
+    "min": 0,
+    "max": 1
+   },
+   {
+    "matchName": "patternFill/scale",
+    "name": "Scale",
+    "value": 100.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 1,
+    "max": 1000
+   },
+   {
+    "matchName": "patternFill/phase",
+    "name": "Offset",
+    "value": [
+     0.0,
+     0.0
+    ],
+    "pvt": 6415,
+    "dimensions": 2,
+    "isSpatial": true
+   }
+  ],
+  "frameFX/enabled": [
+   {
+    "matchName": "frameFX/mode2",
+    "name": "Blend Mode",
+    "value": 1.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "integer": true,
+    "min": 1,
+    "max": 33
+   },
+   {
+    "matchName": "frameFX/color",
+    "name": "Color",
+    "value": [
+     1.0,
+     0.0,
+     0.0,
+     1.0
+    ],
+    "pvt": 6418,
+    "dimensions": 4,
+    "isSpatial": true,
+    "color": true,
+    "min": -3921568.62745098,
+    "max": 3921568.62745098
+   },
+   {
+    "matchName": "frameFX/size",
+    "name": "Size",
+    "value": 3.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 1,
+    "max": 250
+   },
+   {
+    "matchName": "frameFX/opacity",
+    "name": "Opacity",
+    "value": 100.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "min": 0,
+    "max": 100
+   },
+   {
+    "matchName": "frameFX/style",
+    "name": "Position",
+    "value": 1.0,
+    "pvt": 6417,
+    "dimensions": 1,
+    "integer": true,
+    "min": 1,
+    "max": 3
+   }
+  ]
+ },
+ "topLevel": [
+  {
+   "matchName": "ADBE Marker",
+   "name": "Marker",
+   "value": null,
+   "pvt": 6420,
+   "dimensions": 0
+  },
+  {
+   "matchName": "ADBE Text Properties",
+   "name": "Text",
+   "group": true
+  },
+  {
+   "matchName": "ADBE Root Vectors Group",
+   "name": "Contents",
+   "group": true
+  },
+  {
+   "matchName": "ADBE Time Remapping",
+   "name": "Time Remap",
+   "value": null,
+   "pvt": 6417,
+   "dimensions": 1,
+   "min": 0
+  },
+  {
+   "matchName": "ADBE MTrackers",
+   "name": "Motion Trackers",
+   "group": true
+  },
+  {
+   "matchName": "ADBE Mask Parade",
+   "name": "Masks",
+   "group": true
+  },
+  {
+   "matchName": "ADBE Effect Parade",
+   "name": "Effects",
+   "group": true
+  },
+  {
+   "matchName": "ADBE Transform Group",
+   "name": "Transform",
+   "group": true
+  },
+  {
+   "matchName": "ADBE Camera Options Group",
+   "name": "Camera Options",
+   "group": true
+  },
+  {
+   "matchName": "ADBE Light Options Group",
+   "name": "Light Options",
+   "group": true
+  },
+  {
+   "matchName": "ADBE Layer Styles",
+   "name": "Layer Styles",
+   "group": true
+  },
+  {
+   "matchName": "ADBE Plane Options Group",
+   "name": "Geometry Options",
+   "group": true
+  },
+  {
+   "matchName": "ADBE Extrsn Options Group",
+   "name": "Geometry Options",
+   "group": true
+  },
+  {
+   "matchName": "ADBE Material Options Group",
+   "name": "Material Options",
+   "group": true
+  },
+  {
+   "matchName": "ADBE Compositing Options Group",
+   "name": "Compositing Options",
+   "group": true
+  },
+  {
+   "matchName": "ADBE Audio Group",
+   "name": "Audio",
+   "group": true
+  },
+  {
+   "matchName": "ADBE Data Group",
+   "name": "Data",
+   "group": true
+  },
+  {
+   "matchName": "ADBE Layer Overrides",
+   "name": "Essential Properties",
+   "group": true
+  },
+  {
+   "matchName": "ADBE Layer Sets",
+   "name": "Sets",
+   "group": true
+  },
+  {
+   "matchName": "ADBE3D Para Mat Parade",
+   "name": "Material Assignment",
+   "group": true
+  },
+  {
+   "matchName": "ADBE Source Options Group",
+   "name": "Replace Source",
+   "group": true
+  }
+ ],
+ "parametricMeshTopLevel": [
+  {
+   "matchName": "ADBE Marker",
+   "name": "Marker",
+   "value": null,
+   "pvt": 6420,
+   "dimensions": 0
+  },
+  {
+   "matchName": "ADBE MTrackers",
+   "name": "Motion Trackers",
+   "group": true
+  },
+  {
+   "matchName": "ADBE Mask Parade",
+   "name": "Masks",
+   "group": true
+  },
+  {
+   "matchName": "ADBE Effect Parade",
+   "name": "Effects",
+   "group": true
+  },
+  {
+   "matchName": "ADBE Transform Group",
+   "name": "Transform",
+   "group": true
+  },
+  {
+   "matchName": "ADBE Layer Styles",
+   "name": "Layer Styles",
+   "group": true
+  },
+  {
+   "matchName": "ADBE Extrsn Options Group",
+   "name": "Geometry Options",
+   "group": true
+  },
+  {
+   "matchName": "ADBE Material Options Group",
+   "name": "Material Options",
+   "group": true
+  },
+  {
+   "matchName": "ADBE Compositing Options Group",
+   "name": "Compositing Options",
+   "group": true
+  },
+  {
+   "matchName": "ADBE Audio Group",
+   "name": "Audio",
+   "group": true
+  },
+  {
+   "matchName": "ADBE Layer Sets",
+   "name": "Sets",
+   "group": true
+  },
+  {
+   "matchName": "ADBE3D Para Mat Parade",
+   "name": "Material Assignment",
+   "group": true
+  },
+  {
+   "matchName": "ADBE Displacement Options",
+   "name": "Displacement Options",
+   "group": true
+  },
+  {
+   "matchName": "ADBE Plane Options Group",
+   "name": "Geometry Options",
+   "group": true
+  },
+  {
+   "matchName": "ADBE Layer Overrides",
+   "name": "Essential Properties",
+   "group": true
+  },
+  {
+   "matchName": "ADBE Source Options Group",
+   "name": "Replace Source",
+   "group": true
+  },
+  {
+   "matchName": "ADBE CubeMeshOptionsSGrp",
+   "name": "Mesh Options",
+   "group": true
+  },
+  {
+   "matchName": "ADBE CubeBevelOptionsSGrp",
+   "name": "Bevel Options",
+   "group": true
+  },
+  {
+   "matchName": "ADBE SphereMeshOptionsSGrp",
+   "name": "Mesh Options",
+   "group": true
+  },
+  {
+   "matchName": "ADBE PlaneMeshOptionsSGrp",
+   "name": "Mesh Options",
+   "group": true
+  },
+  {
+   "matchName": "ADBE TorusMeshOptionsSGrp",
+   "name": "Mesh Options",
+   "group": true
+  },
+  {
+   "matchName": "ADBE ConeMeshOptionsSGrp",
+   "name": "Mesh Options",
+   "group": true
+  },
+  {
+   "matchName": "ADBE ConeBevelBevelSGrp",
+   "name": "Bevel Options",
+   "group": true
+  },
+  {
+   "matchName": "ADBE CylinderMeshOptionsSGrp",
+   "name": "Mesh Options",
+   "group": true
+  },
+  {
+   "matchName": "ADBE CylinderBevelOptionsSGrp",
+   "name": "Bevel Options",
+   "group": true
+  }
+ ],
+ "skip": {
+  "AVLayer": [
+   "ADBE Camera Options Group",
+   "ADBE Compositing Options Group",
+   "ADBE Light Options Group",
+   "ADBE Root Vectors Group",
+   "ADBE Text Properties",
+   "ADBE3D Para Mat Parade"
+  ],
+  "TextLayer": [
+   "ADBE Camera Options Group",
+   "ADBE Compositing Options Group",
+   "ADBE Data Group",
+   "ADBE Layer Overrides",
+   "ADBE Light Options Group",
+   "ADBE MTrackers",
+   "ADBE Plane Options Group",
+   "ADBE Root Vectors Group",
+   "ADBE Source Options Group",
+   "ADBE Time Remapping",
+   "ADBE3D Para Mat Parade"
+  ],
+  "ShapeLayer": [
+   "ADBE Camera Options Group",
+   "ADBE Compositing Options Group",
+   "ADBE Data Group",
+   "ADBE Layer Overrides",
+   "ADBE Light Options Group",
+   "ADBE MTrackers",
+   "ADBE Plane Options Group",
+   "ADBE Source Options Group",
+   "ADBE Text Properties",
+   "ADBE Time Remapping",
+   "ADBE3D Para Mat Parade"
+  ],
+  "CameraLayer": [
+   "ADBE Audio Group",
+   "ADBE Compositing Options Group",
+   "ADBE Data Group",
+   "ADBE Effect Parade",
+   "ADBE Extrsn Options Group",
+   "ADBE Layer Overrides",
+   "ADBE Layer Sets",
+   "ADBE Layer Styles",
+   "ADBE Light Options Group",
+   "ADBE MTrackers",
+   "ADBE Mask Parade",
+   "ADBE Material Options Group",
+   "ADBE Plane Options Group",
+   "ADBE Root Vectors Group",
+   "ADBE Source Options Group",
+   "ADBE Text Properties",
+   "ADBE Time Remapping",
+   "ADBE3D Para Mat Parade"
+  ],
+  "LightLayer": [
+   "ADBE Audio Group",
+   "ADBE Camera Options Group",
+   "ADBE Compositing Options Group",
+   "ADBE Data Group",
+   "ADBE Effect Parade",
+   "ADBE Extrsn Options Group",
+   "ADBE Layer Overrides",
+   "ADBE Layer Sets",
+   "ADBE Layer Styles",
+   "ADBE MTrackers",
+   "ADBE Mask Parade",
+   "ADBE Material Options Group",
+   "ADBE Plane Options Group",
+   "ADBE Root Vectors Group",
+   "ADBE Source Options Group",
+   "ADBE Text Properties",
+   "ADBE Time Remapping",
+   "ADBE3D Para Mat Parade"
+  ]
+ },
+ "transform": [
+  {
+   "matchName": "ADBE Anchor Point",
+   "name": "Anchor Point",
+   "value": null,
+   "pvt": 6413,
+   "dimensions": 3,
+   "isSpatial": true
+  },
+  {
+   "matchName": "ADBE Position",
+   "name": "Position",
+   "value": null,
+   "pvt": 6413,
+   "dimensions": 3,
+   "isSpatial": true
+  },
+  {
+   "matchName": "ADBE Position_0",
+   "name": "X Position",
+   "value": null,
+   "pvt": 6417,
+   "dimensions": 1
+  },
+  {
+   "matchName": "ADBE Position_1",
+   "name": "Y Position",
+   "value": null,
+   "pvt": 6417,
+   "dimensions": 1
+  },
+  {
+   "matchName": "ADBE Position_2",
+   "name": "Z Position",
+   "value": null,
+   "pvt": 6417,
+   "dimensions": 1
+  },
+  {
+   "matchName": "ADBE Scale",
+   "name": "Scale",
+   "value": null,
+   "pvt": 6414,
+   "dimensions": 3
+  },
+  {
+   "matchName": "ADBE Orientation",
+   "name": "Orientation",
+   "value": null,
+   "pvt": 6413,
+   "dimensions": 3,
+   "isSpatial": true
+  },
+  {
+   "matchName": "ADBE Rotate X",
+   "name": "X Rotation",
+   "value": null,
+   "pvt": 6417,
+   "dimensions": 1
+  },
+  {
+   "matchName": "ADBE Rotate Y",
+   "name": "Y Rotation",
+   "value": null,
+   "pvt": 6417,
+   "dimensions": 1
+  },
+  {
+   "matchName": "ADBE Rotate Z",
+   "name": "Rotation",
+   "value": null,
+   "pvt": 6417,
+   "dimensions": 1
+  },
+  {
+   "matchName": "ADBE Opacity",
+   "name": "Opacity",
+   "value": null,
+   "pvt": 6417,
+   "dimensions": 1
+  },
+  {
+   "matchName": "ADBE Envir Appear in Reflect",
+   "name": "Appears in Reflections",
+   "value": null,
+   "pvt": 6417,
+   "dimensions": 1,
+   "integer": true,
+   "canVaryOverTime": false
+  }
+ ],
+ "transformFixedDefaults": {
+  "ADBE Scale": [
+   100.0,
+   100.0,
+   100.0
+  ],
+  "ADBE Rotate X": 0.0,
+  "ADBE Rotate Y": 0.0,
+  "ADBE Rotate Z": 0.0,
+  "ADBE Opacity": 100.0,
+  "ADBE Orientation": [
+   0.0,
+   0.0,
+   0.0
+  ],
+  "ADBE Position_2": 0.0,
+  "ADBE Envir Appear in Reflect": 1.0
+ }
+}
