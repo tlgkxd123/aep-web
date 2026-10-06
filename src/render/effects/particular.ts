@@ -1,9 +1,15 @@
 // Trapcode Particular: a deterministic look-alike, not a reproduction. Particular's
 // particle positions come from its own random generator, so this draws a seeded
 // particle system from the stored emitter, physics and particle settings (system 1
-// only): particles born at the emission rate inside the emitter box, moving with
-// their velocity plus wind, seen through the default comp camera, drawn as soft
-// white dots with a glow halo. It replaces the layer's pixels as Particular does.
+// only): particles born at the emission rate inside the (rotated) emitter box,
+// moving with their velocity, wind and gravity in particle space, placed in the
+// comp by the World Transform (rotation about the comp centre, then offset; checked
+// against After Effects renders of the user's setup), seen through the comp's
+// camera, drawn as soft dots with a glow halo. It replaces the layer's pixels as
+// Particular does.
+import type { CompItem, Layer, Project, PropertyGroup } from "../../aep/model.ts";
+import type { Chunk } from "../../aep/riff.ts";
+import { cameraAt, Mat4 } from "../../aep/transform.ts";
 import { effectNumber, effectVector } from "../effectParams.ts";
 import { compile, type GL } from "../gl.ts";
 import { registerEffect } from "../registry.ts";
@@ -41,6 +47,7 @@ const SPLAT_FS = `#version 300 es
 precision highp float;
 uniform vec2 u_size;
 uniform float u_pad;
+uniform vec3 u_color;
 flat in vec4 v_splat;
 flat in float v_opacity;
 out vec4 outColor;
@@ -50,7 +57,8 @@ void main() {
   float r = v_splat.z;
   float inner = v_splat.w;
   float cover = d <= inner ? 1.0 : d >= r ? 0.0 : 1.0 - (d - inner) / max(1e-6, r - inner);
-  outColor = vec4(v_opacity * cover);
+  float a = v_opacity * cover;
+  outColor = vec4(u_color * a, a);
 }`;
 
 interface SplatGpu {
@@ -59,6 +67,7 @@ interface SplatGpu {
   instances: WebGLBuffer;
   size: WebGLUniformLocation | null;
   pad: WebGLUniformLocation | null;
+  color: WebGLUniformLocation | null;
 }
 const splatGpu = new WeakMap<GL, SplatGpu>();
 
@@ -82,66 +91,210 @@ function splatter(gl: GL): SplatGpu {
   gl.vertexAttribPointer(2, 1, gl.FLOAT, false, 20, 16);
   gl.vertexAttribDivisor(2, 1);
   gl.bindVertexArray(null);
-  state = { program, vao, instances, size: gl.getUniformLocation(program, "u_size"), pad: gl.getUniformLocation(program, "u_pad") };
+  state = {
+    program,
+    vao,
+    instances,
+    size: gl.getUniformLocation(program, "u_size"),
+    pad: gl.getUniformLocation(program, "u_pad"),
+    color: gl.getUniformLocation(program, "u_color"),
+  };
   splatGpu.set(gl, state);
   return state;
 }
 
-/** Appends a soft disc of radius r (feathered over its outer `feather` share) as one instance: cx, cy, r, inner, opacity. */
-function splat(out: number[], cx: number, cy: number, radius: number, feather: number, opacity: number) {
+/** Appends a disc, opaque out to `inner` and fading linearly to zero at `outer`, as one instance: cx, cy, outer, inner, opacity. */
+function splat(out: number[], cx: number, cy: number, inner: number, outer: number, opacity: number) {
   // Dots below a pixel keep their area as fainter one-pixel dots.
-  const r = Math.max(radius, 0.75);
-  opacity *= Math.min(1, (radius / r) ** 2);
-  if (opacity > 0) out.push(cx, cy, r, r * (1 - feather), opacity);
+  const r = Math.max(outer, 0.75);
+  opacity *= Math.min(1, (outer / r) ** 2);
+  if (opacity > 0) out.push(cx, cy, r, Math.min(inner, r), opacity);
 }
+
+/** Samples of an "over Life" curve (Size, Opacity...): 201 float32 values from birth to death after a 28-byte header. */
+const OVER_LIFE_SAMPLES = 201;
+const overLifeCurves = new WeakMap<object, Map<string, Float32Array | null>>();
+
+function overLife(effect: PropertyGroup, param: number): Float32Array | null {
+  const chunk = effect.chunk;
+  if (!chunk) return null;
+  let curves = overLifeCurves.get(chunk);
+  if (!curves) overLifeCurves.set(chunk, (curves = new Map()));
+  const matchName = `${effect.matchName}-${String(param).padStart(4, "0")}`;
+  if (curves.has(matchName)) return curves.get(matchName)!;
+  let found: Float32Array | null = null;
+  // The curve is arbitrary data (LIST:aRbs) following the parameter's tdmn.
+  const visit = (children: Chunk[]) => {
+    let current = "";
+    for (const c of children) {
+      if (found) return;
+      if (c.type === "tdmn") current = new TextDecoder().decode(c.data).replace(/\0[\s\S]*$/, "");
+      else if (c.type === "LIST" && c.listType === "aRbs" && current === matchName) {
+        const data = c.children?.find((x) => x.type === "aRbp")?.data;
+        if (data && data.length >= 28 + OVER_LIFE_SAMPLES * 4) {
+          const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
+          found = Float32Array.from({ length: OVER_LIFE_SAMPLES }, (_, i) => view.getFloat32(28 + i * 4, true));
+        }
+      } else if (c.children) visit(c.children);
+    }
+  };
+  visit(chunk.children ?? []);
+  curves.set(matchName, found);
+  return found;
+}
+
+function sampleCurve(curve: Float32Array | null, u: number): number {
+  if (!curve) return 1;
+  const x = Math.max(0, Math.min(1, u)) * (OVER_LIFE_SAMPLES - 1);
+  const i = Math.min(OVER_LIFE_SAMPLES - 2, Math.floor(x));
+  return Math.max(0, curve[i] + (curve[i + 1] - curve[i]) * (x - i));
+}
+
+const compOfLayer = new WeakMap<Layer, CompItem>();
+function compOf(project: Project, layer: Layer): CompItem | undefined {
+  let comp = compOfLayer.get(layer);
+  if (comp) return comp;
+  for (const item of project.items.values()) {
+    if (item.kind === "comp" && item.layers.includes(layer)) comp = item;
+  }
+  if (comp) compOfLayer.set(layer, comp);
+  return comp;
+}
+
+const rotation = (x: number, y: number, z: number) => Mat4.rotateX(x).mul(Mat4.rotateY(y)).mul(Mat4.rotateZ(z));
+
+/** A random unit vector. */
+function uniformDirection(rand: () => number): [number, number, number] {
+  const z = rand() * 2 - 1;
+  const a = rand() * 2 * Math.PI;
+  const r = Math.sqrt(1 - z * z);
+  return [r * Math.cos(a), r * Math.sin(a), z];
+}
+
+const EMITTER_POINT = 1;
+const EMITTER_BOX = 2;
+const EMITTER_SPHERE = 3;
+const DIRECTION_UNIFORM = 1;
+const DIRECTION_DIRECTIONAL = 2;
+const DIRECTION_BIDIRECTIONAL = 3;
+const DIRECTION_DISC = 4;
+const DIRECTION_OUTWARDS = 5;
+const SIZE_LINKED = 1;
 
 registerEffect("tc Particular", (input, effect, layer, time, ctx) => {
   const num = (index: number, fallback: number) => effectNumber(effect, index, layer, time, fallback);
   ctx.warn("Particular is drawn with a seeded look-alike; particle positions do not match After Effects");
+  const width = input.width;
+  const height = input.height;
+  const comp = compOf(ctx.project, layer);
+  const compW = comp?.width ?? width;
+  const compH = comp?.height ?? height;
+
   const rate = Math.max(0, num(146, 100));
-  const emitterType = num(5, 1);
-  const position = effectVector(effect, 581, layer, time, [input.width / 2, input.height / 2, 0]);
-  const size = [num(14, 50), num(15, 50), num(16, 50)];
+  const emitterType = num(5, EMITTER_POINT);
+  const direction = num(113, DIRECTION_UNIFORM);
+  const spread = Math.max(0, Math.min(100, num(10, 20))) / 100;
+  const emitterRotation = rotation(num(112, 0), num(111, 0), num(76, 0));
+  const linked = num(577, SIZE_LINKED) === SIZE_LINKED;
+  const sizeX = num(14, 50);
+  const boxSize = linked ? [sizeX, sizeX, sizeX] : [sizeX, num(15, 50), num(16, 50)];
   const velocity = num(11, 100);
   const velocityRandom = num(12, 20) / 100;
   const life = Math.max(0, num(2, 3));
-  const lifeRandom = num(65, 0) / 100;
+  const lifeRandom = Math.min(1, num(65, 0) / 100);
   const particleSize = Math.max(0, num(27, 4));
-  const sizeRandom = num(74, 0) / 100;
+  const sizeRandom = Math.min(1, num(74, 0) / 100);
   const opacity = num(33, 100) / 100;
-  const opacityRandom = num(75, 0) / 100;
+  const opacityRandom = Math.min(1, num(75, 0) / 100);
   const feather = num(29, 50) / 100;
   const glowSize = num(215, 300) / 100;
   const glowOpacity = num(216, 25) / 100;
+  const color = effectVector(effect, 70, layer, time, [1, 1, 1, 1]);
   const timeFactor = num(25, 1);
+  const gravity = num(17, 0);
   const wind = [num(22, 0), num(23, 0), num(24, 0)];
-  const rand = random(num(230, 100000));
+  const seed = num(230, 100000);
+  const preRun = Math.max(0, num(227, 0)) / 100;
+  const sizeOverLife = overLife(effect, 569);
+  const opacityOverLife = overLife(effect, 570);
 
-  const width = input.width;
-  const height = input.height;
+  // Particle space -> comp space: World Transform rotates about the comp centre, then offsets.
+  const cx = compW / 2;
+  const cy = compH / 2;
+  const world = Mat4.translation(cx + num(293, 0), cy + num(294, 0), num(295, 0))
+    .mul(rotation(num(290, 0), num(291, 0), num(292, 0)))
+    .mul(Mat4.translation(-cx, -cy, 0));
+  const camera = comp ? cameraAt(comp, time) : { position: [cx, cy, -compW / 0.72], rotation: new Mat4(), zoom: compW / 0.72 };
+  const toCamera = camera.rotation.inverse();
+  // Particular draws in comp space; a layer that is not comp-sized is centred on it.
+  const shiftX = (width - compW) / 2;
+  const shiftY = (height - compH) / 2;
+
+  const fps = comp?.frameRate || 24;
+  const emitterAt = new Map<number, number[]>();
+  const emitterPosition = (t: number) => {
+    const frame = Math.round(t * fps);
+    let p = emitterAt.get(frame);
+    if (!p) emitterAt.set(frame, (p = effectVector(effect, 581, layer, frame / fps, [cx, cy, 0])));
+    return p;
+  };
+
+  // Physics Time Factor runs the whole simulation (emission, ageing, motion) slower or faster:
+  // birth times and ages are in simulation seconds.
+  const simFactor = Math.max(timeFactor, 1e-3);
+  const now = (time + preRun * life) * simFactor;
   const splats: number[] = [];
-  // Default comp camera: 50 mm equivalent, looking at the comp centre from z = -zoom.
-  const zoom = (width / 2) / Math.tan((39.6 * Math.PI) / 360);
-  const born = Math.floor(time * rate + 1e-6);
-  for (let i = 0; i <= born; i++) {
-    const birth = i / Math.max(rate, 1e-6);
-    const box = emitterType === 1 ? [0, 0, 0] : [rand() - 0.5, rand() - 0.5, rand() - 0.5];
-    const dir = [rand() * 2 - 1, rand() * 2 - 1, rand() * 2 - 1];
-    const speed = velocity * (1 - velocityRandom * rand());
+  const period = 1 / Math.max(rate, 1e-6);
+  const first = Math.max(0, Math.floor((now - life) * rate) - 1);
+  const last = Math.floor(now * rate + 1e-6);
+  for (let i = first; i <= last && rate > 0; i++) {
+    const birth = i * period;
+    const age = now - birth;
+    const rand = random(Math.imul(seed | 0, 2654435761) ^ Math.imul(i + 1, 0x9e3779b1));
     const lifeSpan = life * (1 - lifeRandom * 0.5 * rand());
-    const pSize = particleSize * (1 - sizeRandom * rand());
-    const pOpacity = opacity * (1 - opacityRandom * rand());
-    const age = time - birth;
     if (age < 0 || age > lifeSpan) continue;
-    const t = age * timeFactor;
+    const offset =
+      emitterType === EMITTER_BOX
+        ? [(rand() - 0.5) * boxSize[0], (rand() - 0.5) * boxSize[1], (rand() - 0.5) * boxSize[2]]
+        : emitterType === EMITTER_SPHERE
+          ? uniformDirection(rand).map((c, k) => (c * Math.cbrt(rand()) * boxSize[k]) / 2)
+          : [0, 0, 0];
+    let dir: number[];
+    if (direction === DIRECTION_DIRECTIONAL || direction === DIRECTION_BIDIRECTIONAL) {
+      const cone = uniformDirection(rand).map((c, k) => (k === 2 ? 0 : c * spread));
+      const sign = direction === DIRECTION_BIDIRECTIONAL && rand() < 0.5 ? -1 : 1;
+      dir = emitterRotation.transformVector([cone[0], cone[1], sign]);
+    } else if (direction === DIRECTION_DISC) {
+      const a = rand() * 2 * Math.PI;
+      dir = emitterRotation.transformVector([Math.cos(a), Math.sin(a), (rand() * 2 - 1) * spread]);
+    } else if (direction === DIRECTION_OUTWARDS) {
+      dir = offset.some((c) => c !== 0) ? offset : uniformDirection(rand);
+    } else {
+      dir = uniformDirection(rand);
+    }
+    const speed = Math.max(0, velocity * (1 + velocityRandom * (rand() * 2 - 1)));
+    const lifeShare = lifeSpan > 0 ? age / lifeSpan : 0;
+    const pSize = particleSize * (1 - sizeRandom * rand()) * sampleCurve(sizeOverLife, lifeShare);
+    const pOpacity = opacity * (1 - opacityRandom * rand()) * sampleCurve(opacityOverLife, lifeShare);
     const norm = Math.hypot(dir[0], dir[1], dir[2]) || 1;
-    const p = [0, 1, 2].map((c) => position[c] + box[c] * size[c] + (dir[c] / norm) * speed * t + wind[c] * t);
-    const scale = zoom / Math.max(1, zoom + p[2]);
-    const sx = width / 2 + (p[0] - width / 2) * scale;
-    const sy = height / 2 + (p[1] - height / 2) * scale;
+    const t = age;
+    const origin = emitterPosition(Math.max(0, birth / simFactor - preRun * life));
+    const box = emitterRotation.transformVector(offset);
+    const local = [0, 1, 2].map((c) => origin[c] + box[c] + (dir[c] / norm) * speed * t + wind[c] * t + (c === 1 ? 0.5 * gravity * t * t : 0));
+    const p = world.transformPoint(local);
+    const view = toCamera.transformVector([p[0] - camera.position[0], p[1] - camera.position[1], p[2] - camera.position[2]]);
+    if (view[2] <= 1) continue;
+    const scale = camera.zoom / view[2];
+    const sx = cx + view[0] * scale + shiftX;
+    const sy = cy + view[1] * scale + shiftY;
+    // Size is the diameter; Particle Feather fades outward beyond it (to 1.9 r at 50%, as After Effects draws it).
+    // The glow halo scales from that feathered edge.
     const r = (pSize * scale) / 2;
-    splat(splats, sx, sy, r * glowSize, 1, pOpacity * glowOpacity);
-    splat(splats, sx, sy, r, feather, pOpacity);
+    const edge = r * (1 + 1.8 * feather);
+    const reach = edge * Math.max(glowSize, 1);
+    if (pOpacity <= 0 || sx + reach < 0 || sy + reach < 0 || sx - reach > width || sy - reach > height) continue;
+    splat(splats, sx, sy, 0, edge * glowSize, pOpacity * glowOpacity);
+    splat(splats, sx, sy, r, edge, pOpacity);
   }
   const pad = ctx.pad;
   // `acquire` leaves the cleared target bound with its viewport set.
@@ -153,6 +306,7 @@ registerEffect("tc Particular", (input, effect, layer, time, ctx) => {
     gl.useProgram(gpu.program);
     gl.uniform2f(gpu.size, out.width, out.height);
     gl.uniform1f(gpu.pad, pad);
+    gl.uniform3f(gpu.color, color[0] ?? 1, color[1] ?? 1, color[2] ?? 1);
     gl.bindBuffer(gl.ARRAY_BUFFER, gpu.instances);
     gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(splats), gl.STREAM_DRAW);
     gl.enable(gl.SCISSOR_TEST);
