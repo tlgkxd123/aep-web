@@ -1,0 +1,203 @@
+{
+    "project":  "fxmisc.aep",
+    "comps":  [
+                  {
+                      "comp":  "fxmisc_polar_grad_r2p",
+                      "frames":  [
+                                     0,
+                                     1,
+                                     2,
+                                     3,
+                                     4
+                                 ],
+                      "fps":  24.0
+                  },
+                  {
+                      "comp":  "fxmisc_polar_tall_r2p",
+                      "frames":  [
+                                     0,
+                                     1,
+                                     2,
+                                     3,
+                                     4
+                                 ],
+                      "fps":  24.0
+                  },
+                  {
+                      "comp":  "fxmisc_polar_wide_r2p",
+                      "frames":  [
+                                     0,
+                                     1,
+                                     2,
+                                     3,
+                                     4
+                                 ],
+                      "fps":  24.0
+                  },
+                  {
+                      "comp":  "fxmisc_polar_bars_r2p",
+                      "frames":  [
+                                     0,
+                                     1,
+                                     2,
+                                     3,
+                                     4
+                                 ],
+                      "fps":  24.0
+                  },
+                  {
+                      "comp":  "fxmisc_polar_grad_p2r",
+                      "frames":  [
+                                     0,
+                                     1,
+                                     2,
+                                     3,
+                                     4
+                                 ],
+                      "fps":  24.0
+                  },
+                  {
+                      "comp":  "fxmisc_polar_tall_p2r",
+                      "frames":  [
+                                     0,
+                                     1,
+                                     2,
+                                     3,
+                                     4
+                                 ],
+                      "fps":  24.0
+                  },
+                  {
+                      "comp":  "fxmisc_polar_wide_p2r",
+                      "frames":  [
+                                     0,
+                                     1,
+                                     2,
+                                     3,
+                                     4
+                                 ],
+                      "fps":  24.0
+                  },
+                  {
+                      "comp":  "fxmisc_polar_bars_p2r",
+                      "frames":  [
+                                     0,
+                                     1,
+                                     2,
+                                     3,
+                                     4
+                                 ],
+                      "fps":  24.0
+                  },
+                  {
+                      "comp":  "fxmisc_as_default",
+                      "frames":  [
+                                     12
+                                 ],
+                      "fps":  24.0
+                  },
+                  {
+                      "comp":  "fxmisc_as_lobe",
+                      "frames":  [
+                                     12
+                                 ],
+                      "fps":  24.0
+                  },
+                  {
+                      "comp":  "fxmisc_as_lobe_long",
+                      "frames":  [
+                                     12
+                                 ],
+                      "fps":  24.0
+                  },
+                  {
+                      "comp":  "fxmisc_as_steps",
+                      "frames":  [
+                                     6,
+                                     18,
+                                     30,
+                                     42,
+                                     54
+                                 ],
+                      "fps":  24.0
+                  },
+                  {
+                      "comp":  "fxmisc_as_two_tones",
+                      "frames":  [
+                                     12
+                                 ],
+                      "fps":  24.0
+                  },
+                  {
+                      "comp":  "fxmisc_as_style",
+                      "frames":  [
+                                     12
+                                 ],
+                      "fps":  24.0
+                  },
+                  {
+                      "comp":  "fxmisc_as_analog",
+                      "frames":  [
+                                     12
+                                 ],
+                      "fps":  24.0
+                  },
+                  {
+                      "comp":  "fxmisc_as_dots",
+                      "frames":  [
+                                     12
+                                 ],
+                      "fps":  24.0
+                  },
+                  {
+                      "comp":  "fxmisc_as_bass",
+                      "frames":  [
+                                     12,
+                                     13,
+                                     14
+                                 ],
+                      "fps":  24.0
+                  },
+                  {
+                      "comp":  "fxmisc_dg_default",
+                      "frames":  [
+                                     0
+                                 ],
+                      "fps":  24.0
+                  },
+                  {
+                      "comp":  "fxmisc_dg_radius",
+                      "frames":  [
+                                     0,
+                                     1,
+                                     2,
+                                     3,
+                                     4
+                                 ],
+                      "fps":  24.0
+                  },
+                  {
+                      "comp":  "fxmisc_dg_exposure",
+                      "frames":  [
+                                     0,
+                                     1,
+                                     2
+                                 ],
+                      "fps":  24.0
+                  },
+                  {
+                      "comp":  "fxmisc_dg_alpha",
+                      "frames":  [
+                                     0
+                                 ],
+                      "fps":  24.0
+                  }
+              ],
+    "media":  [
+                  "fixtures/fxmisc_audio/fxmisc_bass.wav",
+                  "fixtures/fxmisc_audio/fxmisc_noise.wav",
+                  "fixtures/fxmisc_audio/fxmisc_sine440.wav",
+                  "fixtures/fxmisc_audio/fxmisc_sine440_steps.wav",
+                  "fixtures/fxmisc_audio/fxmisc_two_tones.wav"
+              ]
+}
