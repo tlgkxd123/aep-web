@@ -27,6 +27,12 @@ for (const { comp, frames, project } of work) {
   if (!force && frames.every((f) => existsSync(framePath(comp, f)))) continue;
   mkdirSync(join(root, "frames", comp), { recursive: true });
   const step = frames.length > 1 ? frames[1] - frames[0] : 1;
+  // aerender takes one increment, so an uneven list would save the wrong frames under its numbers.
+  if (frames.some((f, k) => f !== frames[0] + k * step)) {
+    failed++;
+    console.log(`FAIL ${comp}: frames ${frames.join(",")} are not evenly spaced`);
+    continue;
+  }
   const args = [
     "-project", join(root, "fixtures", project),
     "-comp", comp,
