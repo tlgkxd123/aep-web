@@ -1,7 +1,7 @@
 // Footage layers (still images, image sequences, video): comp time to source
 // frame, the located file's decoded frame from the footage store, and the
 // Interpret Footage alpha settings applied on the way into the layer image.
-import { layerTimeAt, valueAtTime } from "../aep/evaluate.ts";
+import { layerTimeAt, currentValue } from "../aep/evaluate.ts";
 import { AlphaMode, type CompItem, type FootageItem, type Layer, type Project } from "../aep/model.ts";
 import type { FootageFrame } from "../media/frames.ts";
 import { footageStore } from "../media/store.ts";
@@ -25,7 +25,7 @@ export function footageFrameIndex(item: FootageItem, sourceTime: number): number
 export function layerSourceTime(layer: Layer, time: number): number {
   if (layer.timeRemapEnabled) {
     const remap = layer.properties.find((n) => n.matchName === "ADBE Time Remapping");
-    const value = remap?.kind === "property" ? valueAtTime(remap, time, layer) : null;
+    const value = remap?.kind === "property" ? currentValue(remap, time, layer) : null;
     if (typeof value === "number") return value;
   }
   return layerTimeAt(layer, time);

@@ -11,6 +11,7 @@ import {
   type Gradient,
   type Keyframe,
   type Layer,
+  type Project,
   type Property,
   type PropertyNode,
   type PropertyValue,
@@ -660,8 +661,31 @@ export function setExpressionEvaluator(evaluator: ExpressionEvaluator | undefine
   expressionEvaluator = evaluator;
 }
 
+/** The project expressions resolve names against, and where their errors are reported. */
+export interface ExpressionScope {
+  project: Project;
+  warn(message: string): void;
+}
+let expressionScope: ExpressionScope | undefined;
+
+/** Set by whoever evaluates a project (the renderer, per frame); a new scope also drops cached expression results. */
+export function setExpressionScope(scope: ExpressionScope | undefined): void {
+  expressionScope = scope;
+}
+
+export function getExpressionScope(): ExpressionScope | undefined {
+  return expressionScope;
+}
+
 /** The value of `prop` at `compTime` after its expression, when it has one and an engine is installed. */
 export function currentValue(prop: Property, compTime: number, layer: Layer, siblings?: PropertyNode[]): PropertyValue {
+  if (expressionEvaluator && prop.matchName === "ADBE Position" && prop.dimensionsSeparated && siblings) {
+    const followers = ["ADBE Position_0", "ADBE Position_1", "ADBE Position_2"].map((m) => findChild(siblings, m));
+    if (followers.every(Boolean)) {
+      const parts = followers.map((f) => currentValue(f!, compTime, layer));
+      if (parts.every((v) => typeof v === "number")) return parts as number[];
+    }
+  }
   const value = valueAtTime(prop, compTime, layer, siblings);
   return expressionEvaluator && prop.expressionEnabled ? expressionEvaluator(prop, compTime, layer, value) : value;
 }

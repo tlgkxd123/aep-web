@@ -1,0 +1,23 @@
+{
+ "project": "expr_legacy.aep",
+ "comps": [
+  {
+   "comp": "expr_legacy_transform",
+   "frames": [
+    0,
+    6,
+    12,
+    18
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "expr_legacy_probe",
+   "frames": [
+    0,
+    12
+   ],
+   "fps": 24.0
+  }
+ ]
+}

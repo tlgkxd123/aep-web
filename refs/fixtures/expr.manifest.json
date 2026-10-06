@@ -1,0 +1,154 @@
+{
+ "project": "expr.aep",
+ "comps": [
+  {
+   "comp": "expr_transform",
+   "frames": [
+    0,
+    6,
+    12,
+    18
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "expr_vector_ops",
+   "frames": [
+    0,
+    6,
+    12,
+    18
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "expr_cross_layer",
+   "frames": [
+    0,
+    6,
+    12,
+    18
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "expr_loops",
+   "frames": [
+    0,
+    8,
+    16,
+    24,
+    32,
+    40
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "expr_interp",
+   "frames": [
+    0,
+    6,
+    12,
+    18
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "expr_parenting",
+   "frames": [
+    0,
+    6,
+    12,
+    18
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "expr_slider",
+   "frames": [
+    0,
+    6,
+    12,
+    18
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "expr_paths",
+   "frames": [
+    0,
+    12
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "expr_posterize",
+   "frames": [
+    0,
+    3,
+    6,
+    9,
+    12,
+    15,
+    18,
+    21
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "expr_errors",
+   "frames": [
+    0,
+    12
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "expr_probe_api",
+   "frames": [
+    0,
+    5,
+    10,
+    15,
+    20
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "expr_probe_ops",
+   "frames": [
+    0,
+    6,
+    12,
+    18
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "expr_probe_coerce",
+   "frames": [
+    0,
+    12
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "expr_probe_loops",
+   "frames": [
+    0,
+    4,
+    8,
+    12,
+    16,
+    20,
+    24,
+    28,
+    32,
+    36,
+    40,
+    44
+   ],
+   "fps": 24.0
+  }
+ ]
+}

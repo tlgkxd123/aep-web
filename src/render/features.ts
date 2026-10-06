@@ -1,5 +1,6 @@
 // Feature modules that register content providers and effects (see registry.ts).
 // One import per feature area.
+import "../expressions/install.ts";
 import "./effects/audioSpectrum.ts";
 import "./effects/controls.ts";
 import "./effects/keylight.ts";

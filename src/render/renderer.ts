@@ -3,7 +3,7 @@
 // Every image lives in a premultiplied RGBA8 target with a 1px transparent
 // border, so bilinear sampling gives transformed layers antialiased edges.
 // Target memory follows GL convention (row 0 = bottom of the image).
-import { layerTimeAt, valueAtTime } from "../aep/evaluate.ts";
+import { currentValue, layerTimeAt, setExpressionScope } from "../aep/evaluate.ts";
 import type { CompItem, Layer, Project, Property, PropertyGroup, PropertyNode } from "../aep/model.ts";
 import { cameraAt, localTransform, Mat4, worldMatrix, type Camera } from "../aep/transform.ts";
 import "./features.ts";
@@ -82,7 +82,8 @@ export class Renderer {
   /** Renders `comp` at composition time `time`; the returned target is owned by the caller (see `release`). */
   render(project: Project, comp: CompItem, time: number): Target {
     this.project = project;
-    this.warnings = new Set();
+    const warnings = (this.warnings = new Set());
+    setExpressionScope({ project, warn: (message) => warnings.add(message) });
     return this.renderComp(comp, time, 0);
   }
 
@@ -405,7 +406,7 @@ export class Renderer {
       let sourceTime = layerTimeAt(layer, time);
       if (layer.timeRemapEnabled) {
         const remap = findProperty(layer.properties, ["ADBE Time Remapping"]);
-        const value = remap ? valueAtTime(remap, time, layer) : null;
+        const value = remap ? currentValue(remap, time, layer) : null;
         if (typeof value === "number") sourceTime = value;
       }
       return { target: this.renderComp(source, sourceTime, depth + 1), width: source.width, height: source.height, origin: [0, 0] };

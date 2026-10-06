@@ -15,7 +15,7 @@
 //
 // All capsules go to the GPU as one instanced draw; the spectrum is computed
 // on the CPU per frame and cached by audio, time and settings.
-import { valueAtTime } from "../../aep/evaluate.ts";
+import { currentValue } from "../../aep/evaluate.ts";
 import { isShapeValue, type CompItem, type Layer, type Project, type PropertyGroup, type Shape } from "../../aep/model.ts";
 import { layerAudio, mixWindow, type LayerAudio } from "../../media/mix.ts";
 import { effectNumber, effectProperty, effectVector } from "../effectParams.ts";
@@ -224,7 +224,7 @@ function maskShape(layer: Layer, index: number, time: number): Shape | undefined
   const masks = (parade?.children ?? []).filter((n): n is PropertyGroup => n.kind === "group" && !!n.mask);
   const mask = masks[index - 1];
   const prop = mask?.children.find((c) => c.matchName === "ADBE Mask Shape");
-  const value = prop?.kind === "property" ? valueAtTime(prop, time, layer) : null;
+  const value = prop?.kind === "property" ? currentValue(prop, time, layer) : null;
   return isShapeValue(value) ? value : undefined;
 }
 

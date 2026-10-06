@@ -1,0 +1,885 @@
+{
+ "project": "expr_random.aep",
+ "scale": 1024,
+ "offset": 8388608,
+ "comps": [
+  {
+   "comp": "expr_random_cells",
+   "frames": [
+    0,
+    1,
+    2,
+    3,
+    12,
+    23
+   ],
+   "cells": [
+    {
+     "layer": "p0",
+     "label": "random() #0",
+     "x": 5,
+     "y": 5
+    },
+    {
+     "layer": "p1",
+     "label": "random() #1",
+     "x": 15,
+     "y": 5
+    },
+    {
+     "layer": "p2",
+     "label": "random() #2",
+     "x": 25,
+     "y": 5
+    },
+    {
+     "layer": "p3",
+     "label": "random() #3",
+     "x": 35,
+     "y": 5
+    },
+    {
+     "layer": "p4",
+     "label": "random() #4",
+     "x": 45,
+     "y": 5
+    },
+    {
+     "layer": "p5",
+     "label": "random() #5",
+     "x": 55,
+     "y": 5
+    },
+    {
+     "layer": "p6",
+     "label": "random() #6",
+     "x": 65,
+     "y": 5
+    },
+    {
+     "layer": "p7",
+     "label": "random() #7",
+     "x": 75,
+     "y": 5
+    },
+    {
+     "layer": "p8",
+     "label": "random() #8",
+     "x": 85,
+     "y": 5
+    },
+    {
+     "layer": "p9",
+     "label": "random() #9",
+     "x": 95,
+     "y": 5
+    },
+    {
+     "layer": "p10",
+     "label": "random() #10",
+     "x": 105,
+     "y": 5
+    },
+    {
+     "layer": "p11",
+     "label": "random() #11",
+     "x": 115,
+     "y": 5
+    },
+    {
+     "layer": "p12",
+     "label": "random() #12",
+     "x": 125,
+     "y": 5
+    },
+    {
+     "layer": "p13",
+     "label": "random() #13",
+     "x": 135,
+     "y": 5
+    },
+    {
+     "layer": "p14",
+     "label": "random() #14",
+     "x": 145,
+     "y": 5
+    },
+    {
+     "layer": "p15",
+     "label": "random() #15",
+     "x": 155,
+     "y": 5
+    },
+    {
+     "layer": "p16",
+     "label": "random() #16",
+     "x": 5,
+     "y": 15
+    },
+    {
+     "layer": "p17",
+     "label": "random() #17",
+     "x": 15,
+     "y": 15
+    },
+    {
+     "layer": "p18",
+     "label": "random() #18",
+     "x": 25,
+     "y": 15
+    },
+    {
+     "layer": "p19",
+     "label": "random() #19",
+     "x": 35,
+     "y": 15
+    },
+    {
+     "layer": "p20",
+     "label": "random() #20",
+     "x": 45,
+     "y": 15
+    },
+    {
+     "layer": "p21",
+     "label": "random() #21",
+     "x": 55,
+     "y": 15
+    },
+    {
+     "layer": "p22",
+     "label": "random() #22",
+     "x": 65,
+     "y": 15
+    },
+    {
+     "layer": "p23",
+     "label": "random() #23",
+     "x": 75,
+     "y": 15
+    },
+    {
+     "layer": "p24",
+     "label": "random() #24",
+     "x": 85,
+     "y": 15
+    },
+    {
+     "layer": "p25",
+     "label": "random() #25",
+     "x": 95,
+     "y": 15
+    },
+    {
+     "layer": "p26",
+     "label": "random() #26",
+     "x": 105,
+     "y": 15
+    },
+    {
+     "layer": "p27",
+     "label": "random() #27",
+     "x": 115,
+     "y": 15
+    },
+    {
+     "layer": "p28",
+     "label": "random() #28",
+     "x": 125,
+     "y": 15
+    },
+    {
+     "layer": "p29",
+     "label": "random() #29",
+     "x": 135,
+     "y": 15
+    },
+    {
+     "layer": "p30",
+     "label": "random() #30",
+     "x": 145,
+     "y": 15
+    },
+    {
+     "layer": "p31",
+     "label": "random() #31",
+     "x": 155,
+     "y": 15
+    },
+    {
+     "layer": "p32",
+     "label": "gaussRandom() #0",
+     "x": 5,
+     "y": 25
+    },
+    {
+     "layer": "p33",
+     "label": "gaussRandom() #1",
+     "x": 15,
+     "y": 25
+    },
+    {
+     "layer": "p34",
+     "label": "gaussRandom() #2",
+     "x": 25,
+     "y": 25
+    },
+    {
+     "layer": "p35",
+     "label": "gaussRandom() #3",
+     "x": 35,
+     "y": 25
+    },
+    {
+     "layer": "p36",
+     "label": "gaussRandom() #4",
+     "x": 45,
+     "y": 25
+    },
+    {
+     "layer": "p37",
+     "label": "gaussRandom() #5",
+     "x": 55,
+     "y": 25
+    },
+    {
+     "layer": "p38",
+     "label": "gaussRandom() #6",
+     "x": 65,
+     "y": 25
+    },
+    {
+     "layer": "p39",
+     "label": "gaussRandom() #7",
+     "x": 75,
+     "y": 25
+    },
+    {
+     "layer": "p40",
+     "label": "gaussRandom() #8",
+     "x": 85,
+     "y": 25
+    },
+    {
+     "layer": "p41",
+     "label": "gaussRandom() #9",
+     "x": 95,
+     "y": 25
+    },
+    {
+     "layer": "p42",
+     "label": "gaussRandom() #10",
+     "x": 105,
+     "y": 25
+    },
+    {
+     "layer": "p43",
+     "label": "gaussRandom() #11",
+     "x": 115,
+     "y": 25
+    },
+    {
+     "layer": "p44",
+     "label": "gaussRandom() #12",
+     "x": 125,
+     "y": 25
+    },
+    {
+     "layer": "p45",
+     "label": "gaussRandom() #13",
+     "x": 135,
+     "y": 25
+    },
+    {
+     "layer": "p46",
+     "label": "gaussRandom() #14",
+     "x": 145,
+     "y": 25
+    },
+    {
+     "layer": "p47",
+     "label": "gaussRandom() #15",
+     "x": 155,
+     "y": 25
+    },
+    {
+     "layer": "p48",
+     "label": "seedRandom(1, true) #0",
+     "x": 5,
+     "y": 35
+    },
+    {
+     "layer": "p49",
+     "label": "seedRandom(1, true) #1",
+     "x": 15,
+     "y": 35
+    },
+    {
+     "layer": "p50",
+     "label": "seedRandom(1, true) #2",
+     "x": 25,
+     "y": 35
+    },
+    {
+     "layer": "p51",
+     "label": "seedRandom(1, true) #3",
+     "x": 35,
+     "y": 35
+    },
+    {
+     "layer": "p52",
+     "label": "seedRandom(1, true) #4",
+     "x": 45,
+     "y": 35
+    },
+    {
+     "layer": "p53",
+     "label": "seedRandom(1, true) #5",
+     "x": 55,
+     "y": 35
+    },
+    {
+     "layer": "p54",
+     "label": "seedRandom(1, true) #6",
+     "x": 65,
+     "y": 35
+    },
+    {
+     "layer": "p55",
+     "label": "seedRandom(1, true) #7",
+     "x": 75,
+     "y": 35
+    },
+    {
+     "layer": "p56",
+     "label": "seedRandom(1, true) #8",
+     "x": 85,
+     "y": 35
+    },
+    {
+     "layer": "p57",
+     "label": "seedRandom(1, true) #9",
+     "x": 95,
+     "y": 35
+    },
+    {
+     "layer": "p58",
+     "label": "seedRandom(1, true) #10",
+     "x": 105,
+     "y": 35
+    },
+    {
+     "layer": "p59",
+     "label": "seedRandom(1, true) #11",
+     "x": 115,
+     "y": 35
+    },
+    {
+     "layer": "p60",
+     "label": "seedRandom(1, true) #12",
+     "x": 125,
+     "y": 35
+    },
+    {
+     "layer": "p61",
+     "label": "seedRandom(1, true) #13",
+     "x": 135,
+     "y": 35
+    },
+    {
+     "layer": "p62",
+     "label": "seedRandom(1, true) #14",
+     "x": 145,
+     "y": 35
+    },
+    {
+     "layer": "p63",
+     "label": "seedRandom(1, true) #15",
+     "x": 155,
+     "y": 35
+    },
+    {
+     "layer": "p64",
+     "label": "wiggle(2, 1000) #0",
+     "x": 5,
+     "y": 45
+    },
+    {
+     "layer": "p65",
+     "label": "wiggle(2, 1000) #1",
+     "x": 15,
+     "y": 45
+    },
+    {
+     "layer": "p66",
+     "label": "wiggle(2, 1000) #2",
+     "x": 25,
+     "y": 45
+    },
+    {
+     "layer": "p67",
+     "label": "wiggle(2, 1000) #3",
+     "x": 35,
+     "y": 45
+    },
+    {
+     "layer": "p68",
+     "label": "wiggle(2, 1000) #4",
+     "x": 45,
+     "y": 45
+    },
+    {
+     "layer": "p69",
+     "label": "wiggle(2, 1000) #5",
+     "x": 55,
+     "y": 45
+    },
+    {
+     "layer": "p70",
+     "label": "wiggle(2, 1000) #6",
+     "x": 65,
+     "y": 45
+    },
+    {
+     "layer": "p71",
+     "label": "wiggle(2, 1000) #7",
+     "x": 75,
+     "y": 45
+    },
+    {
+     "layer": "p72",
+     "label": "wiggle(2, 1000) #8",
+     "x": 85,
+     "y": 45
+    },
+    {
+     "layer": "p73",
+     "label": "wiggle(2, 1000) #9",
+     "x": 95,
+     "y": 45
+    },
+    {
+     "layer": "p74",
+     "label": "wiggle(2, 1000) #10",
+     "x": 105,
+     "y": 45
+    },
+    {
+     "layer": "p75",
+     "label": "wiggle(2, 1000) #11",
+     "x": 115,
+     "y": 45
+    },
+    {
+     "layer": "p76",
+     "label": "wiggle(2, 1000) #12",
+     "x": 125,
+     "y": 45
+    },
+    {
+     "layer": "p77",
+     "label": "wiggle(2, 1000) #13",
+     "x": 135,
+     "y": 45
+    },
+    {
+     "layer": "p78",
+     "label": "wiggle(2, 1000) #14",
+     "x": 145,
+     "y": 45
+    },
+    {
+     "layer": "p79",
+     "label": "wiggle(2, 1000) #15",
+     "x": 155,
+     "y": 45
+    },
+    {
+     "layer": "p80",
+     "label": "wiggle(2, 1000) #16",
+     "x": 5,
+     "y": 55
+    },
+    {
+     "layer": "p81",
+     "label": "wiggle(2, 1000) #17",
+     "x": 15,
+     "y": 55
+    },
+    {
+     "layer": "p82",
+     "label": "wiggle(2, 1000) #18",
+     "x": 25,
+     "y": 55
+    },
+    {
+     "layer": "p83",
+     "label": "wiggle(2, 1000) #19",
+     "x": 35,
+     "y": 55
+    },
+    {
+     "layer": "p84",
+     "label": "wiggle(2, 1000) #20",
+     "x": 45,
+     "y": 55
+    },
+    {
+     "layer": "p85",
+     "label": "wiggle(2, 1000) #21",
+     "x": 55,
+     "y": 55
+    },
+    {
+     "layer": "p86",
+     "label": "wiggle(2, 1000) #22",
+     "x": 65,
+     "y": 55
+    },
+    {
+     "layer": "p87",
+     "label": "wiggle(2, 1000) #23",
+     "x": 75,
+     "y": 55
+    },
+    {
+     "layer": "p88",
+     "label": "wiggle(2, 1000) #24",
+     "x": 85,
+     "y": 55
+    },
+    {
+     "layer": "p89",
+     "label": "wiggle(2, 1000) #25",
+     "x": 95,
+     "y": 55
+    },
+    {
+     "layer": "p90",
+     "label": "wiggle(2, 1000) #26",
+     "x": 105,
+     "y": 55
+    },
+    {
+     "layer": "p91",
+     "label": "wiggle(2, 1000) #27",
+     "x": 115,
+     "y": 55
+    },
+    {
+     "layer": "p92",
+     "label": "wiggle(2, 1000) #28",
+     "x": 125,
+     "y": 55
+    },
+    {
+     "layer": "p93",
+     "label": "wiggle(2, 1000) #29",
+     "x": 135,
+     "y": 55
+    },
+    {
+     "layer": "p94",
+     "label": "wiggle(2, 1000) #30",
+     "x": 145,
+     "y": 55
+    },
+    {
+     "layer": "p95",
+     "label": "wiggle(2, 1000) #31",
+     "x": 155,
+     "y": 55
+    },
+    {
+     "layer": "p96",
+     "label": "noise(0.00)",
+     "x": 5,
+     "y": 65
+    },
+    {
+     "layer": "p97",
+     "label": "noise(0.37)",
+     "x": 15,
+     "y": 65
+    },
+    {
+     "layer": "p98",
+     "label": "noise(0.74)",
+     "x": 25,
+     "y": 65
+    },
+    {
+     "layer": "p99",
+     "label": "noise(1.11)",
+     "x": 35,
+     "y": 65
+    },
+    {
+     "layer": "p100",
+     "label": "noise(1.48)",
+     "x": 45,
+     "y": 65
+    },
+    {
+     "layer": "p101",
+     "label": "noise(1.85)",
+     "x": 55,
+     "y": 65
+    },
+    {
+     "layer": "p102",
+     "label": "noise(2.22)",
+     "x": 65,
+     "y": 65
+    },
+    {
+     "layer": "p103",
+     "label": "noise(2.59)",
+     "x": 75,
+     "y": 65
+    },
+    {
+     "layer": "p104",
+     "label": "noise(2.96)",
+     "x": 85,
+     "y": 65
+    },
+    {
+     "layer": "p105",
+     "label": "noise(3.33)",
+     "x": 95,
+     "y": 65
+    },
+    {
+     "layer": "p106",
+     "label": "noise(3.70)",
+     "x": 105,
+     "y": 65
+    },
+    {
+     "layer": "p107",
+     "label": "noise(4.07)",
+     "x": 115,
+     "y": 65
+    },
+    {
+     "layer": "p108",
+     "label": "noise(4.44)",
+     "x": 125,
+     "y": 65
+    },
+    {
+     "layer": "p109",
+     "label": "noise(4.81)",
+     "x": 135,
+     "y": 65
+    },
+    {
+     "layer": "p110",
+     "label": "noise(5.18)",
+     "x": 145,
+     "y": 65
+    },
+    {
+     "layer": "p111",
+     "label": "noise(5.55)",
+     "x": 155,
+     "y": 65
+    },
+    {
+     "layer": "p112",
+     "label": "noise(5.92)",
+     "x": 5,
+     "y": 75
+    },
+    {
+     "layer": "p113",
+     "label": "noise(6.29)",
+     "x": 15,
+     "y": 75
+    },
+    {
+     "layer": "p114",
+     "label": "noise(6.66)",
+     "x": 25,
+     "y": 75
+    },
+    {
+     "layer": "p115",
+     "label": "noise(7.03)",
+     "x": 35,
+     "y": 75
+    },
+    {
+     "layer": "p116",
+     "label": "noise(7.40)",
+     "x": 45,
+     "y": 75
+    },
+    {
+     "layer": "p117",
+     "label": "noise(7.77)",
+     "x": 55,
+     "y": 75
+    },
+    {
+     "layer": "p118",
+     "label": "noise(8.14)",
+     "x": 65,
+     "y": 75
+    },
+    {
+     "layer": "p119",
+     "label": "noise(8.51)",
+     "x": 75,
+     "y": 75
+    },
+    {
+     "layer": "p120",
+     "label": "noise(8.88)",
+     "x": 85,
+     "y": 75
+    },
+    {
+     "layer": "p121",
+     "label": "noise(9.25)",
+     "x": 95,
+     "y": 75
+    },
+    {
+     "layer": "p122",
+     "label": "noise(9.62)",
+     "x": 105,
+     "y": 75
+    },
+    {
+     "layer": "p123",
+     "label": "noise(9.99)",
+     "x": 115,
+     "y": 75
+    },
+    {
+     "layer": "p124",
+     "label": "noise(10.36)",
+     "x": 125,
+     "y": 75
+    },
+    {
+     "layer": "p125",
+     "label": "noise(10.73)",
+     "x": 135,
+     "y": 75
+    },
+    {
+     "layer": "p126",
+     "label": "noise(11.10)",
+     "x": 145,
+     "y": 75
+    },
+    {
+     "layer": "p127",
+     "label": "noise(11.47)",
+     "x": 155,
+     "y": 75
+    },
+    {
+     "layer": "p128",
+     "label": "noise([0.00, 0.5])",
+     "x": 5,
+     "y": 85
+    },
+    {
+     "layer": "p129",
+     "label": "noise([0.29, 0.5])",
+     "x": 15,
+     "y": 85
+    },
+    {
+     "layer": "p130",
+     "label": "noise([0.58, 0.5])",
+     "x": 25,
+     "y": 85
+    },
+    {
+     "layer": "p131",
+     "label": "noise([0.87, 0.5])",
+     "x": 35,
+     "y": 85
+    },
+    {
+     "layer": "p132",
+     "label": "noise([1.16, 0.5])",
+     "x": 45,
+     "y": 85
+    },
+    {
+     "layer": "p133",
+     "label": "noise([1.45, 0.5])",
+     "x": 55,
+     "y": 85
+    },
+    {
+     "layer": "p134",
+     "label": "noise([1.74, 0.5])",
+     "x": 65,
+     "y": 85
+    },
+    {
+     "layer": "p135",
+     "label": "noise([2.03, 0.5])",
+     "x": 75,
+     "y": 85
+    },
+    {
+     "layer": "p136",
+     "label": "noise([2.32, 0.5])",
+     "x": 85,
+     "y": 85
+    },
+    {
+     "layer": "p137",
+     "label": "noise([2.61, 0.5])",
+     "x": 95,
+     "y": 85
+    },
+    {
+     "layer": "p138",
+     "label": "noise([2.90, 0.5])",
+     "x": 105,
+     "y": 85
+    },
+    {
+     "layer": "p139",
+     "label": "noise([3.19, 0.5])",
+     "x": 115,
+     "y": 85
+    },
+    {
+     "layer": "p140",
+     "label": "noise([3.48, 0.5])",
+     "x": 125,
+     "y": 85
+    },
+    {
+     "layer": "p141",
+     "label": "noise([3.77, 0.5])",
+     "x": 135,
+     "y": 85
+    },
+    {
+     "layer": "p142",
+     "label": "noise([4.06, 0.5])",
+     "x": 145,
+     "y": 85
+    },
+    {
+     "layer": "p143",
+     "label": "noise([4.35, 0.5])",
+     "x": 155,
+     "y": 85
+    }
+   ],
+   "random": true
+  }
+ ]
+}

@@ -1,0 +1,1168 @@
+{
+ "project": "expr.aep",
+ "scale": 1024,
+ "offset": 8388608,
+ "comps": [
+  {
+   "comp": "expr_probe_api",
+   "frames": [
+    0,
+    5,
+    10,
+    15,
+    20
+   ],
+   "cells": [
+    {
+     "layer": "p0",
+     "label": "time",
+     "x": 5,
+     "y": 5
+    },
+    {
+     "layer": "p1",
+     "label": "K position x",
+     "x": 15,
+     "y": 5
+    },
+    {
+     "layer": "p2",
+     "label": "K position y",
+     "x": 25,
+     "y": 5
+    },
+    {
+     "layer": "p3",
+     "label": "K position velocity x",
+     "x": 35,
+     "y": 5
+    },
+    {
+     "layer": "p4",
+     "label": "K position speed",
+     "x": 45,
+     "y": 5
+    },
+    {
+     "layer": "p5",
+     "label": "K rotation velocity",
+     "x": 55,
+     "y": 5
+    },
+    {
+     "layer": "p6",
+     "label": "K velocityAtTime(0.25) x",
+     "x": 65,
+     "y": 5
+    },
+    {
+     "layer": "p7",
+     "label": "K speedAtTime(0.75)",
+     "x": 75,
+     "y": 5
+    },
+    {
+     "layer": "p8",
+     "label": "K valueAtTime(time - 0.2) y",
+     "x": 85,
+     "y": 5
+    },
+    {
+     "layer": "p9",
+     "label": "K valueAtTime(0.3) x",
+     "x": 95,
+     "y": 5
+    },
+    {
+     "layer": "p10",
+     "label": "K numKeys",
+     "x": 105,
+     "y": 5
+    },
+    {
+     "layer": "p11",
+     "label": "K key(2).time",
+     "x": 115,
+     "y": 5
+    },
+    {
+     "layer": "p12",
+     "label": "K key(3).value",
+     "x": 125,
+     "y": 5
+    },
+    {
+     "layer": "p13",
+     "label": "K key(2).value y",
+     "x": 135,
+     "y": 5
+    },
+    {
+     "layer": "p14",
+     "label": "K nearestKey(time).index",
+     "x": 145,
+     "y": 5
+    },
+    {
+     "layer": "p15",
+     "label": "K nearestKey(time).time",
+     "x": 155,
+     "y": 5
+    },
+    {
+     "layer": "p16",
+     "label": "K smooth x",
+     "x": 5,
+     "y": 15
+    },
+    {
+     "layer": "p17",
+     "label": "K slider",
+     "x": 15,
+     "y": 15
+    },
+    {
+     "layer": "p18",
+     "label": "K effect(1)(1)",
+     "x": 25,
+     "y": 15
+    },
+    {
+     "layer": "p19",
+     "label": "K param",
+     "x": 35,
+     "y": 15
+    },
+    {
+     "layer": "p20",
+     "label": "K slider velocity",
+     "x": 45,
+     "y": 15
+    },
+    {
+     "layer": "p21",
+     "label": "K point y",
+     "x": 55,
+     "y": 15
+    },
+    {
+     "layer": "p22",
+     "label": "K angle",
+     "x": 65,
+     "y": 15
+    },
+    {
+     "layer": "p23",
+     "label": "K color b",
+     "x": 75,
+     "y": 15
+    },
+    {
+     "layer": "p24",
+     "label": "K checkbox",
+     "x": 85,
+     "y": 15
+    },
+    {
+     "layer": "p25",
+     "label": "K mask opacity",
+     "x": 95,
+     "y": 15
+    },
+    {
+     "layer": "p26",
+     "label": "K mask feather",
+     "x": 105,
+     "y": 15
+    },
+    {
+     "layer": "p27",
+     "label": "K mask expansion",
+     "x": 115,
+     "y": 15
+    },
+    {
+     "layer": "p28",
+     "label": "K mask point x",
+     "x": 125,
+     "y": 15
+    },
+    {
+     "layer": "p29",
+     "label": "K mask closed",
+     "x": 135,
+     "y": 15
+    },
+    {
+     "layer": "p30",
+     "label": "K2 post-expression x",
+     "x": 145,
+     "y": 15
+    },
+    {
+     "layer": "p31",
+     "label": "K2 valueAtTime(0.5) x",
+     "x": 155,
+     "y": 15
+    },
+    {
+     "layer": "p32",
+     "label": "K2 velocity x",
+     "x": 5,
+     "y": 25
+    },
+    {
+     "layer": "p33",
+     "label": "C toComp x",
+     "x": 15,
+     "y": 25
+    },
+    {
+     "layer": "p34",
+     "label": "C toComp y",
+     "x": 25,
+     "y": 25
+    },
+    {
+     "layer": "p35",
+     "label": "C toComp anchor x",
+     "x": 35,
+     "y": 25
+    },
+    {
+     "layer": "p36",
+     "label": "C fromComp x",
+     "x": 45,
+     "y": 25
+    },
+    {
+     "layer": "p37",
+     "label": "C fromComp y",
+     "x": 55,
+     "y": 25
+    },
+    {
+     "layer": "p38",
+     "label": "C toCompVec x",
+     "x": 65,
+     "y": 25
+    },
+    {
+     "layer": "p39",
+     "label": "C toCompVec y",
+     "x": 75,
+     "y": 25
+    },
+    {
+     "layer": "p40",
+     "label": "C fromCompVec x",
+     "x": 85,
+     "y": 25
+    },
+    {
+     "layer": "p41",
+     "label": "C toWorld y",
+     "x": 95,
+     "y": 25
+    },
+    {
+     "layer": "p42",
+     "label": "C hasParent",
+     "x": 105,
+     "y": 25
+    },
+    {
+     "layer": "p43",
+     "label": "C parent.index",
+     "x": 115,
+     "y": 25
+    },
+    {
+     "layer": "p44",
+     "label": "D toComp x",
+     "x": 125,
+     "y": 25
+    },
+    {
+     "layer": "p45",
+     "label": "D toComp y",
+     "x": 135,
+     "y": 25
+    },
+    {
+     "layer": "p46",
+     "label": "D toWorld z",
+     "x": 145,
+     "y": 25
+    },
+    {
+     "layer": "p47",
+     "label": "lookAt x",
+     "x": 155,
+     "y": 25
+    },
+    {
+     "layer": "p48",
+     "label": "lookAt y",
+     "x": 5,
+     "y": 35
+    },
+    {
+     "layer": "p49",
+     "label": "lookAt z",
+     "x": 15,
+     "y": 35
+    },
+    {
+     "layer": "p50",
+     "label": "S sourceRect left",
+     "x": 25,
+     "y": 35
+    },
+    {
+     "layer": "p51",
+     "label": "S sourceRect top",
+     "x": 35,
+     "y": 35
+    },
+    {
+     "layer": "p52",
+     "label": "S sourceRect width",
+     "x": 45,
+     "y": 35
+    },
+    {
+     "layer": "p53",
+     "label": "S sourceRect height",
+     "x": 55,
+     "y": 35
+    },
+    {
+     "layer": "p54",
+     "label": "S sourceRect extents width",
+     "x": 65,
+     "y": 35
+    },
+    {
+     "layer": "p55",
+     "label": "C sourceRect width",
+     "x": 75,
+     "y": 35
+    },
+    {
+     "layer": "p56",
+     "label": "S content size",
+     "x": 85,
+     "y": 35
+    },
+    {
+     "layer": "p57",
+     "label": "S group position",
+     "x": 95,
+     "y": 35
+    },
+    {
+     "layer": "p58",
+     "label": "S group rotation",
+     "x": 105,
+     "y": 35
+    },
+    {
+     "layer": "p59",
+     "label": "numLayers",
+     "x": 115,
+     "y": 35
+    },
+    {
+     "layer": "p60",
+     "label": "comp width",
+     "x": 125,
+     "y": 35
+    },
+    {
+     "layer": "p61",
+     "label": "frameDuration",
+     "x": 135,
+     "y": 35
+    },
+    {
+     "layer": "p62",
+     "label": "comp duration",
+     "x": 145,
+     "y": 35
+    },
+    {
+     "layer": "p63",
+     "label": "thisLayer.index",
+     "x": 155,
+     "y": 35
+    },
+    {
+     "layer": "p64",
+     "label": "K index",
+     "x": 5,
+     "y": 45
+    },
+    {
+     "layer": "p65",
+     "label": "K inPoint/outPoint",
+     "x": 15,
+     "y": 45
+    },
+    {
+     "layer": "p66",
+     "label": "K width",
+     "x": 25,
+     "y": 45
+    },
+    {
+     "layer": "p67",
+     "label": "K rotation propertyIndex",
+     "x": 35,
+     "y": 45
+    },
+    {
+     "layer": "p68",
+     "label": "own propertyIndex",
+     "x": 45,
+     "y": 45
+    },
+    {
+     "layer": "p69",
+     "label": "group propertyIndex",
+     "x": 55,
+     "y": 45
+    },
+    {
+     "layer": "p70",
+     "label": "own value alpha",
+     "x": 65,
+     "y": 45
+    },
+    {
+     "layer": "p71",
+     "label": "timeToFrames()",
+     "x": 75,
+     "y": 45
+    },
+    {
+     "layer": "p72",
+     "label": "timeToFrames(time, 30)",
+     "x": 85,
+     "y": 45
+    },
+    {
+     "layer": "p73",
+     "label": "framesToTime(30)",
+     "x": 95,
+     "y": 45
+    },
+    {
+     "layer": "p74",
+     "label": "posterizeTime(5)",
+     "x": 105,
+     "y": 45
+    },
+    {
+     "layer": "p75",
+     "label": "degreesToRadians",
+     "x": 115,
+     "y": 45
+    },
+    {
+     "layer": "p76",
+     "label": "radiansToDegrees",
+     "x": 125,
+     "y": 45
+    },
+    {
+     "layer": "p77",
+     "label": "hslToRgb r",
+     "x": 135,
+     "y": 45
+    },
+    {
+     "layer": "p78",
+     "label": "rgbToHsl h",
+     "x": 145,
+     "y": 45
+    },
+    {
+     "layer": "p79",
+     "label": "rgbToHsl s",
+     "x": 155,
+     "y": 45
+    },
+    {
+     "layer": "p80",
+     "label": "hexToRgb g",
+     "x": 5,
+     "y": 55
+    },
+    {
+     "layer": "p81",
+     "label": "normalize",
+     "x": 15,
+     "y": 55
+    },
+    {
+     "layer": "p82",
+     "label": "length 3D",
+     "x": 25,
+     "y": 55
+    },
+    {
+     "layer": "p83",
+     "label": "length 2 args",
+     "x": 35,
+     "y": 55
+    },
+    {
+     "layer": "p84",
+     "label": "dot",
+     "x": 45,
+     "y": 55
+    },
+    {
+     "layer": "p85",
+     "label": "cross x",
+     "x": 55,
+     "y": 55
+    },
+    {
+     "layer": "p86",
+     "label": "clamp reversed limits",
+     "x": 65,
+     "y": 55
+    },
+    {
+     "layer": "p87",
+     "label": "clamp vector",
+     "x": 75,
+     "y": 55
+    },
+    {
+     "layer": "p88",
+     "label": "Math",
+     "x": 85,
+     "y": 55
+    }
+   ]
+  },
+  {
+   "comp": "expr_probe_ops",
+   "frames": [
+    0,
+    6,
+    12,
+    18
+   ],
+   "cells": [
+    {
+     "layer": "p0",
+     "label": "[1,2]+5 [0]",
+     "x": 5,
+     "y": 5
+    },
+    {
+     "layer": "p1",
+     "label": "[1,2]+5 [1]",
+     "x": 15,
+     "y": 5
+    },
+    {
+     "layer": "p2",
+     "label": "5+[1,2] [0]",
+     "x": 25,
+     "y": 5
+    },
+    {
+     "layer": "p3",
+     "label": "5+[1,2] [1]",
+     "x": 35,
+     "y": 5
+    },
+    {
+     "layer": "p4",
+     "label": "[1,2]-5 [1]",
+     "x": 45,
+     "y": 5
+    },
+    {
+     "layer": "p5",
+     "label": "5-[1,2] [0]",
+     "x": 55,
+     "y": 5
+    },
+    {
+     "layer": "p6",
+     "label": "5-[1,2] [1]",
+     "x": 65,
+     "y": 5
+    },
+    {
+     "layer": "p7",
+     "label": "[1,2,3]+[10,20] length",
+     "x": 75,
+     "y": 5
+    },
+    {
+     "layer": "p8",
+     "label": "[1,2,3]+[10,20] [2]",
+     "x": 85,
+     "y": 5
+    },
+    {
+     "layer": "p9",
+     "label": "[1,2]+[10,20,30] length",
+     "x": 95,
+     "y": 5
+    },
+    {
+     "layer": "p10",
+     "label": "[1,2]+[10,20,30] [2]",
+     "x": 105,
+     "y": 5
+    },
+    {
+     "layer": "p11",
+     "label": "[1,2,3]-[10,20] [2]",
+     "x": 115,
+     "y": 5
+    },
+    {
+     "layer": "p12",
+     "label": "[2,3]*[4,5] [1]",
+     "x": 125,
+     "y": 5
+    },
+    {
+     "layer": "p13",
+     "label": "[10,20]/[2,4] [1]",
+     "x": 135,
+     "y": 5
+    },
+    {
+     "layer": "p14",
+     "label": "[1,2]*3 [1]",
+     "x": 145,
+     "y": 5
+    },
+    {
+     "layer": "p15",
+     "label": "3*[1,2] [1]",
+     "x": 155,
+     "y": 5
+    },
+    {
+     "layer": "p16",
+     "label": "[4,6]/2 [1]",
+     "x": 5,
+     "y": 15
+    },
+    {
+     "layer": "p17",
+     "label": "6/[2,3]",
+     "x": 15,
+     "y": 15
+    },
+    {
+     "layer": "p18",
+     "label": "-[1,2] [1]",
+     "x": 25,
+     "y": 15
+    },
+    {
+     "layer": "p19",
+     "label": "[1,2]+=[3,4]",
+     "x": 35,
+     "y": 15
+    },
+    {
+     "layer": "p20",
+     "label": "[1,2]*=2",
+     "x": 45,
+     "y": 15
+    },
+    {
+     "layer": "p21",
+     "label": "add()",
+     "x": 55,
+     "y": 15
+    },
+    {
+     "layer": "p22",
+     "label": "sub()",
+     "x": 65,
+     "y": 15
+    },
+    {
+     "layer": "p23",
+     "label": "mul()",
+     "x": 75,
+     "y": 15
+    },
+    {
+     "layer": "p24",
+     "label": "div()",
+     "x": 85,
+     "y": 15
+    },
+    {
+     "layer": "p25",
+     "label": "add(vector, scalar)",
+     "x": 95,
+     "y": 15
+    },
+    {
+     "layer": "p26",
+     "label": "[1,2]%2",
+     "x": 105,
+     "y": 15
+    },
+    {
+     "layer": "p27",
+     "label": "ease 0.1",
+     "x": 115,
+     "y": 15
+    },
+    {
+     "layer": "p28",
+     "label": "ease 0.25",
+     "x": 125,
+     "y": 15
+    },
+    {
+     "layer": "p29",
+     "label": "ease 0.5",
+     "x": 135,
+     "y": 15
+    },
+    {
+     "layer": "p30",
+     "label": "ease 0.75",
+     "x": 145,
+     "y": 15
+    },
+    {
+     "layer": "p31",
+     "label": "ease 0.9",
+     "x": 155,
+     "y": 15
+    },
+    {
+     "layer": "p32",
+     "label": "easeIn 0.1",
+     "x": 5,
+     "y": 25
+    },
+    {
+     "layer": "p33",
+     "label": "easeIn 0.25",
+     "x": 15,
+     "y": 25
+    },
+    {
+     "layer": "p34",
+     "label": "easeIn 0.5",
+     "x": 25,
+     "y": 25
+    },
+    {
+     "layer": "p35",
+     "label": "easeIn 0.75",
+     "x": 35,
+     "y": 25
+    },
+    {
+     "layer": "p36",
+     "label": "easeIn 0.9",
+     "x": 45,
+     "y": 25
+    },
+    {
+     "layer": "p37",
+     "label": "easeOut 0.1",
+     "x": 55,
+     "y": 25
+    },
+    {
+     "layer": "p38",
+     "label": "easeOut 0.25",
+     "x": 65,
+     "y": 25
+    },
+    {
+     "layer": "p39",
+     "label": "easeOut 0.5",
+     "x": 75,
+     "y": 25
+    },
+    {
+     "layer": "p40",
+     "label": "easeOut 0.75",
+     "x": 85,
+     "y": 25
+    },
+    {
+     "layer": "p41",
+     "label": "easeOut 0.9",
+     "x": 95,
+     "y": 25
+    },
+    {
+     "layer": "p42",
+     "label": "ease 3-arg",
+     "x": 105,
+     "y": 25
+    },
+    {
+     "layer": "p43",
+     "label": "easeIn 3-arg",
+     "x": 115,
+     "y": 25
+    },
+    {
+     "layer": "p44",
+     "label": "linear",
+     "x": 125,
+     "y": 25
+    },
+    {
+     "layer": "p45",
+     "label": "linear reversed range",
+     "x": 135,
+     "y": 25
+    },
+    {
+     "layer": "p46",
+     "label": "linear tMin>tMax",
+     "x": 145,
+     "y": 25
+    },
+    {
+     "layer": "p47",
+     "label": "linear below",
+     "x": 155,
+     "y": 25
+    },
+    {
+     "layer": "p48",
+     "label": "linear above",
+     "x": 5,
+     "y": 35
+    },
+    {
+     "layer": "p49",
+     "label": "ease vector",
+     "x": 15,
+     "y": 35
+    },
+    {
+     "layer": "p50",
+     "label": "ease time",
+     "x": 25,
+     "y": 35
+    },
+    {
+     "layer": "p51",
+     "label": "easeOut time",
+     "x": 35,
+     "y": 35
+    }
+   ]
+  },
+  {
+   "comp": "expr_probe_coerce",
+   "frames": [
+    0,
+    12
+   ],
+   "cells": [
+    {
+     "layer": "p0",
+     "label": "rotation = [30]",
+     "x": 5,
+     "y": 5
+    },
+    {
+     "layer": "p1",
+     "label": "2D position = 3 values: x",
+     "x": 15,
+     "y": 5
+    },
+    {
+     "layer": "p2",
+     "label": "2D position = 3 values: length",
+     "x": 25,
+     "y": 5
+    },
+    {
+     "layer": "p3",
+     "label": "3D position = 2 values: x",
+     "x": 35,
+     "y": 5
+    },
+    {
+     "layer": "p4",
+     "label": "3D position = 2 values: z",
+     "x": 45,
+     "y": 5
+    },
+    {
+     "layer": "p5",
+     "label": "position = 100: x",
+     "x": 55,
+     "y": 5
+    },
+    {
+     "layer": "p6",
+     "label": "position = 100: y",
+     "x": 65,
+     "y": 5
+    },
+    {
+     "layer": "p7",
+     "label": "opacity = 150",
+     "x": 75,
+     "y": 5
+    },
+    {
+     "layer": "p8",
+     "label": "opacity = -20",
+     "x": 85,
+     "y": 5
+    },
+    {
+     "layer": "p9",
+     "label": "scale = 50: x",
+     "x": 95,
+     "y": 5
+    },
+    {
+     "layer": "p10",
+     "label": "scale = 50: y",
+     "x": 105,
+     "y": 5
+    },
+    {
+     "layer": "p11",
+     "label": "rotation = \"12\"",
+     "x": 115,
+     "y": 5
+    },
+    {
+     "layer": "p12",
+     "label": "rotation = true",
+     "x": 125,
+     "y": 5
+    },
+    {
+     "layer": "p13",
+     "label": "rotation = NaN",
+     "x": 135,
+     "y": 5
+    },
+    {
+     "layer": "p14",
+     "label": "rotation = undefined name",
+     "x": 145,
+     "y": 5
+    },
+    {
+     "layer": "p15",
+     "label": "rotation = [1, 2]",
+     "x": 155,
+     "y": 5
+    },
+    {
+     "layer": "p16",
+     "label": "cycle a",
+     "x": 5,
+     "y": 15
+    },
+    {
+     "layer": "p17",
+     "label": "cycle b",
+     "x": 15,
+     "y": 15
+    },
+    {
+     "layer": "p18",
+     "label": "valueAtTime on itself",
+     "x": 25,
+     "y": 15
+    },
+    {
+     "layer": "p19",
+     "label": "ends in var declaration",
+     "x": 35,
+     "y": 15
+    },
+    {
+     "layer": "p20",
+     "label": "ends in function declaration",
+     "x": 45,
+     "y": 15
+    },
+    {
+     "layer": "p21",
+     "label": "if/else completion",
+     "x": 55,
+     "y": 15
+    },
+    {
+     "layer": "p22",
+     "label": "result is thisProperty",
+     "x": 65,
+     "y": 15
+    },
+    {
+     "layer": "p23",
+     "label": "rotation = Infinity",
+     "x": 75,
+     "y": 15
+    },
+    {
+     "layer": "p24",
+     "label": "for loop completion",
+     "x": 85,
+     "y": 15
+    },
+    {
+     "layer": "p25",
+     "label": "3D scale = 2 values: z",
+     "x": 95,
+     "y": 15
+    },
+    {
+     "layer": "p26",
+     "label": "2D scale = 3 values: length",
+     "x": 105,
+     "y": 15
+    },
+    {
+     "layer": "p27",
+     "label": "2D anchor = 3 values: x",
+     "x": 115,
+     "y": 15
+    },
+    {
+     "layer": "p28",
+     "label": "2D position via toComp",
+     "x": 125,
+     "y": 15
+    }
+   ]
+  },
+  {
+   "comp": "expr_probe_loops",
+   "frames": [
+    0,
+    4,
+    8,
+    12,
+    16,
+    20,
+    24,
+    28,
+    32,
+    36,
+    40,
+    44
+   ],
+   "cells": [
+    {
+     "layer": "p0",
+     "label": "L1 rotation",
+     "x": 5,
+     "y": 5
+    },
+    {
+     "layer": "p1",
+     "label": "L2 rotation",
+     "x": 15,
+     "y": 5
+    },
+    {
+     "layer": "p2",
+     "label": "L3 rotation",
+     "x": 25,
+     "y": 5
+    },
+    {
+     "layer": "p3",
+     "label": "L4 rotation",
+     "x": 35,
+     "y": 5
+    },
+    {
+     "layer": "p4",
+     "label": "L5 rotation",
+     "x": 45,
+     "y": 5
+    },
+    {
+     "layer": "p5",
+     "label": "L6 rotation",
+     "x": 55,
+     "y": 5
+    },
+    {
+     "layer": "p6",
+     "label": "L7 rotation",
+     "x": 65,
+     "y": 5
+    },
+    {
+     "layer": "p7",
+     "label": "L8 rotation",
+     "x": 75,
+     "y": 5
+    },
+    {
+     "layer": "p8",
+     "label": "L9 rotation",
+     "x": 85,
+     "y": 5
+    },
+    {
+     "layer": "p9",
+     "label": "L10 rotation",
+     "x": 95,
+     "y": 5
+    },
+    {
+     "layer": "p10",
+     "label": "L11 rotation",
+     "x": 105,
+     "y": 5
+    },
+    {
+     "layer": "p11",
+     "label": "L12 rotation",
+     "x": 115,
+     "y": 5
+    },
+    {
+     "layer": "p12",
+     "label": "L13 pingpong x",
+     "x": 125,
+     "y": 5
+    },
+    {
+     "layer": "p13",
+     "label": "L13 pingpong y",
+     "x": 135,
+     "y": 5
+    },
+    {
+     "layer": "p14",
+     "label": "L14 continue x",
+     "x": 145,
+     "y": 5
+    }
+   ]
+  }
+ ]
+}

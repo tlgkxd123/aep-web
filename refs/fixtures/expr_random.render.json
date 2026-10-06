@@ -1,0 +1,17 @@
+{
+ "project": "expr_random.aep",
+ "comps": [
+  {
+   "comp": "expr_random_cells",
+   "frames": [
+    0,
+    1,
+    2,
+    3,
+    12,
+    23
+   ],
+   "fps": 24.0
+  }
+ ]
+}
