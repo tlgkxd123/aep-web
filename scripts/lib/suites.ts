@@ -11,6 +11,8 @@ export interface SuiteManifest {
   comps: { comp: string; frames: number[]; fps?: number }[];
   /** Accepted approximations, "comp@frame" -> reason. */
   known?: Record<string, string>;
+  /** Footage files the project links to, relative to the refs folder (e.g. "media/clip.mp4"). */
+  media?: string[];
 }
 
 export function loadSuites(only?: string): SuiteManifest[] {

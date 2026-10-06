@@ -13,11 +13,9 @@ import {
   decodeLdta,
   decodeLhd3,
   decodeMkif,
-  decodeOpti,
   decodePard,
   decodeS32,
   decodeShph,
-  decodeSspc,
   decodeTdb4,
   decodeTdsb,
   LdatKind,
@@ -27,16 +25,14 @@ import {
   type Ldta,
   type Pard,
   type RawKeyframe,
-  type Sspc,
   type Tdb4,
 } from "./decode.ts";
+import { parseFootageItem } from "./footage.ts";
 import {
   EffectControlType,
   PropertyValueType,
   type CompItem,
   type FolderItem,
-  type FootageItem,
-  type FootageSource,
   type Gradient,
   type Item,
   type Keyframe,
@@ -312,72 +308,13 @@ class Parser {
       this.compChunks.push([comp, list]);
       item = comp;
     } else if (idta.itemType === 7) {
-      item = this.parseFootage(list, base);
+      item = parseFootageItem(list, base, this.warnings);
     } else {
       this.warnings.push(`unknown item type ${idta.itemType} for "${base.name}"`);
       return undefined;
     }
     this.items.set(item.id, item);
     return item;
-  }
-
-  parseFootage(list: Chunk, base: Pick<FootageItem, "id" | "name" | "comment" | "label" | "parentFolderId" | "chunk">): FootageItem {
-    const pin = filterLists(list, "Pin ")[0];
-    const sspcChunk = findChild(pin, "sspc");
-    const optiChunk = findChild(pin, "opti");
-    const sspc = sspcChunk ? decodeSspc(sspcChunk) : undefined;
-    const opti = optiChunk ? decodeOpti(optiChunk) : undefined;
-    const conformFactor = sspc && sspc.conformFrameRate ? sspc.nativeFrameRate / sspc.conformFrameRate : 1;
-    const duration = sspc ? sspc.duration * conformFactor * sspc.loop : 0;
-    let name = base.name;
-    let mainSource: FootageSource;
-    if (opti?.kind === "solid") {
-      mainSource = { sourceType: "SolidSource", color: opti.color };
-      name ||= opti.name;
-    } else if (opti?.kind === "placeholder") {
-      mainSource = { sourceType: "PlaceholderSource" };
-      name ||= opti.name;
-    } else {
-      let folder = "";
-      let targetIsFolder = false;
-      const alas = findChild(findList(pin, "Als2"), "alas");
-      if (alas) {
-        try {
-          const data = JSON.parse(utf8Of(alas)) as { fullpath?: string; target_is_folder?: boolean };
-          folder = data.fullpath ?? "";
-          targetIsFolder = data.target_is_folder ?? false;
-        } catch {
-          this.warnings.push(`footage "${base.name}" has an unreadable file path record`);
-        }
-      }
-      const frameNames = (findList(pin, "StVc")?.children ?? []).filter((c) => c.type === "Utf8").map(utf8Of);
-      const separator = folder.includes("\\") ? "\\" : "/";
-      const file = frameNames.length ? `${folder.replace(/[\\/]$/, "")}${separator}${frameNames[0]}` : folder;
-      if (!name && sspc && duration !== 0 && targetIsFolder) name = sequenceName(pin!, sspc);
-      if (!name) {
-        const basename = file.split(/[\\/]/).pop() ?? "";
-        const layerName = opti?.kind === "file" ? opti.layerName : "";
-        name = layerName ? `${layerName}/${basename}` : basename;
-      }
-      mainSource = {
-        sourceType: "FileSource",
-        file,
-        assetType: opti?.kind === "file" ? opti.assetType : "",
-        isStill: (sspc?.duration ?? 0) === 0,
-      };
-    }
-    return {
-      ...base,
-      name,
-      kind: "footage",
-      typeName: "Footage",
-      width: sspc?.width ?? 0,
-      height: sspc?.height ?? 0,
-      duration,
-      frameRate: sspc?.displayFrameRate ?? 0,
-      pixelAspect: sspc?.pixelAspect ?? 1,
-      mainSource,
-    };
   }
 
   parseEffectDefinitions(root: Chunk): void {
@@ -857,22 +794,6 @@ function parseGradientXml(xml: string): Gradient | null {
     .filter((f) => f.length >= 3)
     .map((f) => ({ offset: f[0], midpoint: f[1], alpha: f[2] }));
   return colorStops.length ? { colorStops, alphaStops } : null;
-}
-
-const UNDEFINED_FRAME = 0xffffffff;
-
-/** Image-sequence display name, e.g. `render.[0001-0700].exr`. */
-function sequenceName(pin: Chunk, sspc: Sspc): string {
-  if (sspc.startFrame === UNDEFINED_FRAME || sspc.endFrame === UNDEFINED_FRAME) return "";
-  const children = pin.children ?? [];
-  const optiIndex = children.findIndex((c) => c.type === "opti");
-  const before = children.slice(0, optiIndex < 0 ? children.length : optiIndex).filter((c) => c.type === "Utf8");
-  if (before.length < 2) return "";
-  const prefix = utf8Of(before[before.length - 2]);
-  const extension = utf8Of(before[before.length - 1]);
-  if (!prefix && !extension) return "";
-  const pad = (n: number) => String(n).padStart(sspc.framePadding, "0");
-  return `${prefix}[${pad(sspc.startFrame)}-${pad(sspc.endFrame)}]${extension}`;
 }
 
 function decodeShape(shap: Chunk, maskSize: [number, number] | undefined): Shape {

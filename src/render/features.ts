@@ -9,3 +9,4 @@ import "./effects/minimax.ts";
 import "./effects/particular.ts";
 import "./effects/soundKeys.ts";
 import "./effects/superpose.ts";
+import "./footage.ts";

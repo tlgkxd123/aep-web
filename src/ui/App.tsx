@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type DragEvent, type PointerEvent as ReactPointerEvent } from "react";
 import type { CompItem, Project } from "../aep/model.ts";
 import { parseProject } from "../aep/parse.ts";
+import { loadLocalFootage } from "../media/localFootage.ts";
 import { ChunkPanel } from "./ChunkPanel.tsx";
 import { CompositionPanel } from "./CompositionPanel.tsx";
 import { EffectControlsPanel } from "./EffectControlsPanel.tsx";
 import { HomeScreen } from "./HomeScreen.tsx";
 import { Icon } from "./icons.tsx";
+import { addDroppedFootage } from "./LocateFootage.tsx";
 import { MenuBar, type MenuCommand } from "./MenuBar.tsx";
 import { PanelFrame, type PanelTab } from "./Panel.tsx";
 import { ProjectPanel } from "./ProjectPanel.tsx";
@@ -127,6 +129,7 @@ export function App() {
       setCenterTab("composition");
       setBottomTab("comp");
       setShowHome(false);
+      void loadLocalFootage(parsed).catch((e: Error) => setError(`Could not load footage from disk: ${e.message}`));
     } catch (e) {
       setError(`Could not read ${file.name}: ${(e as Error).message}`);
     } finally {
@@ -293,8 +296,10 @@ export function App() {
       e.preventDefault();
       dragDepth.current = 0;
       setDragging(false);
-      const file = e.dataTransfer.files[0];
-      if (file) void open(file);
+      const files = Array.from(e.dataTransfer.files);
+      const projectFile = files.find((f) => /\.aep$/i.test(f.name));
+      if (loaded && !projectFile) void addDroppedFootage(e.dataTransfer);
+      else if (projectFile ?? files[0]) void open(projectFile ?? files[0]);
     },
   };
 

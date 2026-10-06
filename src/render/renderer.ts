@@ -7,6 +7,7 @@ import { layerTimeAt, valueAtTime } from "../aep/evaluate.ts";
 import type { CompItem, Layer, Project, Property, PropertyGroup, PropertyNode } from "../aep/model.ts";
 import { cameraAt, localTransform, Mat4, worldMatrix, type Camera } from "../aep/transform.ts";
 import "./features.ts";
+import { sourcePixelAspect } from "./footage.ts";
 import { bindTarget, compile, TargetPool, unitQuad, type GL, type Target } from "./gl.ts";
 import { maskCoverage } from "./masks.ts";
 import { contentProviders, effectRenderer, type LayerImage, type RenderContext, type RendererOptions } from "./registry.ts";
@@ -191,7 +192,8 @@ export class Renderer {
   }
 
   private isActive(layer: Layer, time: number): boolean {
-    return time >= layer.inPoint && time < layer.outPoint;
+    // A time-reversed layer (negative stretch) has its in point after its out point.
+    return time >= Math.min(layer.inPoint, layer.outPoint) && time < Math.max(layer.inPoint, layer.outPoint);
   }
 
   private matteLayerOf(layer: Layer, comp: CompItem): Layer | undefined {
@@ -249,7 +251,13 @@ export class Renderer {
     const width = comp.width + 2 * PAD;
     const height = comp.height + 2 * PAD;
     const out = this.pool.acquire(width, height);
-    const world = worldMatrix(layer, comp, time);
+    let world = worldMatrix(layer, comp, time);
+    const aspect = sourcePixelAspect(layer, comp, this.project);
+    if (aspect !== 1) {
+      // Non-square source pixels stretch the layer horizontally about its anchor point.
+      const [ax, ay] = localTransform(layer, time).anchor;
+      world = world.mul(Mat4.translation(ax, ay, 0).mul(Mat4.scale(aspect, 1, 1)).mul(Mat4.translation(-ax, -ay, 0)));
+    }
     const toTarget = Mat4.translation(PAD, PAD, 0);
     let toView: Mat4;
     let perspective: { zoom: number } | null = null;
