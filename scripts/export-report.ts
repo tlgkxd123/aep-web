@@ -23,6 +23,7 @@ import { decodePng } from "./lib/png-decode.ts";
 import { readZip } from "./lib/zip-read.ts";
 import { demuxMp4 } from "./lib/mp4-demux.ts";
 import { demuxWebm } from "./lib/webm-demux.ts";
+import { runAudioCases, type AudioCase } from "./export/audio-report.ts";
 
 const args = process.argv.slice(2);
 const opt = (n: string) => (args.includes(n) ? args[args.indexOf(n) + 1] : undefined);
@@ -340,7 +341,8 @@ for (const c of CASES) {
       maxFrame: number;
       ms: number;
       idle: boolean;
-    }>("exportItem", key, c.comp, settings, { format: o.format, channels: o.channels, bitrate: null }, c.stopAfter);
+      audioCodec: string | null;
+    }>("exportItem", key, c.comp, settings, { format: o.format, channels: o.channels, bitrate: null, audio: "auto" }, c.stopAfter);
     if (c.stopAfter !== undefined) {
       check(
         `${tag}: Stop ends the render as User Stopped and discards the file`,
@@ -417,6 +419,7 @@ for (const c of CASES) {
           Math.abs(movieS - expectS) > 0.5 / ref.fps && `movie duration ${movieS.toFixed(4)} s`,
           !(colr && colr.primaries === 1 && colr.transfer === 1 && colr.matrix === 1 && !colr.fullRange) && `colr ${JSON.stringify(colr)}`,
           !mp4.avcC && "no avcC",
+          (mp4.audio || run.audioCodec) && "an audio track for a comp without audible layers",
         ].filter(Boolean);
         check(
           `${tag}: MP4 has ${ref.frames} frames at ${ref.fps.toFixed(3)} fps, ${(expectS).toFixed(3)} s, BT.709`,
@@ -455,6 +458,7 @@ for (const c of CASES) {
           alpha && webm.alphaMode !== 1 && `AlphaMode ${webm.alphaMode}`,
           alpha && webm.blocks.some((b) => !b.alpha || b.alpha.id !== 1) && "blocks without BlockAdditional 1",
           !alpha && (webm.alphaMode !== 0 || webm.blocks.some((b) => b.alpha)) && "unexpected alpha",
+          (webm.audio || run.audioCodec) && "an audio track for a comp without audible layers",
         ].filter(Boolean);
         check(
           `${tag}: WebM has ${ref.frames} frames at ${ref.fps.toFixed(3)} fps, ${expectS.toFixed(3)} s, cues, BT.709${alpha ? ", AlphaMode 1 with alpha in every block" : ""}`,
@@ -565,6 +569,14 @@ for (const c of CASES) {
     );
   }
 }
+
+const fxmisc = join(ROOT, "fixtures/fxmisc.aep");
+const fxmiscAudio = join(ROOT, "fixtures/fxmisc_audio");
+const AUDIO_CASES = ([
+  { name: "audio music offset", file: fxmisc, comp: "fxmisc_as_music", wavDir: fxmiscAudio, shift: 0.25, span: { start: 0, duration: 1 } },
+  { name: "audio gate 60fps from 0.5 s", file: fxmisc, comp: "fxmisc_as_gate_170_60", wavDir: fxmiscAudio, span: { start: 0.5, duration: 1.5 } },
+] satisfies AudioCase[]).filter((c) => !only || only.some((o) => c.name.includes(o)));
+await runAudioCases({ call, uploads, check }, AUDIO_CASES);
 
 await browser.close();
 server.close();

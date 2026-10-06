@@ -8,6 +8,8 @@ import { codecCandidates } from "../../src/export/codecs.ts";
 import { memorySink } from "../../src/export/pipeline.ts";
 import { RenderQueue, type ItemStatus } from "../../src/export/queue.ts";
 import { framePlan, type OutputModule, type RenderSettings } from "../../src/export/settings.ts";
+import { audioLevelsDb } from "../../src/media/audioPreview.ts";
+import { footageStore } from "../../src/media/store.ts";
 import { Renderer } from "../../src/render/renderer.ts";
 
 let project: Project | undefined;
@@ -43,6 +45,59 @@ interface Sample {
 const api = {
   load(base64: string): void {
     project = parseProject(decodeBase64(base64));
+  },
+
+  /** Locates a footage file by name, as dropping it on the app does. */
+  addFile(name: string, base64: string): void {
+    footageStore.addFiles([{ path: name, blob: new Blob([decodeBase64(base64) as Uint8Array<ArrayBuffer>]) }]);
+  },
+
+  /** The comp's layers with their timing, switches and source file name. */
+  layers(compName: string) {
+    return compNamed(compName).layers.map((l) => {
+      const source = project!.items.get(l.sourceId);
+      return {
+        index: l.index,
+        name: l.name,
+        startTime: l.startTime,
+        inPoint: l.inPoint,
+        outPoint: l.outPoint,
+        stretch: l.stretch,
+        audioEnabled: l.audioEnabled,
+        solo: l.solo,
+        file: source?.kind === "footage" && source.mainSource.sourceType === "FileSource" ? source.mainSource.file : null,
+        hasAudio: source?.kind === "footage" ? source.hasAudio : false,
+      };
+    });
+  },
+
+  /** Moves a layer in time (start, in and out points) by `seconds`. */
+  shiftLayer(compName: string, index: number, seconds: number): void {
+    const layer = compNamed(compName).layers.find((l) => l.index === index);
+    if (!layer) throw new Error(`no layer ${index}`);
+    layer.startTime += seconds;
+    layer.inPoint += seconds;
+    layer.outPoint += seconds;
+  },
+
+  /** A layer's Audio Levels in dB at the given times. */
+  audioLevels(compName: string, index: number, times: number[]): number[] {
+    const layer = compNamed(compName).layers.find((l) => l.index === index);
+    if (!layer) throw new Error(`no layer ${index}`);
+    return times.map((t) => audioLevelsDb(layer, t));
+  },
+
+  /** Decodes an exported file's audio track with Web Audio at 48 kHz and uploads each channel as float32. */
+  async decodeAudio(key: string) {
+    const bytes = outputs.get(key);
+    if (!bytes) throw new Error(`no output ${key}`);
+    try {
+      const buffer = await new OfflineAudioContext(2, 1, 48000).decodeAudioData(bytes.slice().buffer);
+      for (let c = 0; c < buffer.numberOfChannels; c++) await upload(`${key}/audio/${c}`, new Uint8Array(buffer.getChannelData(c).slice().buffer));
+      return { sampleRate: buffer.sampleRate, length: buffer.length, channels: buffer.numberOfChannels, duration: buffer.duration };
+    } catch (e) {
+      return { error: (e as Error).message || String(e) };
+    }
   },
 
   /** isConfigSupported for encode (both acceleration preferences) and decode of the codecs worth knowing about. */
@@ -142,7 +197,23 @@ const api = {
       outputs.set(key, bytes);
       await upload(`${key}/out`, bytes);
     }
-    return { statuses, status: final.status, error: final.error, frame: final.frame, frames: final.frames, fileName: final.fileName, bytes: written, sinkClosed, sinkAborted, maxFrame, progressEvents, ms, log: final.log, idle: queue.getSnapshot().current === null };
+    return {
+      statuses,
+      status: final.status,
+      error: final.error,
+      frame: final.frame,
+      frames: final.frames,
+      fileName: final.fileName,
+      bytes: written,
+      sinkClosed,
+      sinkAborted,
+      maxFrame,
+      progressEvents,
+      ms,
+      log: final.log,
+      audioCodec: final.audioCodec ?? null,
+      idle: queue.getSnapshot().current === null,
+    };
   },
 
   /** Decodes demuxed samples of an exported file with VideoDecoder and uploads each picture's planes. */

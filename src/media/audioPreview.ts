@@ -8,7 +8,7 @@ import { valueAtTime } from "../aep/evaluate.ts";
 import type { CompItem, FootageItem, Layer, Project, Property, PropertyGroup } from "../aep/model.ts";
 import { footageStore } from "./store.ts";
 
-interface AudioLeaf {
+export interface AudioLeaf {
   item: FootageItem;
   layer: Layer;
   /** Source time = a * compTime + b. */
@@ -21,7 +21,8 @@ interface AudioLeaf {
 
 const MAX_DEPTH = 16;
 
-function audioLevelsDb(layer: Layer, time: number): number {
+/** The layer's Audio Levels in dB at its comp time `time`, both channels averaged. */
+export function audioLevelsDb(layer: Layer, time: number): number {
   const group = layer.properties.find((n): n is PropertyGroup => n.kind === "group" && n.matchName === "ADBE Audio Group");
   const levels = group?.children.find((n): n is Property => n.kind === "property" && n.matchName === "ADBE Audio Levels");
   const value = levels ? valueAtTime(levels, time, layer) : null;
@@ -51,6 +52,13 @@ function collect(project: Project, comp: CompItem, a: number, b: number, from: n
       collect(project, source, la, lb, lo, hi, out, depth + 1);
     }
   }
+}
+
+/** Audible footage layers heard while `comp` plays from comp time `from` to `to`. */
+export function audibleLeaves(project: Project, comp: CompItem, from: number, to: number): AudioLeaf[] {
+  const leaves: AudioLeaf[] = [];
+  collect(project, comp, 1, 0, from, to, leaves, 0);
+  return leaves;
 }
 
 export class AudioPreview {

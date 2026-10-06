@@ -6,6 +6,8 @@ export type TimeSpan = "workArea" | "comp" | "custom";
 export type Resolution = 1 | 2 | 3 | 4;
 export type Format = "h264" | "vp9" | "png";
 export type Channels = "rgb" | "rgba";
+/** AE's Audio Output: Auto writes audio when the comp has audible layers, On always (silence if none). */
+export type AudioOutput = "auto" | "on" | "off";
 
 export interface RenderSettings {
   resolution: Resolution;
@@ -22,6 +24,7 @@ export interface OutputModule {
   channels: Channels;
   /** Target video bitrate in bits per second; null picks one from the frame size and rate. */
   bitrate: number | null;
+  audio: AudioOutput;
 }
 
 export interface FormatInfo {
@@ -44,7 +47,17 @@ export function defaultRenderSettings(comp: CompItem): RenderSettings {
 }
 
 export function defaultOutputModule(): OutputModule {
-  return { format: "h264", channels: "rgb", bitrate: null };
+  return { format: "h264", channels: "rgb", bitrate: null, audio: "auto" };
+}
+
+/** Whether the format can carry an audio track (an image sequence cannot). */
+export function formatHasAudio(format: Format): boolean {
+  return format !== "png";
+}
+
+/** The audio codec a format's file gets. */
+export function audioCodecLabel(format: Format): string | null {
+  return format === "h264" ? "AAC" : format === "vp9" ? "Opus" : null;
 }
 
 export interface FramePlan {

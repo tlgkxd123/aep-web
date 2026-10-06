@@ -1,8 +1,19 @@
 import type { CompItem, Project } from "../aep/model.ts";
 import { Renderer } from "../render/renderer.ts";
+import { EXPORT_CHANNELS, EXPORT_SAMPLE_RATE, mixCompAudio, type MixedAudio } from "./audio.ts";
 import { downloadSink, fileSink } from "./output.ts";
 import { rendererSource, renderToSink, type Sink } from "./pipeline.ts";
-import { defaultFileName, defaultOutputModule, defaultRenderSettings, FORMATS, framePlan, withExtension, type OutputModule, type RenderSettings } from "./settings.ts";
+import {
+  defaultFileName,
+  defaultOutputModule,
+  defaultRenderSettings,
+  formatHasAudio,
+  FORMATS,
+  framePlan,
+  withExtension,
+  type OutputModule,
+  type RenderSettings,
+} from "./settings.ts";
 
 export type ItemStatus = "Queued" | "Unqueued" | "Rendering" | "Done" | "Failed" | "User Stopped";
 
@@ -22,6 +33,8 @@ export interface QueueItem {
   frame: number;
   frames: number;
   bytes?: number;
+  /** Codec of the audio track the last render wrote, if it wrote one. */
+  audioCodec?: string;
   error?: string;
   /** Renderer warnings from the last render: features it skipped or approximated. */
   log: string[];
@@ -59,6 +72,8 @@ export class RenderQueue {
   /** Opens the sink for an item; replaced by the export gate to keep bytes in memory. */
   openSink: (item: QueueItem) => Promise<Sink> = async (item) =>
     item.handle ? fileSink(item.handle) : downloadSink(item.fileName, FORMATS[item.output.format].mime);
+  /** Mixes a comp's audio over a span; replaced in tests without Web Audio. */
+  mix: typeof mixCompAudio = mixCompAudio;
 
   subscribe = (listener: Listener): (() => void) => {
     this.listeners.add(listener);
@@ -177,7 +192,7 @@ export class RenderQueue {
     const comp = this.comp(item);
     const started = Date.now();
     const plan = comp ? framePlan(comp, item.settings) : null;
-    this.patch(item.id, { status: "Rendering", started, frame: 0, frames: plan?.frames ?? 0, error: undefined, renderMs: undefined, bytes: undefined, log: [] });
+    this.patch(item.id, { status: "Rendering", started, frame: 0, frames: plan?.frames ?? 0, error: undefined, renderMs: undefined, bytes: undefined, audioCodec: undefined, log: [] });
     this.pausedMs = 0;
     this.set({ current: { itemId: item.id, frame: 0, frames: plan?.frames ?? 0, elapsedMs: 0, remainingMs: null, paused: this.paused } });
     let sink: Sink | null = null;
@@ -186,17 +201,27 @@ export class RenderQueue {
     try {
       if (!comp || !plan) throw new Error("The composition is no longer in the project.");
       this.renderer ??= this.createRenderer();
+      const audio = await this.mixAudio(project, comp, item.output, plan.start, plan.duration, warnings);
       sink = await this.openSink(item);
-      const summary = await renderToSink(comp, item.settings, item.output, rendererSource(this.renderer, project, comp, plan, warnings), sink, item.fileName, {
-        signal,
-        resume: () => this.waitWhilePaused(),
-        onFrame: (frame, frames) => {
-          const ms = elapsed();
-          this.patch(item.id, { frame });
-          this.set({ current: { itemId: item.id, frame, frames, elapsedMs: ms, remainingMs: frame > 0 ? (ms / frame) * (frames - frame) : null, paused: this.paused } });
+      const summary = await renderToSink(
+        comp,
+        item.settings,
+        item.output,
+        rendererSource(this.renderer, project, comp, plan, warnings),
+        sink,
+        item.fileName,
+        {
+          signal,
+          resume: () => this.waitWhilePaused(),
+          onFrame: (frame, frames) => {
+            const ms = elapsed();
+            this.patch(item.id, { frame });
+            this.set({ current: { itemId: item.id, frame, frames, elapsedMs: ms, remainingMs: frame > 0 ? (ms / frame) * (frames - frame) : null, paused: this.paused } });
+          },
         },
-      });
-      this.patch(item.id, { status: "Done", renderMs: elapsed(), bytes: summary.bytes, log: [...warnings] });
+        audio,
+      );
+      this.patch(item.id, { status: "Done", renderMs: elapsed(), bytes: summary.bytes, audioCodec: summary.audioCodec, log: [...warnings] });
     } catch (e) {
       await sink?.abort().catch(() => undefined);
       const aborted = e instanceof DOMException && e.name === "AbortError";
@@ -207,6 +232,14 @@ export class RenderQueue {
         log: [...warnings],
       });
     }
+  }
+
+  private async mixAudio(project: Project, comp: CompItem, output: OutputModule, start: number, duration: number, warnings: Set<string>): Promise<MixedAudio | null> {
+    if (output.audio === "off" || !formatHasAudio(output.format)) return null;
+    const mixed = await this.mix(project, comp, start, duration, (w) => warnings.add(w));
+    if (mixed || output.audio !== "on") return mixed;
+    const length = Math.max(1, Math.round(duration * EXPORT_SAMPLE_RATE));
+    return { sampleRate: EXPORT_SAMPLE_RATE, channels: Array.from({ length: EXPORT_CHANNELS }, () => new Float32Array(length)) };
   }
 
   private waitWhilePaused(): Promise<void> {

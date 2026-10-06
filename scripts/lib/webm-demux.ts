@@ -9,6 +9,20 @@ export interface WebmBlock {
   time: number;
   key: boolean;
   alpha?: { offset: number; size: number; id: number };
+  /** DiscardPadding in nanoseconds (samples to drop at the block's end). */
+  discardPadding?: number;
+}
+
+export interface WebmAudioTrack {
+  trackNumber: number;
+  codec: string;
+  sampleRate: number;
+  channels: number;
+  codecPrivate?: Uint8Array;
+  /** Nanoseconds. */
+  codecDelay: number;
+  seekPreRoll: number;
+  blocks: WebmBlock[];
 }
 
 export interface WebmFile {
@@ -23,7 +37,12 @@ export interface WebmFile {
   height: number;
   alphaMode: number;
   colour?: { matrix?: number; range?: number; transfer?: number; primaries?: number };
+  /** Blocks of the video track. */
   blocks: WebmBlock[];
+  /** The audio track (TrackType 2), when there is one. */
+  audio?: WebmAudioTrack;
+  /** Track numbers of every block in file order, to check interleaving. */
+  blockTracks: number[];
   cues: { time: number; clusterPosition: number }[];
   /** Cluster offsets relative to the start of the Segment's data, as Cues and SeekHead store them. */
   clusterPositions: number[];
@@ -91,25 +110,31 @@ export function demuxWebm(bytes: Uint8Array): WebmFile {
     height: 0,
     alphaMode: 0,
     blocks: [],
+    blockTracks: [],
     cues: [],
     clusterPositions: [],
     segmentChildren: new Map(),
     seekHead: new Map(),
   };
-  const parseBlock = (payload: Element, kind: "simple" | "group", references: boolean, alpha?: WebmBlock["alpha"], clusterTime = 0) => {
+  const parseBlock = (payload: Element, kind: "simple" | "group", references: boolean, alpha?: WebmBlock["alpha"], clusterTime = 0, discardPadding?: number) => {
     const track = readVint(bytes, payload.body, false);
     const view = new DataView(bytes.buffer, bytes.byteOffset + payload.body + track.length, 3);
     const relative = view.getInt16(0);
     const flags = view.getUint8(2);
     if (flags & 0x06) throw new Error("laced blocks are not expected");
     const headerSize = track.length + 3;
-    file.blocks.push({
+    const block: WebmBlock = {
       offset: payload.body + headerSize,
       size: payload.end - payload.body - headerSize,
       time: clusterTime + relative,
       key: kind === "simple" ? (flags & 0x80) !== 0 : !references,
       alpha,
-    });
+      discardPadding,
+    };
+    file.blockTracks.push(track.value);
+    if (file.audio && track.value === file.audio.trackNumber) file.audio.blocks.push(block);
+    else if (track.value === file.trackNumber) file.blocks.push(block);
+    else throw new Error(`block of unknown track ${track.value}`);
   };
   for (const el of elements(bytes, segment.body, segment.end)) {
     const position = el.start - segment.body;
@@ -129,8 +154,31 @@ export function demuxWebm(bytes: Uint8Array): WebmFile {
       }
     } else if (el.id === 0x1654ae6b) {
       const entries = children().filter((c) => c.id === 0xae);
-      if (entries.length !== 1) throw new Error(`${entries.length} tracks`);
-      for (const c of elements(bytes, entries[0].body, entries[0].end)) {
+      const typeOf = (entry: Element) => {
+        const t = elements(bytes, entry.body, entry.end).find((c) => c.id === 0x83);
+        return t ? uint(data(t)) : 0;
+      };
+      const videos = entries.filter((e) => typeOf(e) === 1);
+      const audios = entries.filter((e) => typeOf(e) === 2);
+      if (videos.length !== 1 || audios.length > 1 || videos.length + audios.length !== entries.length) throw new Error(`${entries.length} tracks (${videos.length} video, ${audios.length} audio)`);
+      if (audios[0]) {
+        const audio: WebmAudioTrack = { trackNumber: 0, codec: "", sampleRate: 0, channels: 0, codecDelay: 0, seekPreRoll: 0, blocks: [] };
+        for (const c of elements(bytes, audios[0].body, audios[0].end)) {
+          if (c.id === 0xd7) audio.trackNumber = uint(data(c));
+          else if (c.id === 0x86) audio.codec = new TextDecoder().decode(data(c));
+          else if (c.id === 0x63a2) audio.codecPrivate = bytes.slice(c.body, c.end);
+          else if (c.id === 0x56aa) audio.codecDelay = uint(data(c));
+          else if (c.id === 0x56bb) audio.seekPreRoll = uint(data(c));
+          else if (c.id === 0xe1) {
+            for (const a of elements(bytes, c.body, c.end)) {
+              if (a.id === 0xb5) audio.sampleRate = float(data(a));
+              else if (a.id === 0x9f) audio.channels = uint(data(a));
+            }
+          }
+        }
+        file.audio = audio;
+      }
+      for (const c of elements(bytes, videos[0].body, videos[0].end)) {
         if (c.id === 0xd7) file.trackNumber = uint(data(c));
         else if (c.id === 0x86) file.codec = new TextDecoder().decode(data(c));
         else if (c.id === 0x23e383) file.defaultDuration = uint(data(c));
@@ -179,7 +227,9 @@ export function demuxWebm(bytes: Uint8Array): WebmFile {
             const payload = moreParts.find((p) => p.id === 0xa5);
             if (payload) alpha = { offset: payload.body, size: payload.end - payload.body, id: id ? uint(data(id)) : 1 };
           }
-          parseBlock(block, "group", parts.some((p) => p.id === 0xfb), alpha, clusterTime);
+          const discard = parts.find((p) => p.id === 0x75a2);
+          const discardNs = discard ? Number(new DataView(bytes.buffer, bytes.byteOffset + discard.body, discard.end - discard.body).getBigInt64(0)) : undefined;
+          parseBlock(block, "group", parts.some((p) => p.id === 0xfb), alpha, clusterTime, discardNs);
         }
       }
     }

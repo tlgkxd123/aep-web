@@ -15,6 +15,26 @@ export interface WebmOptions {
   /** Colour signalling for the YUV data; omitted when unknown. */
   colour?: { matrix: number; transfer: number; primaries: number; fullRange: boolean };
   writingApp?: string;
+  /** An Opus track (track 2) next to the video. */
+  audio?: WebmAudioOptions;
+}
+
+export interface WebmAudioOptions {
+  sampleRate: number;
+  channels: number;
+  /** The OpusHead the encoder reported. */
+  codecPrivate: Uint8Array;
+  /** Samples the decoder drops at the start (OpusHead pre-skip). */
+  preSkip: number;
+  /** Where the track ends in microseconds; the last block's samples past it are discarded. */
+  endUs: number;
+}
+
+export interface WebmAudioFrame {
+  data: Uint8Array;
+  /** Microseconds, on the encoder's timeline (pre-skip included). */
+  timestamp: number;
+  duration: number;
 }
 
 export interface WebmFrame {
@@ -80,9 +100,19 @@ const ID = {
   BlockMore: 0xa6,
   BlockAddID: 0xee,
   BlockAdditional: 0xa5,
+  DiscardPadding: 0x75a2,
+  CodecPrivate: 0x63a2,
+  CodecDelay: 0x56aa,
+  SeekPreRoll: 0x56bb,
+  Audio: 0xe1,
+  SamplingFrequency: 0xb5,
+  Channels: 0x9f,
 } as const;
 
 const TRACK = 1;
+const AUDIO_TRACK = 2;
+/** Opus needs 80 ms of decoded audio before a seek point to converge. */
+const OPUS_SEEK_PRE_ROLL_NS = 80_000_000;
 /** Timestamps in milliseconds. */
 const TIMECODE_SCALE = 1_000_000;
 
@@ -135,9 +165,15 @@ function float(id: number, value: number): Bytes {
   return el(id, b);
 }
 
-function blockHeader(relative: number, flags: number): Bytes {
+function sint(id: number, value: number): Bytes {
+  const b = new Uint8Array(8);
+  new DataView(b.buffer).setBigInt64(0, BigInt(value));
+  return el(id, b);
+}
+
+function blockHeader(relative: number, flags: number, track = TRACK): Bytes {
   const b = new Uint8Array(4);
-  b[0] = 0x80 | TRACK;
+  b[0] = 0x80 | track;
   new DataView(b.buffer).setInt16(1, relative);
   b[3] = flags;
   return b;
@@ -145,6 +181,7 @@ function blockHeader(relative: number, flags: number): Bytes {
 
 export class WebmMuxer {
   private readonly frames: WebmFrame[] = [];
+  private readonly audioFrames: WebmAudioFrame[] = [];
   private readonly options: WebmOptions;
 
   constructor(options: WebmOptions) {
@@ -155,6 +192,11 @@ export class WebmMuxer {
     if (this.frames.length === 0 && !frame.key) throw new Error("the first WebM frame must be a keyframe");
     if (this.options.alpha && !frame.alpha) throw new Error("alpha track frames need alpha data");
     this.frames.push(frame);
+  }
+
+  addAudio(frame: WebmAudioFrame): void {
+    if (!this.options.audio) throw new Error("the muxer has no audio track");
+    this.audioFrames.push(frame);
   }
 
   finish(): Uint8Array {
@@ -202,7 +244,40 @@ export class WebmMuxer {
     ];
     if (o.alpha) entry.push(uint(ID.MaxBlockAdditionID, 1));
     entry.push(el(ID.Video, ...video));
-    const tracks = el(ID.Tracks, el(ID.TrackEntry, ...entry));
+    const trackEntries = [el(ID.TrackEntry, ...entry)];
+    const a = o.audio;
+    if (a) {
+      trackEntries.push(
+        el(
+          ID.TrackEntry,
+          uint(ID.TrackNumber, AUDIO_TRACK),
+          uint(ID.TrackUID, 2),
+          uint(ID.TrackType, 2),
+          uint(ID.FlagLacing, 0),
+          str(ID.CodecID, "A_OPUS"),
+          el(ID.CodecPrivate, a.codecPrivate),
+          uint(ID.CodecDelay, Math.round((a.preSkip / a.sampleRate) * 1e9)),
+          uint(ID.SeekPreRoll, OPUS_SEEK_PRE_ROLL_NS),
+          el(ID.Audio, float(ID.SamplingFrequency, a.sampleRate), uint(ID.Channels, a.channels)),
+        ),
+      );
+    }
+    const tracks = el(ID.Tracks, ...trackEntries);
+
+    // Block times are on the encoder's timeline; the decoder drops CodecDelay, so input sample n plays at n / rate.
+    const preSkipUs = a ? (a.preSkip / a.sampleRate) * 1e6 : 0;
+    type Event = { video: WebmFrame; audio?: undefined; t: number } | { audio: WebmAudioFrame; video?: undefined; t: number; discardNs: number };
+    const events: Event[] = this.frames.map((video) => ({ video, t: ms(video.timestamp) }));
+    if (a) {
+      const endUs = a.endUs + preSkipUs;
+      for (const audio of this.audioFrames) {
+        if (audio.timestamp >= endUs) continue;
+        const over = audio.timestamp + audio.duration - endUs;
+        events.push({ audio, t: ms(audio.timestamp), discardNs: over > 0 ? Math.round(over * 1000) : 0 });
+      }
+    }
+    // Stable: at equal times a video keyframe opens the cluster before audio joins it.
+    events.sort((x, y) => x.t - y.t || (x.video ? 0 : 1) - (y.video ? 0 : 1));
 
     const clusters: { time: number; key: boolean; bytes: Bytes }[] = [];
     let current: { time: number; key: boolean; blocks: Bytes[] } | null = null;
@@ -210,13 +285,21 @@ export class WebmMuxer {
     const flush = () => {
       if (current) clusters.push({ time: current.time, key: current.key, bytes: el(ID.Cluster, uint(ID.Timecode, current.time), ...current.blocks) });
     };
-    for (const frame of this.frames) {
-      const t = ms(frame.timestamp);
-      if (!current || frame.key || t - current.time > 32000) {
+    for (const event of events) {
+      const t = event.t;
+      if (!current || (event.video?.key ?? false) || t - current.time > 32000) {
         flush();
-        current = { time: t, key: frame.key, blocks: [] };
+        current = { time: t, key: event.video?.key ?? false, blocks: [] };
       }
       const relative = t - current.time;
+      if (event.audio) {
+        const block = event.discardNs
+          ? el(ID.BlockGroup, el(ID.Block, blockHeader(relative, 0, AUDIO_TRACK), event.audio.data), sint(ID.DiscardPadding, event.discardNs))
+          : el(ID.SimpleBlock, blockHeader(relative, 0x80, AUDIO_TRACK), event.audio.data);
+        current.blocks.push(block);
+        continue;
+      }
+      const frame = event.video;
       if (frame.alpha) {
         const group: Bytes[] = [el(ID.Block, blockHeader(relative, 0), frame.data)];
         if (!frame.key) group.push(el(ID.ReferenceBlock, uintBytes((previousMs - t) & 0xffff, 2)));

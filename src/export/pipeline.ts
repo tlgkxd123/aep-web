@@ -1,7 +1,9 @@
 import { Zip, ZipPassThrough } from "fflate";
 import { ArrayBufferTarget, Muxer } from "mp4-muxer";
 import type { CompItem, Project } from "../aep/model.ts";
+import { footageStore } from "../media/store.ts";
 import type { Renderer } from "../render/renderer.ts";
+import { encodeAudio, type EncodedAudio, type MixedAudio } from "./audio.ts";
 import { chooseEncoder } from "./codecs.ts";
 import { encodePng } from "./png.ts";
 import { autoBitrate, framePlan, outputChannels, outputSize, type FramePlan, type OutputModule, type RenderSettings } from "./settings.ts";
@@ -29,20 +31,28 @@ export interface RenderSummary {
   height: number;
   fps: number;
   codec?: string;
+  audioCodec?: string;
   bytes: number;
 }
 
 /** Straight RGBA of a comp frame, rows top to bottom, at the plan's size. */
-export type FrameSource = (time: number) => Uint8Array;
+export type FrameSource = (time: number) => Uint8Array | Promise<Uint8Array>;
 
+/** Renders until the footage the frame asked for has finished decoding, so no frame is written with footage missing. */
 export function rendererSource(renderer: Renderer, project: Project, comp: CompItem, plan: FramePlan, warnings?: Set<string>): FrameSource {
-  return (time) => {
-    const target = renderer.render(project, comp, time, { scale: plan.scale });
-    try {
-      for (const w of renderer.lastWarnings) warnings?.add(w);
-      return renderer.readPixels(target, plan.width, plan.height);
-    } finally {
-      renderer.release(target);
+  return async (time) => {
+    for (let attempt = 0; ; attempt++) {
+      const version = footageStore.version;
+      const target = renderer.render(project, comp, time, { scale: plan.scale });
+      try {
+        await footageStore.idle();
+        if (footageStore.version === version || attempt >= 8) {
+          for (const w of renderer.lastWarnings) warnings?.add(w);
+          return renderer.readPixels(target, plan.width, plan.height);
+        }
+      } finally {
+        renderer.release(target);
+      }
     }
   };
 }
@@ -108,6 +118,8 @@ export async function renderToSink(
   sink: Sink,
   fileName: string,
   hooks: RenderHooks = {},
+  /** The comp's mixed audio over the plan's span; PNG sequences carry none. */
+  audio: MixedAudio | null = null,
 ): Promise<RenderSummary> {
   const plan = framePlan(comp, settings);
   const { width, height } = outputSize(plan, output.format);
@@ -120,7 +132,7 @@ export async function renderToSink(
   const frameAt = async (index: number): Promise<Uint8Array> => {
     await hooks.resume?.();
     if (hooks.signal?.aborted) throw stopped();
-    const rgba = crop(source(plan.time(index)), plan.width, width, height);
+    const rgba = crop(await source(plan.time(index)), plan.width, width, height);
     return channels === "rgb" ? matte(rgba, comp.bgColor) : rgba;
   };
   const done = async (index: number) => {
@@ -178,23 +190,47 @@ export async function renderToSink(
   if (main.frames.length !== plan.frames || (alpha && alpha.frames.length !== plan.frames)) {
     throw new Error(`The encoder returned ${main.frames.length} of ${plan.frames} frames.`);
   }
+  const durationUs = plan.duration * 1e6;
+  let sound: EncodedAudio | null = null;
+  if (audio) {
+    sound = await encodeAudio(audio, output.format === "h264" ? "aac" : "opus", hooks.signal);
+    if (!sound.description) throw new Error("The audio encoder did not report its stream header.");
+  }
 
   if (output.format === "h264") {
     // mp4-muxer uses `frameRate` as the track timescale and rounds timestamps to it.
-    const muxer = new Muxer({ target: new ArrayBufferTarget(), video: { codec: "avc", width, height, frameRate: mp4Timescale(plan.fps) }, fastStart: "in-memory" });
+    const muxer = new Muxer({
+      target: new ArrayBufferTarget(),
+      video: { codec: "avc", width, height, frameRate: mp4Timescale(plan.fps) },
+      ...(sound ? { audio: { codec: sound.codec, numberOfChannels: sound.numberOfChannels, sampleRate: sound.sampleRate } } : {}),
+      fastStart: "in-memory",
+    });
     for (const f of main.frames) muxer.addVideoChunk(f.chunk, f.meta);
+    // Blocks that start at or after the video's end are not heard.
+    for (const a of sound?.chunks ?? []) if (a.chunk.timestamp < durationUs) muxer.addAudioChunk(a.chunk, a.meta);
     muxer.finalize();
     await write(new Uint8Array(muxer.target.buffer));
   } else {
-    const muxer = new WebmMuxer({ codec: "V_VP9", width, height, frameDuration: stepUs, alpha: !!alpha, colour: BT709_CODES });
+    const muxer = new WebmMuxer({
+      codec: "V_VP9",
+      width,
+      height,
+      frameDuration: stepUs,
+      alpha: !!alpha,
+      colour: BT709_CODES,
+      ...(sound?.description
+        ? { audio: { sampleRate: sound.sampleRate, channels: sound.numberOfChannels, codecPrivate: sound.description, preSkip: sound.preSkip, endUs: durationUs } }
+        : {}),
+    });
     main.frames.forEach((f, i) => {
       const a = alpha?.frames[i];
       muxer.add({ data: f.data, alpha: a?.data, key: f.chunk.type === "key" && (!a || a.chunk.type === "key"), timestamp: f.chunk.timestamp });
     });
+    for (const a of sound?.chunks ?? []) muxer.addAudio({ data: a.data, timestamp: a.chunk.timestamp, duration: a.chunk.duration ?? 20000 });
     await write(muxer.finish());
   }
   await sink.close();
-  return { frames: plan.frames, width, height, fps: plan.fps, codec: choice.config.codec, bytes: written };
+  return { frames: plan.frames, width, height, fps: plan.fps, codec: choice.config.codec, audioCodec: sound ? (sound.codec === "aac" ? "mp4a.40.2" : "opus") : undefined, bytes: written };
 }
 
 export function memorySink(): Sink & { bytes(): Uint8Array } {
