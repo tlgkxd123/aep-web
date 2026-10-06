@@ -279,6 +279,37 @@ test("Ctrl+D in the Project panel duplicates the selected composition", async ()
   expect(row("Main 2").getAttribute("aria-selected")).toBe("true");
 });
 
+test("the Project panel's context menus rename, duplicate, delete and open Composition Settings", async () => {
+  await startNewProject();
+  await newComp({ "Composition Name:": "Main" });
+  const choose = (target: HTMLElement, label: string) => {
+    fireEvent.contextMenu(target);
+    const menu = document.querySelector<HTMLElement>(".context-menu")!;
+    fireEvent.click(within(menu).getByRole("menuitem", { name: new RegExp(`^${label}`) }));
+  };
+
+  choose(row("Main"), "Rename");
+  const field = within(tree()).getByLabelText("Item name");
+  fireEvent.change(field, { target: { value: "Edit" } });
+  fireEvent.keyDown(field, { key: "Enter" });
+  expect(rowNames()).toEqual(["Edit"]);
+
+  choose(row("Edit"), "Duplicate");
+  expect(rowNames()).toEqual(["Edit", "Edit 2"]);
+  choose(row("Edit 2"), "Delete");
+  expect(rowNames()).toEqual(["Edit"]);
+
+  choose(row("Edit"), "Composition Settings");
+  const dialog = await screen.findByRole("dialog", { name: "Composition Settings" });
+  expect((within(dialog).getByLabelText("Composition Name:") as HTMLInputElement).value).toBe("Edit");
+  fireEvent.click(within(dialog).getByRole("button", { name: "Cancel" }));
+
+  choose(tree().closest<HTMLElement>(".proj-scroll")!, "New Folder");
+  fireEvent.keyDown(within(tree()).getByLabelText("Item name"), { key: "Enter" });
+  expect(rowNames()).toEqual(["Edit", "Untitled 1"]);
+  expect(within(row("Untitled 1")).getByText("Folder")).toBeTruthy();
+});
+
 test("Save without a file picker downloads the project, which parses with the new comp", async () => {
   await startNewProject();
   await newComp({ "Composition Name:": "Saved" });

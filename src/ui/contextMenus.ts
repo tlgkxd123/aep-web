@@ -23,7 +23,18 @@ export interface AppActions {
   canLayerCommand?: (command: LayerCommand, comp: CompItem, layer: Layer | undefined) => boolean;
   setBlendingMode?: (comp: CompItem, layer: Layer, mode: number) => void;
   setLayerSwitch?: (comp: CompItem, layer: Layer, name: LayerSwitch, on: boolean) => void;
+  /** Project operations, when the project is editable. They act on the Project panel's selection, which a context menu selects first. */
+  projectCommand?: (command: ProjectItemCommand) => void;
+  openCompSettings?: (compId: number) => void;
 }
+
+export type ProjectItemCommand = "rename" | "duplicate" | "delete" | "replace-footage" | "new-folder" | "new-comp" | "import";
+
+const projectEntry = (a: AppActions, label: string, cmd: ProjectItemCommand, shortcut?: string): MenuEntry => ({
+  label,
+  shortcut,
+  onSelect: a.projectCommand ? () => a.projectCommand!(cmd) : undefined,
+});
 
 /** A layer command entry, enabled when the command applies to `layer` (or to the comp, for new layers). */
 function command(a: AppActions, label: string, cmd: LayerCommand, comp: CompItem, layer: Layer | undefined, shortcut?: string): MenuEntry {
@@ -91,14 +102,14 @@ export function projectItemMenu(target: Item, a: AppActions): MenuEntries {
     return [
       item("Open Composition", () => a.openComp(target.id)),
       "-",
-      item("Composition Settings...", undefined, "Ctrl+K"),
-      item("Rename"),
+      item("Composition Settings...", a.openCompSettings && (() => a.openCompSettings!(target.id)), "Ctrl+K"),
+      projectEntry(a, "Rename", "rename"),
       "-",
       item("Add To Render Queue", undefined, "Ctrl+M"),
       item("Add To Adobe Media Encoder Queue...", undefined, "Ctrl+Alt+M"),
       "-",
-      item("Duplicate", undefined, "Ctrl+D"),
-      item("Delete"),
+      projectEntry(a, "Duplicate", "duplicate", "Ctrl+D"),
+      projectEntry(a, "Delete", "delete"),
       "-",
       item("New Comp from Selection"),
       sub("Dependencies", [item("Reduce Project"), item("Remove Unused Footage"), item("Consolidate All Footage")]),
@@ -108,25 +119,35 @@ export function projectItemMenu(target: Item, a: AppActions): MenuEntries {
     const file = target.mainSource.sourceType === "FileSource";
     return [
       sub("Interpret Footage", [item("Main...", undefined, "Ctrl+Alt+G"), item("Proxy..."), "-", item("Remember Interpretation"), item("Apply Interpretation")]),
-      sub("Replace Footage", [item("File...", undefined, "Ctrl+H"), item("With Layered Comp"), item("Placeholder..."), item("Solid...")]),
+      sub("Replace Footage", [
+        file ? projectEntry(a, "File...", "replace-footage", "Ctrl+H") : item("File...", undefined, "Ctrl+H"),
+        item("With Layered Comp"),
+        item("Placeholder..."),
+        item("Solid..."),
+      ]),
       item("Reload Footage", file ? a.reloadFootage : undefined, "Ctrl+Alt+L"),
       item("Locate Footage...", file ? a.locateFootage : undefined),
       "-",
-      item("Rename"),
+      projectEntry(a, "Rename", "rename"),
       item("New Comp from Selection"),
       "-",
-      item("Delete"),
+      projectEntry(a, "Delete", "delete"),
     ];
   }
-  return [item("Rename"), item("New Folder", undefined, "Ctrl+Alt+Shift+N"), "-", item("Delete")];
+  return [projectEntry(a, "Rename", "rename"), projectEntry(a, "New Folder", "new-folder", "Ctrl+Alt+Shift+N"), "-", projectEntry(a, "Delete", "delete")];
 }
 
 export function projectPanelMenu(a: AppActions): MenuEntries {
   return [
-    item("New Composition...", undefined, "Ctrl+N"),
-    item("New Folder", undefined, "Ctrl+Alt+Shift+N"),
+    projectEntry(a, "New Composition...", "new-comp", "Ctrl+N"),
+    projectEntry(a, "New Folder", "new-folder", "Ctrl+Alt+Shift+N"),
     "-",
-    sub("Import", [item("File...", undefined, "Ctrl+I"), item("Multiple Files...", undefined, "Ctrl+Alt+I"), item("Placeholder..."), item("Solid...")]),
+    sub("Import", [
+      projectEntry(a, "File...", "import", "Ctrl+I"),
+      projectEntry(a, "Multiple Files...", "import", "Ctrl+Alt+I"),
+      item("Placeholder..."),
+      item("Solid..."),
+    ]),
     "-",
     item("Locate Footage...", a.locateFootage),
     item("Reload Footage", a.reloadFootage),
@@ -196,7 +217,7 @@ export function viewerMenu(comp: CompItem, a: AppActions): MenuEntries {
   return [
     sub("New", newLayerEntries(comp, a)),
     "-",
-    item("Composition Settings...", undefined, "Ctrl+K"),
+    item("Composition Settings...", a.openCompSettings && (() => a.openCompSettings!(comp.id)), "Ctrl+K"),
     item("Reveal Composition in Project", () => a.revealInProject(comp.id)),
     "-",
     item("Add To Render Queue", undefined, "Ctrl+M"),

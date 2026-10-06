@@ -24,6 +24,7 @@ import {
 import { identifyLocal, localFootageAvailable, readLocal } from "../media/localFootage.ts";
 import { isImportable, probeMedia } from "../media/probe.ts";
 import { footageStore } from "../media/store.ts";
+import type { ProjectItemCommand } from "./contextMenus.ts";
 import { bitsPerChannel } from "./format.ts";
 import { AlertDialog, type AlertAction } from "./Dialog.tsx";
 import { CompSettingsDialog } from "./CompSettingsDialog.tsx";
@@ -197,9 +198,10 @@ export function useProjectOps(host: ProjectOpsHost) {
     setCompDialog({ mode: "new", folderId: targetFolder(), initial: { ...lastSettings(), name: nextName(editor.project, "Comp") } });
   };
 
-  const openCompSettings = () => {
+  const openCompSettings = (compId?: number) => {
     const selected = live(selectedIds[0]);
-    const comp = host.projectFocused && selected?.kind === "comp" ? selected : activeComp ? live(activeComp.id) : undefined;
+    const comp =
+      compId !== undefined ? live(compId) : host.projectFocused && selected?.kind === "comp" ? selected : activeComp ? live(activeComp.id) : undefined;
     if (comp?.kind === "comp") setCompDialog({ mode: "edit", comp });
   };
 
@@ -422,11 +424,28 @@ export function useProjectOps(host: ProjectOpsHost) {
     return true;
   };
 
-  // The panel is memoized and the window's key listener is re-attached only
-  // after a render commits: both get stable callbacks that run the latest closures.
-  const latest = useRef({ rename, move, remove, createFolder, openNewComp, importFiles, replaceWith, handleKey });
-  latest.current = { rename, move, remove, createFolder, openNewComp, importFiles, replaceWith, handleKey };
+  /** A Project panel context-menu command, on the panel's selection. */
+  const itemCommand = (cmd: ProjectItemCommand) => {
+    if (cmd === "rename") setRenamingId(selectedIds[0]);
+    else if (cmd === "duplicate") duplicate();
+    else if (cmd === "delete") remove(selectedItems());
+    else command(cmd);
+  };
+
+  // The panel and the context menus are memoized and the window's key listener
+  // is re-attached only after a render commits: they get stable callbacks that
+  // run the latest closures.
+  const fresh = { rename, move, remove, createFolder, openNewComp, openCompSettings, importFiles, replaceWith, handleKey, itemCommand };
+  const latest = useRef(fresh);
+  latest.current = fresh;
   const keyDown = useCallback((e: KeyboardEvent) => latest.current.handleKey(e), []);
+  const contextMenu = useMemo(
+    () => ({
+      projectCommand: (cmd: ProjectItemCommand) => latest.current.itemCommand(cmd),
+      openCompSettings: (compId: number) => latest.current.openCompSettings(compId),
+    }),
+    [],
+  );
   const panel = useMemo<ProjectPanelOps>(
     () => ({
       rename: (item, name) => latest.current.rename(item, name),
@@ -491,5 +510,5 @@ export function useProjectOps(host: ProjectOpsHost) {
   /** The browser tab's title, with AE's unsaved-changes asterisk. */
   const title = session ? `${fileName(session.file.name)}${session.editor.dirty ? " *" : ""} - AEP Web` : "AEP Web";
 
-  return { command, keyDown, confirmClose, dialogs, panel, menu, title, rename };
+  return { command, keyDown, confirmClose, dialogs, panel, menu, contextMenu, title, rename };
 }

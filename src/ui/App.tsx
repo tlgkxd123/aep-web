@@ -528,6 +528,7 @@ export function App() {
         setFocused("left");
       },
       ...(editor && {
+        ...ops.contextMenu,
         layerCommand: (cmd: LayerCommand) => runLayerRef.current(cmd),
         canLayerCommand: (cmd: LayerCommand, comp: CompItem, layer: Layer | undefined) =>
           canRunLayerCommand(cmd, { editor, comp, layers: layer ? [layer] : [] }),
@@ -547,7 +548,7 @@ export function App() {
         },
       }),
     }),
-    [openItem, selectLayer, project, editor],
+    [openItem, selectLayer, project, editor, ops.contextMenu],
   );
 
   const workspace = loaded && project && !showHome && (
