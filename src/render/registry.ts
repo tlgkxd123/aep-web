@@ -17,8 +17,17 @@ export interface LayerImage {
   origin: [number, number];
 }
 
+export interface RendererOptions {
+  /**
+   * Effects whose plugins are not installed are skipped, as After Effects does.
+   * When set, unverified look-alikes drawn from their stored parameters are used instead.
+   */
+  approximateMissingPlugins: boolean;
+}
+
 export interface RenderContext {
   readonly gl: GL;
+  readonly options: Readonly<RendererOptions>;
   readonly pool: TargetPool;
   /** Width of the transparent border around every image. */
   readonly pad: number;
@@ -56,6 +65,7 @@ export type EffectRenderer = (input: LayerImage, effect: PropertyGroup, layer: L
 
 const providers: ContentProvider[] = [];
 const effects = new Map<string, EffectRenderer>();
+const prefixEffects: [string, EffectRenderer][] = [];
 
 export function registerContentProvider(provider: ContentProvider): void {
   providers.push(provider);
@@ -69,6 +79,11 @@ export function registerEffect(matchName: string, renderer: EffectRenderer): voi
   effects.set(matchName, renderer);
 }
 
+/** Registers a renderer for every effect whose match name starts with `prefix`. */
+export function registerEffectPrefix(prefix: string, renderer: EffectRenderer): void {
+  prefixEffects.push([prefix, renderer]);
+}
+
 export function effectRenderer(matchName: string): EffectRenderer | undefined {
-  return effects.get(matchName);
+  return effects.get(matchName) ?? prefixEffects.find(([prefix]) => matchName.startsWith(prefix))?.[1];
 }

@@ -50,7 +50,10 @@ if (!args.includes("--no-build")) execSync("npx vite build -c vite.harness.confi
 
 const browser = await chromium.launch({ channel: "msedge", headless: true, args: ["--use-angle=swiftshader", "--enable-unsafe-swiftshader"] });
 const page = await browser.newPage();
-await page.setContent("<!doctype html><html><body></body></html>");
+// WebCodecs (footage video) is only exposed to secure contexts, so the page gets an https origin.
+const ORIGIN = "https://aep-harness.test/";
+await page.route(`${ORIGIN}**`, (route) => route.fulfill({ contentType: "text/html", body: "<!doctype html><html><body></body></html>" }));
+await page.goto(ORIGIN);
 await page.addScriptTag({ path: resolve("dist-harness/harness.js") });
 const diffDir = join(root, "diff");
 rmSync(diffDir, { recursive: true, force: true });
@@ -69,13 +72,17 @@ const rows: Row[] = [];
 const premul = (d: Uint8Array, i: number, c: number) => (c === 3 ? d[i + 3] : (d[i + c] * d[i + 3]) / 255);
 
 const jobs = suites.flatMap((suite) =>
-  suite.comps.filter((c) => !only || only.has(c.comp)).map((c) => ({ ...c, project: suite.project })),
+  suite.comps.filter((c) => !only || only.has(c.comp)).map((c) => ({ ...c, project: suite.project, media: suite.media ?? [] })),
 );
 let loaded = "";
-for (const { comp, frames, project, fps = DEFAULT_FPS } of jobs) {
+for (const { comp, frames, project, media, fps = DEFAULT_FPS } of jobs) {
   if (project !== loaded) {
     const projectBytes = readFileSync(join(root, "fixtures", project)).toString("base64");
     await page.evaluate((b64) => (globalThis as any).aepHarness.load(b64), projectBytes);
+    for (const path of media) {
+      const fileBytes = readFileSync(join(root, path)).toString("base64");
+      await page.evaluate(([p, b64]) => (globalThis as any).aepHarness.addFile(p, b64), [path, fileBytes] as const);
+    }
     loaded = project;
   }
   for (const frame of frames) {

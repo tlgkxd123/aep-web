@@ -474,6 +474,34 @@ button.twirl:hover {
   background: #3d3d3d;
 }
 
+.context-host {
+  position: fixed;
+  inset: 0 auto auto 0;
+  z-index: 200;
+}
+
+.context-menu {
+  min-width: 220px;
+  max-height: calc(100vh - 8px);
+  overflow-y: auto;
+}
+
+.context-menu .menu-item {
+  position: relative;
+}
+
+.menu-check {
+  position: absolute;
+  left: 8px;
+  display: flex;
+  align-items: center;
+}
+
+.context-menu .menu-item.sub-open:not(:disabled) {
+  background: #3a3a3a;
+  color: var(--text-hi);
+}
+
 .toolbar {
   display: flex;
   align-items: center;

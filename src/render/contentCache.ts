@@ -1,5 +1,5 @@
 // Per-layer caches for content that is expensive to rasterize on the CPU (shape
-// layers, mask coverage). An entry is keyed by every value its inputs take at
+// layers). An entry is keyed by every value its inputs take at
 // the frame's time, so a static layer is rasterized once and an edited or
 // animated one is redrawn as soon as one of its values differs. Inputs that an
 // expression may drive are never cached.

@@ -1,8 +1,15 @@
-import { memo, useEffect, useMemo, useState, type KeyboardEvent } from "react";
+import { memo, useContext, useEffect, useMemo, useState, type KeyboardEvent } from "react";
 import type { Item, Project } from "../aep/model.ts";
+import { footageStore } from "../media/store.ts";
+import { openContextMenu } from "./ContextMenu.tsx";
+import { AppActionsContext, projectItemMenu, projectPanelMenu } from "./contextMenus.ts";
+import { ITEM_MIME, useEditing } from "./editing.tsx";
 import { bitsPerChannel, colorCss, fpsLabel, fpsShort, labelColor, labelName, timecode } from "./format.ts";
 import { Icon } from "./icons.tsx";
 import { ItemIcon } from "./itemIcons.tsx";
+import { LocateFootageButtons, useFootageVersion } from "./LocateFootage.tsx";
+
+const isMissing = (item: Item) => item.kind === "footage" && !footageStore.isLocated(item);
 
 type SortKey = "name" | "label" | "type" | "size" | "fps" | "path";
 
@@ -93,6 +100,7 @@ function ItemInfo({ item, uses }: { item: Item | undefined; uses: number }) {
   if (isFootage && item.mainSource.sourceType === "FileSource" && item.width === 0) lines.push("Audio only");
   if (solid) lines.push("Solid");
   if (isFootage && item.mainSource.sourceType === "PlaceholderSource") lines.push("Placeholder");
+  else if (isMissing(item)) lines.push("Missing: use Locate Footage below");
   return (
     <div className="proj-info">
       <div className="proj-thumb-box">
@@ -133,10 +141,21 @@ export const ProjectPanel = memo(function ProjectPanel({
   const [expanded, setExpanded] = useState<Set<number>>(() => new Set(ancestors(project, selectedId)));
   const [query, setQuery] = useState("");
   const [sort, setSort] = useState<{ key: SortKey; dir: 1 | -1 }>({ key: "name", dir: 1 });
+  useFootageVersion();
+  // New solids and the Solids folder change the item tree inside the same project object.
+  const { revision } = useEditing();
+
+  const actions = useContext(AppActionsContext);
 
   useEffect(() => {
     setExpanded(new Set(ancestors(project, selectedId)));
   }, [project]);
+
+  // Revealing an item (e.g. a layer's source) opens the folders that hold it.
+  useEffect(() => {
+    const path = ancestors(project, selectedId);
+    setExpanded((prev) => (path.every((id) => prev.has(id)) ? prev : new Set([...prev, ...path])));
+  }, [selectedId]);
 
   const uses = useMemo(() => {
     const counts = new Map<number, number>();
@@ -145,7 +164,7 @@ export const ProjectPanel = memo(function ProjectPanel({
       for (const layer of item.layers) counts.set(layer.sourceId, (counts.get(layer.sourceId) ?? 0) + 1);
     }
     return counts;
-  }, [project]);
+  }, [project, revision]);
 
   const rows = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -167,7 +186,7 @@ export const ProjectPanel = memo(function ProjectPanel({
     };
     walk(project.rootFolder.items, 0);
     return out;
-  }, [project, expanded, query, sort]);
+  }, [project, expanded, query, sort, revision]);
 
   const toggle = (id: number) =>
     setExpanded((prev) => {
@@ -203,7 +222,7 @@ export const ProjectPanel = memo(function ProjectPanel({
         <Icon name="search" size={12} />
         <input type="search" placeholder="" aria-label="Search project" value={query} onChange={(e) => setQuery(e.target.value)} />
       </label>
-      <div className="proj-scroll">
+      <div className="proj-scroll" onContextMenu={(e) => actions && openContextMenu(e, projectPanelMenu(actions))}>
         <div className="proj-table">
           <div className="proj-head" role="presentation">
             {COLUMNS.map((col) => (
@@ -225,6 +244,7 @@ export const ProjectPanel = memo(function ProjectPanel({
             {rows.map(({ item, depth }) => {
               const isFolder = item.kind === "folder";
               const open = isFolder && (expanded.has(item.id) || !!query.trim());
+              const missing = isMissing(item);
               return (
                 <div
                   key={item.id}
@@ -232,9 +252,24 @@ export const ProjectPanel = memo(function ProjectPanel({
                   aria-level={depth + 1}
                   aria-selected={item.id === selectedId}
                   aria-expanded={isFolder ? open : undefined}
-                  className={`proj-row ${item.id === selectedId ? "selected" : ""}`}
+                  className={`proj-row ${item.id === selectedId ? "selected" : ""} ${missing ? "missing" : ""}`}
+                  draggable={isFolder ? undefined : true}
+                  onDragStart={
+                    isFolder
+                      ? undefined
+                      : (e) => {
+                          e.dataTransfer.setData(ITEM_MIME, String(item.id));
+                          e.dataTransfer.effectAllowed = "copy";
+                          onSelect(item.id);
+                        }
+                  }
                   onClick={() => onSelect(item.id)}
                   onDoubleClick={() => (isFolder ? toggle(item.id) : onOpenItem(item.id))}
+                  onContextMenu={(e) => {
+                    if (!actions) return;
+                    onSelect(item.id);
+                    openContextMenu(e, projectItemMenu(item, actions));
+                  }}
                   title={pathText(item) || undefined}
                 >
                   <span className="pc-name" style={{ paddingLeft: 4 + depth * 14 }}>
@@ -254,6 +289,11 @@ export const ProjectPanel = memo(function ProjectPanel({
                     )}
                     <ItemIcon item={item} />
                     <span className="cell-text">{item.name || "(unnamed)"}</span>
+                    {missing && (
+                      <span className="missing-mark" title="Missing footage" aria-label="missing">
+                        <Icon name="warning" size={10} />
+                      </span>
+                    )}
                   </span>
                   <span className="pc-label">
                     <span className="label-chip" style={{ background: labelColor(item.label) }} title={labelName(item.label)} />
@@ -281,6 +321,7 @@ export const ProjectPanel = memo(function ProjectPanel({
         <span className="foot-btn" title="Composition Flowchart" aria-hidden="true">
           <Icon name="flowchart" size={14} />
         </span>
+        <LocateFootageButtons />
         <span className="foot-bpc" title="Project color depth">
           {bitsPerChannel(project.bitsPerChannel)} bpc
         </span>

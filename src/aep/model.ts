@@ -220,10 +220,58 @@ export interface FolderItem extends ItemBase {
   items: Item[];
 }
 
+/** Interpret Footage settings, as ExtendScript's FootageSource reports them. */
+export interface FootageInterpretation {
+  hasAlpha: boolean;
+  /** AlphaMode: 5412 straight, 5413 ignore, 5414 premultiplied. */
+  alphaMode: number;
+  invertAlpha: boolean;
+  premulColor: [number, number, number];
+  /** 0 when the native rate is used. A sequence reports its assumed rate. */
+  conformFrameRate: number;
+  nativeFrameRate: number;
+  displayFrameRate: number;
+  loop: number;
+  /** FieldSeparationType: 5612 upper field first, 5613 off, 5614 lower field first. */
+  fieldSeparationType: number;
+  highQualityFieldSeparation: boolean;
+  /** PulldownPhase: 5813 off, 5812 and 5814-5822 the phases. */
+  removePulldown: number;
+  isStill: boolean;
+}
+
+export const AlphaMode = { STRAIGHT: 5412, IGNORE: 5413, PREMULTIPLIED: 5414 } as const;
+
+/** Frames of an image sequence: `prefix` + zero-padded frame number + `extension`. */
+export interface ImageSequence {
+  prefix: string;
+  extension: string;
+  startFrame: number;
+  endFrame: number;
+  framePadding: number;
+  /** Frame file names the project lists (`StVc`), when it lists them. */
+  fileNames: string[];
+}
+
 export type FootageSource =
-  | { sourceType: "SolidSource"; color: [number, number, number] }
-  | { sourceType: "PlaceholderSource" }
-  | { sourceType: "FileSource"; file: string; assetType: string; isStill: boolean };
+  | ({ sourceType: "SolidSource"; color: [number, number, number] } & FootageInterpretation)
+  | ({ sourceType: "PlaceholderSource" } & FootageInterpretation)
+  | ({
+      sourceType: "FileSource";
+      /** Full path of the file, or of the first frame of a sequence. */
+      file: string;
+      fileName: string;
+      /** The path below the folder the project and the file share (AE's relative link), "/"-separated; "" when not recorded. */
+      relativePath: string;
+      /** The project records a folder (an image sequence). */
+      targetIsFolder: boolean;
+      sequence?: ImageSequence;
+      /** The path of the file when it was missing at the last save, else "". */
+      missingFootagePath: string;
+      assetType: string;
+      /** The layer of a layered file (PSD, AI) this source references, else "". */
+      layerName: string;
+    } & FootageInterpretation);
 
 export interface FootageItem extends ItemBase {
   kind: "footage";
@@ -232,7 +280,13 @@ export interface FootageItem extends ItemBase {
   height: number;
   duration: number;
   frameRate: number;
+  /** Seconds per frame. */
+  frameDuration: number;
   pixelAspect: number;
+  /** A placeholder, or a file that was missing when the project was saved. */
+  footageMissing: boolean;
+  hasVideo: boolean;
+  hasAudio: boolean;
   mainSource: FootageSource;
 }
 

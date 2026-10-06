@@ -1,5 +1,6 @@
 import { memo, useEffect, useRef, useState } from "react";
 import { Icon } from "./icons.tsx";
+import type { LayerCommand } from "./layerCommands.ts";
 
 export type MenuCommand =
   | "open"
@@ -9,13 +10,16 @@ export type MenuCommand =
   | "show-render-queue"
   | "show-chunks"
   | "show-composition"
-  | "home";
+  | "home"
+  | LayerCommand;
 
 interface Item {
   label: string;
   shortcut?: string;
   command?: MenuCommand;
   submenu?: boolean;
+  /** The submenu's entries, for submenus this viewer can open. */
+  items?: Entry[];
   needsProject?: boolean;
 }
 
@@ -62,8 +66,8 @@ const MENUS: { name: string; items: Entry[] }[] = [
   {
     name: "Edit",
     items: [
-      { label: "Undo", shortcut: "Ctrl+Z" },
-      { label: "Redo", shortcut: "Ctrl+Shift+Z" },
+      { label: "Undo", shortcut: "Ctrl+Z", command: "undo" },
+      { label: "Redo", shortcut: "Ctrl+Shift+Z", command: "redo" },
       { label: "History", submenu: true },
       "-",
       { label: "Cut", shortcut: "Ctrl+X" },
@@ -71,9 +75,9 @@ const MENUS: { name: string; items: Entry[] }[] = [
       { label: "Copy with Property Links", shortcut: "Ctrl+Alt+C" },
       { label: "Copy Expression Only" },
       { label: "Paste", shortcut: "Ctrl+V" },
-      { label: "Clear", shortcut: "Delete" },
+      { label: "Clear", shortcut: "Delete", command: "delete-layer" },
       "-",
-      { label: "Duplicate", shortcut: "Ctrl+D" },
+      { label: "Duplicate", shortcut: "Ctrl+D", command: "duplicate-layer" },
       { label: "Split Layer", shortcut: "Ctrl+Shift+D" },
       { label: "Lift Work Area" },
       { label: "Extract Work Area" },
@@ -115,7 +119,22 @@ const MENUS: { name: string; items: Entry[] }[] = [
   {
     name: "Layer",
     items: [
-      { label: "New", submenu: true },
+      {
+        label: "New",
+        submenu: true,
+        items: [
+          { label: "Text", shortcut: "Ctrl+Alt+Shift+T" },
+          { label: "Solid...", shortcut: "Ctrl+Y", command: "new-solid" },
+          { label: "Light...", shortcut: "Ctrl+Alt+Shift+L" },
+          { label: "Camera...", shortcut: "Ctrl+Alt+Shift+C" },
+          { label: "Null Object", shortcut: "Ctrl+Alt+Shift+Y", command: "new-null" },
+          { label: "Shape Layer", command: "new-shape" },
+          { label: "Adjustment Layer", shortcut: "Ctrl+Alt+Y", command: "new-adjustment" },
+          { label: "Content-Aware Fill Layer..." },
+          { label: "Adobe Photoshop File..." },
+          { label: "Maxon Cinema 4D File..." },
+        ],
+      },
       { label: "Layer Settings...", shortcut: "Ctrl+Shift+Y" },
       "-",
       { label: "Open Layer" },
@@ -126,7 +145,30 @@ const MENUS: { name: string; items: Entry[] }[] = [
       { label: "Mask and Shape Path", submenu: true },
       { label: "Quality", submenu: true },
       { label: "Switches", submenu: true },
-      { label: "Transform", submenu: true },
+      {
+        label: "Transform",
+        submenu: true,
+        items: [
+          { label: "Reset", command: "reset-transform" },
+          { label: "Anchor Point..." },
+          { label: "Position...", shortcut: "Ctrl+Shift+P" },
+          { label: "Scale..." },
+          { label: "Orientation...", shortcut: "Ctrl+Alt+Shift+R" },
+          { label: "Rotation...", shortcut: "Ctrl+Shift+R" },
+          { label: "Opacity...", shortcut: "Ctrl+Shift+O" },
+          "-",
+          { label: "Flip Horizontal", command: "flip-horizontal" },
+          { label: "Flip Vertical", command: "flip-vertical" },
+          { label: "Center Anchor Point in Layer Content", shortcut: "Ctrl+Alt+Home", command: "center-anchor" },
+          { label: "Center In View", shortcut: "Ctrl+Home", command: "center-in-view" },
+          "-",
+          { label: "Fit to Comp", shortcut: "Ctrl+Alt+F", command: "fit-to-comp" },
+          { label: "Fit to Comp Width", shortcut: "Ctrl+Alt+Shift+H", command: "fit-to-comp-width" },
+          { label: "Fit to Comp Height", shortcut: "Ctrl+Alt+Shift+G", command: "fit-to-comp-height" },
+          "-",
+          { label: "Auto-Orient...", shortcut: "Ctrl+Alt+O" },
+        ],
+      },
       { label: "Time", submenu: true },
       { label: "Frame Blending", submenu: true },
       { label: "3D Layer" },
@@ -141,7 +183,16 @@ const MENUS: { name: string; items: Entry[] }[] = [
       { label: "Track Matte", submenu: true },
       { label: "Layer Styles", submenu: true },
       "-",
-      { label: "Arrange", submenu: true },
+      {
+        label: "Arrange",
+        submenu: true,
+        items: [
+          { label: "Bring Layer to Front", shortcut: "Ctrl+Shift+]", command: "bring-to-front" },
+          { label: "Bring Layer Forward", shortcut: "Ctrl+]", command: "bring-forward" },
+          { label: "Send Layer Backward", shortcut: "Ctrl+[", command: "send-backward" },
+          { label: "Send Layer to Back", shortcut: "Ctrl+Shift+[", command: "send-to-back" },
+        ],
+      },
       "-",
       { label: "Reveal", submenu: true },
       { label: "Create", submenu: true },
@@ -269,16 +320,81 @@ const MENUS: { name: string; items: Entry[] }[] = [
   },
 ];
 
+interface MenuState {
+  hasProject: boolean;
+  enabled?: (command: MenuCommand) => boolean;
+  /** A label that depends on the project, such as "Undo Move". */
+  label?: (command: MenuCommand) => string | undefined;
+  run: (command: MenuCommand) => void;
+}
+
+const runnable = (entry: Item, state: MenuState): boolean =>
+  entry.items
+    ? entry.items.some((e) => e !== "-" && runnable(e, state))
+    : !!entry.command && !(entry.needsProject && !state.hasProject) && (state.enabled?.(entry.command) ?? true);
+
+function MenuList({ name, entries, state, className }: { name: string; entries: Entry[]; state: MenuState; className?: string }) {
+  const [sub, setSub] = useState<number>();
+  return (
+    <div className={`menu-pop ${className ?? ""}`} role="menu" aria-label={name}>
+      {entries.map((entry, j) => {
+        if (entry === "-") return <div key={j} className="menu-sep" role="separator" />;
+        const label = (entry.command && state.label?.(entry.command)) || entry.label;
+        const button = (
+          <button
+            key={j}
+            type="button"
+            role="menuitem"
+            className={`menu-item ${entry.items && sub === j ? "open" : ""}`}
+            aria-haspopup={entry.items ? "menu" : undefined}
+            aria-expanded={entry.items ? sub === j : undefined}
+            disabled={!runnable(entry, state)}
+            onPointerEnter={() => setSub(entry.items ? j : undefined)}
+            onClick={() => {
+              if (entry.items) setSub(sub === j ? undefined : j);
+              else if (entry.command) state.run(entry.command);
+            }}
+          >
+            <span className="menu-label">{label}</span>
+            <span className="menu-shortcut">{entry.shortcut}</span>
+            <span className="menu-sub">{entry.submenu && <Icon name="chevronRight" size={10} />}</span>
+          </button>
+        );
+        if (!entry.items) return button;
+        return (
+          <div key={j} className="menu-item-wrap">
+            {button}
+            {sub === j && <MenuList name={entry.label} entries={entry.items} state={state} className="menu-sub-pop" />}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 /** The application menu bar. Only commands this viewer can carry out are enabled. */
 export const MenuBar = memo(function MenuBar({
   hasProject,
   onCommand,
+  enabled,
+  label,
 }: {
   hasProject: boolean;
   onCommand: (command: MenuCommand) => void;
+  enabled?: (command: MenuCommand) => boolean;
+  label?: (command: MenuCommand) => string | undefined;
 }) {
   const [open, setOpen] = useState<number>();
   const bar = useRef<HTMLDivElement>(null);
+  const state: MenuState = {
+    hasProject,
+    enabled,
+    label,
+    run: (command) => {
+      setOpen(undefined);
+      onCommand(command);
+    },
+  };
 
   useEffect(() => {
     if (open === undefined) return;
@@ -313,31 +429,7 @@ export const MenuBar = memo(function MenuBar({
           >
             {menu.name}
           </button>
-          {open === i && (
-            <div className="menu-pop" role="menu" aria-label={menu.name}>
-              {menu.items.map((entry, j) =>
-                entry === "-" ? (
-                  <div key={j} className="menu-sep" role="separator" />
-                ) : (
-                  <button
-                    key={j}
-                    type="button"
-                    role="menuitem"
-                    className="menu-item"
-                    disabled={!entry.command || (entry.needsProject && !hasProject)}
-                    onClick={() => {
-                      setOpen(undefined);
-                      if (entry.command) onCommand(entry.command);
-                    }}
-                  >
-                    <span className="menu-label">{entry.label}</span>
-                    <span className="menu-shortcut">{entry.shortcut}</span>
-                    <span className="menu-sub">{entry.submenu && <Icon name="chevronRight" size={10} />}</span>
-                  </button>
-                ),
-              )}
-            </div>
-          )}
+          {open === i && <MenuList name={menu.name} entries={menu.items} state={state} />}
         </div>
       ))}
     </div>
