@@ -363,6 +363,13 @@ const LayerRow = memo(function LayerRow({
           : undefined
       }
       onClick={() => onSelect(layer.id)}
+      onDoubleClick={(e) => {
+        if (!actions || !source || renaming) return;
+        if ((e.target as HTMLElement).closest("button, input, select, .c-av, .c-switches, .c-mode, .c-t, .c-trkmat, .c-parent")) return;
+        e.preventDefault();
+        if (source.kind === "comp") actions.openComp(source.id);
+        else actions.revealInProject(source.id);
+      }}
       onContextMenu={(e) => {
         if (!actions) return;
         onSelect(layer.id);
