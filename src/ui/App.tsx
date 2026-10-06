@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type DragEvent, type PointerEvent as ReactPointerEvent } from "react";
-import type { CompItem, Project } from "../aep/model.ts";
+import type { CompItem, Layer, Project } from "../aep/model.ts";
 import { parseProject } from "../aep/parse.ts";
-import { Editor } from "../edit/editor.ts";
+import { Editor, type LayerSwitch } from "../edit/editor.ts";
 import { addLayer } from "../edit/layers.ts";
 import { nudgeLayers } from "../edit/transform-ops.ts";
 import { audioPreview } from "../media/audioPreview.ts";
@@ -459,8 +459,27 @@ export function App() {
         setLeftTab("effects");
         setFocused("left");
       },
+      ...(editor && {
+        layerCommand: (cmd: LayerCommand) => runLayerRef.current(cmd),
+        canLayerCommand: (cmd: LayerCommand, comp: CompItem, layer: Layer | undefined) =>
+          canRunLayerCommand(cmd, { editor, comp, layers: layer ? [layer] : [] }),
+        setBlendingMode: (comp: CompItem, layer: Layer, mode: number) => {
+          try {
+            editor.setBlendingMode(comp, layer, mode);
+          } catch (e) {
+            setEditError((e as Error).message);
+          }
+        },
+        setLayerSwitch: (comp: CompItem, layer: Layer, name: LayerSwitch, on: boolean) => {
+          try {
+            editor.setLayerSwitch(comp, layer, name, on);
+          } catch (e) {
+            setEditError((e as Error).message);
+          }
+        },
+      }),
     }),
-    [openItem, selectLayer, project],
+    [openItem, selectLayer, project, editor],
   );
 
   const workspace = loaded && project && !showHome && (

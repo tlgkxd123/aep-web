@@ -2,8 +2,10 @@
 // Composition viewer). Entries without an action are shown disabled.
 import { createContext } from "react";
 import type { CompItem, Item, Layer, Project } from "../aep/model.ts";
+import type { LayerSwitch } from "../edit/editor.ts";
 import type { MenuEntries, MenuEntry } from "./ContextMenu.tsx";
 import { blendingModeName } from "./format.ts";
+import type { LayerCommand } from "./layerCommands.ts";
 
 /** What the app can do from a context menu. */
 export interface AppActions {
@@ -16,6 +18,17 @@ export interface AppActions {
   reloadFootage?: () => void;
   /** Present when the Effect Controls panel can show the layer. */
   showEffectControls?: (compId: number, layerId: number) => void;
+  /** Editing, when the project is editable. Layer commands act on the selected layer, which a context menu selects first. */
+  layerCommand?: (command: LayerCommand) => void;
+  canLayerCommand?: (command: LayerCommand, comp: CompItem, layer: Layer | undefined) => boolean;
+  setBlendingMode?: (comp: CompItem, layer: Layer, mode: number) => void;
+  setLayerSwitch?: (comp: CompItem, layer: Layer, name: LayerSwitch, on: boolean) => void;
+}
+
+/** A layer command entry, enabled when the command applies to `layer` (or to the comp, for new layers). */
+function command(a: AppActions, label: string, cmd: LayerCommand, comp: CompItem, layer: Layer | undefined, shortcut?: string): MenuEntry {
+  const can = a.layerCommand && a.canLayerCommand?.(cmd, comp, layer);
+  return { label, shortcut, onSelect: can ? () => a.layerCommand!(cmd) : undefined };
 }
 
 /** Provided by the app; panels read it to build their context menus. */
@@ -36,24 +49,42 @@ const BLEND_GROUPS = [
   [5244, 5245],
 ];
 
-function blendingModes(current: number): MenuEntries {
+function blendingModes(comp: CompItem, layer: Layer, a: AppActions): MenuEntries {
   const out: MenuEntries = [];
   BLEND_GROUPS.forEach((group, i) => {
     if (i) out.push("-");
-    for (const mode of group) out.push({ label: blendingModeName(mode), checked: mode === current });
+    for (const mode of group) {
+      out.push({
+        label: blendingModeName(mode),
+        checked: mode === layer.blendingMode,
+        onSelect: a.setBlendingMode ? () => a.setBlendingMode!(comp, layer, mode) : undefined,
+      });
+    }
   });
   return out;
 }
 
-const newLayerEntries = (): MenuEntries => [
+const newLayerEntries = (comp: CompItem, a: AppActions): MenuEntries => [
   item("Text", undefined, "Ctrl+Alt+Shift+T"),
-  item("Solid...", undefined, "Ctrl+Y"),
+  command(a, "Solid...", "new-solid", comp, undefined, "Ctrl+Y"),
   item("Light...", undefined, "Ctrl+Alt+Shift+L"),
   item("Camera...", undefined, "Ctrl+Alt+Shift+C"),
-  item("Null Object", undefined, "Ctrl+Alt+Shift+Y"),
-  item("Shape Layer"),
-  item("Adjustment Layer", undefined, "Ctrl+Alt+Y"),
+  command(a, "Null Object", "new-null", comp, undefined, "Ctrl+Alt+Shift+Y"),
+  command(a, "Shape Layer", "new-shape", comp, undefined),
+  command(a, "Adjustment Layer", "new-adjustment", comp, undefined, "Ctrl+Alt+Y"),
 ];
+
+/** A layer switch entry: checked when on, toggles it when the project is editable. */
+function switchEntry(a: AppActions, label: string, comp: CompItem, layer: Layer, name: LayerSwitch): MenuEntry {
+  const on = !!layer[name];
+  return { label, checked: on, onSelect: a.setLayerSwitch ? () => a.setLayerSwitch!(comp, layer, name, !on) : undefined };
+}
+
+/** Sets a switch on several layers at once (Hide Other Video, Show All Video, Unlock All Layers). */
+function switchAll(a: AppActions, label: string, comp: CompItem, layers: Layer[], name: LayerSwitch, on: boolean): MenuEntry {
+  const affected = layers.filter((l) => !!l[name] !== on);
+  return { label, onSelect: a.setLayerSwitch && affected.length ? () => affected.forEach((l) => a.setLayerSwitch!(comp, l, name, on)) : undefined };
+}
 
 export function projectItemMenu(target: Item, a: AppActions): MenuEntries {
   if (target.kind === "comp") {
@@ -111,7 +142,7 @@ export function layerMenu(project: Project, comp: CompItem, layer: Layer, a: App
     "-",
     sub("Mask", [item("New Mask"), item("Mask Shape...", undefined, "Ctrl+Shift+M"), item("Mask Feather...", undefined, "Ctrl+Shift+F"), item("Mask Opacity...")]),
     sub("Transform", [
-      item("Reset"),
+      command(a, "Reset", "reset-transform", comp, layer),
       "-",
       item("Anchor Point..."),
       item("Position...", undefined, "Ctrl+Shift+P"),
@@ -119,13 +150,13 @@ export function layerMenu(project: Project, comp: CompItem, layer: Layer, a: App
       item("Rotation...", undefined, "Ctrl+Shift+R"),
       item("Opacity...", undefined, "Ctrl+Shift+O"),
       "-",
-      item("Flip Horizontal"),
-      item("Flip Vertical"),
-      item("Center Anchor Point in Layer Content", undefined, "Ctrl+Alt+Home"),
-      item("Center In View", undefined, "Ctrl+Home"),
-      item("Fit to Comp", undefined, "Ctrl+Alt+F"),
-      item("Fit to Comp Width", undefined, "Ctrl+Alt+Shift+H"),
-      item("Fit to Comp Height", undefined, "Ctrl+Alt+Shift+G"),
+      command(a, "Flip Horizontal", "flip-horizontal", comp, layer),
+      command(a, "Flip Vertical", "flip-vertical", comp, layer),
+      command(a, "Center Anchor Point in Layer Content", "center-anchor", comp, layer, "Ctrl+Alt+Home"),
+      command(a, "Center In View", "center-in-view", comp, layer, "Ctrl+Home"),
+      command(a, "Fit to Comp", "fit-to-comp", comp, layer, "Ctrl+Alt+F"),
+      command(a, "Fit to Comp Width", "fit-to-comp-width", comp, layer, "Ctrl+Alt+Shift+H"),
+      command(a, "Fit to Comp Height", "fit-to-comp-height", comp, layer, "Ctrl+Alt+Shift+G"),
     ]),
     sub("Time", [
       item("Enable Time Remapping", undefined, "Ctrl+Alt+T"),
@@ -133,31 +164,37 @@ export function layerMenu(project: Project, comp: CompItem, layer: Layer, a: App
       item("Time Stretch..."),
       item("Freeze Frame"),
     ]),
-    sub("Blending Mode", blendingModes(layer.blendingMode)),
+    sub("Blending Mode", blendingModes(comp, layer, a)),
     sub("Layer Styles", [item("Drop Shadow"), item("Inner Shadow"), item("Outer Glow"), item("Inner Glow"), item("Bevel and Emboss"), item("Satin"), item("Color Overlay"), item("Gradient Overlay"), item("Stroke")]),
     sub("Switches", [
-      { label: "Hide Other Video" },
-      { label: "Show All Video" },
-      { label: "Unlock All Layers" },
+      switchAll(a, "Hide Other Video", comp, comp.layers.filter((l) => l !== layer), "enabled", false),
+      switchAll(a, "Show All Video", comp, comp.layers, "enabled", true),
+      switchAll(a, "Unlock All Layers", comp, comp.layers, "locked", false),
       "-",
-      { label: "Shy", checked: layer.shy },
-      { label: "Lock", checked: layer.locked },
-      { label: "3D Layer", checked: layer.threeDLayer },
-      { label: "Motion Blur", checked: layer.motionBlur },
-      { label: "Adjustment Layer", checked: layer.adjustmentLayer },
-      { label: "Collapse", checked: layer.collapseTransformation },
+      switchEntry(a, "Shy", comp, layer, "shy"),
+      switchEntry(a, "Lock", comp, layer, "locked"),
+      switchEntry(a, "3D Layer", comp, layer, "threeDLayer"),
+      switchEntry(a, "Motion Blur", comp, layer, "motionBlur"),
+      switchEntry(a, "Adjustment Layer", comp, layer, "adjustmentLayer"),
+      switchEntry(a, "Collapse", comp, layer, "collapseTransformation"),
+    ]),
+    sub("Arrange", [
+      command(a, "Bring Layer to Front", "bring-to-front", comp, layer, "Ctrl+Shift+]"),
+      command(a, "Bring Layer Forward", "bring-forward", comp, layer, "Ctrl+]"),
+      command(a, "Send Layer Backward", "send-backward", comp, layer, "Ctrl+["),
+      command(a, "Send Layer to Back", "send-to-back", comp, layer, "Ctrl+Shift+["),
     ]),
     "-",
     item("Pre-compose...", undefined, "Ctrl+Shift+C"),
     item("Rename"),
-    item("Duplicate", undefined, "Ctrl+D"),
-    item("Delete"),
+    command(a, "Duplicate", "duplicate-layer", comp, layer, "Ctrl+D"),
+    command(a, "Delete", "delete-layer", comp, layer, "Delete"),
   ];
 }
 
 export function viewerMenu(comp: CompItem, a: AppActions): MenuEntries {
   return [
-    sub("New", newLayerEntries()),
+    sub("New", newLayerEntries(comp, a)),
     "-",
     item("Composition Settings...", undefined, "Ctrl+K"),
     item("Reveal Composition in Project", () => a.revealInProject(comp.id)),

@@ -40,9 +40,29 @@ await page.locator(".context-menu .menu-item", { hasText: "Reveal Layer Source i
 await page.waitForTimeout(300);
 console.log("after reveal, selected project row:", await page.locator(".proj-row.selected").first().innerText().catch(() => "none"));
 
+// Editing from the layer menu: Blending Mode > Multiply, then Transform > Fit to Comp.
+const editRow = layers.nth(1);
+const rowText = async () => (await editRow.innerText()).replace(/\s+/g, " ");
+console.log("layer row before:", await rowText());
+await editRow.click({ button: "right" });
+await page.locator(".context-menu .menu-item", { hasText: "Blending Mode" }).hover();
+await page.locator(".context-menu .menu-item", { hasText: /^\s*Multiply/ }).first().click();
+await page.waitForTimeout(300);
+console.log("after Multiply:", await rowText());
+await editRow.click({ button: "right" });
+await page.locator(".context-menu .menu-item", { hasText: "Transform" }).first().hover();
+await page.locator(".context-menu .menu-item", { hasText: /^\s*Fit to Comp\s*Ctrl\+Alt\+F/ }).click();
+await page.waitForTimeout(300);
+await shot("after-edits");
+
 const svg = page.locator(".comp-svg");
 const box = (await svg.boundingBox())!;
 await page.mouse.click(box.x + 4, box.y + 4, { button: "right" });
 console.log("viewer:", (await menuItems()).join(" | "));
 await shot("viewer");
+const before = await layers.count();
+await page.locator(".context-menu .menu-item", { hasText: /^\s*New/ }).first().hover();
+await page.locator(".context-menu .menu-item", { hasText: "Null Object" }).click();
+await page.waitForTimeout(300);
+console.log(`layers before New > Null Object: ${before}, after: ${await layers.count()}; top layer: ${(await layers.first().innerText()).split("\n").slice(0, 3).join(" ")}`);
 await browser.close();
