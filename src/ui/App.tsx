@@ -1,13 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type DragEvent, type PointerEvent as ReactPointerEvent } from "react";
 import type { CompItem, Project } from "../aep/model.ts";
 import { parseProject } from "../aep/parse.ts";
+import { audioPreview } from "../media/audioPreview.ts";
 import { loadLocalFootage } from "../media/localFootage.ts";
 import { ChunkPanel } from "./ChunkPanel.tsx";
 import { CompositionPanel } from "./CompositionPanel.tsx";
 import { EffectControlsPanel } from "./EffectControlsPanel.tsx";
 import { HomeScreen } from "./HomeScreen.tsx";
 import { Icon } from "./icons.tsx";
-import { addDroppedFootage } from "./LocateFootage.tsx";
+import { addDroppedFootage, useFootageVersion } from "./LocateFootage.tsx";
 import { MenuBar, type MenuCommand } from "./MenuBar.tsx";
 import { PanelFrame, type PanelTab } from "./Panel.tsx";
 import { ProjectPanel } from "./ProjectPanel.tsx";
@@ -129,6 +130,7 @@ export function App() {
       setCenterTab("composition");
       setBottomTab("comp");
       setShowHome(false);
+      audioPreview.reset();
       void loadLocalFootage(parsed).catch((e: Error) => setError(`Could not load footage from disk: ${e.message}`));
     } catch (e) {
       setError(`Could not read ${file.name}: ${(e as Error).message}`);
@@ -202,16 +204,34 @@ export function App() {
     const current = views[activeComp.id]?.time ?? 0;
     const start = current >= ws && current < we ? current : ws;
     const startWall = performance.now();
+    if (project) audioPreview.play(project, activeComp, start, we);
+    let loop = 0;
     let raf = 0;
     const tick = (now: number) => {
-      const t = ws + ((start - ws + (now - startWall) / 1000) % length);
+      const elapsed = start - ws + (now - startWall) / 1000;
+      const t = ws + (elapsed % length);
+      // Each pass over the work area restarts the audio from its start.
+      const pass = Math.floor(elapsed / length);
+      if (pass !== loop && project) {
+        loop = pass;
+        audioPreview.play(project, activeComp, t, we);
+      }
       setTime(activeComp.id, Math.floor(t / frame) * frame);
       raf = requestAnimationFrame(tick);
     };
     raf = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(raf);
+    return () => {
+      cancelAnimationFrame(raf);
+      audioPreview.stop();
+    };
     // `views` is read once at start: playback must not restart on its own ticks.
-  }, [playing, activeComp, setTime]);
+  }, [playing, activeComp, setTime, project]);
+
+  // Decode the active comp's audio ahead of playback once its footage is located.
+  const footageVersion = useFootageVersion();
+  useEffect(() => {
+    if (project && activeComp && typeof AudioContext !== "undefined") audioPreview.prepare(project, activeComp);
+  }, [project, activeComp, footageVersion]);
 
   const command = useCallback(
     (cmd: MenuCommand) => {
