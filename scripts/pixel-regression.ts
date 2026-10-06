@@ -17,7 +17,7 @@ const base = baseArg >= 0 ? args[baseArg + 1] : "master";
 const here = resolve(".");
 
 function run(command: string, argv: string[], cwd: string): { out: string; status: number | null } {
-  const result = spawnSync(command, argv, { cwd, encoding: "utf8", maxBuffer: 1 << 28, shell: process.platform === "win32" });
+  const result = spawnSync(command, argv, { cwd, encoding: "utf8", maxBuffer: 1 << 28 });
   if (result.error) throw result.error;
   return { out: `${result.stdout}${result.stderr}`, status: result.status };
 }
