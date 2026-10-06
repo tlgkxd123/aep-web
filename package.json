@@ -11,6 +11,8 @@
     "corpus": "node scripts/corpus-report.ts"
   },
   "dependencies": {
+    "acorn": "^8.19.0",
+    "astring": "^1.9.0",
     "react": "^19.1.0",
     "react-dom": "^19.1.0"
   },

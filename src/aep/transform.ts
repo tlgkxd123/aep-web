@@ -1,7 +1,7 @@
 // Layer transforms: local and world (parented) matrices, AE's comp camera
 // projection, and camera rays. Ported from py-aep's resolvers/transform.py
 // (MIT, https://github.com/forticheprod/py-aep).
-import { valueAtTime } from "./evaluate.ts";
+import { currentValue } from "./evaluate.ts";
 import type { CompItem, Layer, Property, PropertyGroup, PropertyNode } from "./model.ts";
 
 const DEG2RAD = Math.PI / 180;
@@ -107,7 +107,7 @@ function transformValue(layer: Layer, matchName: string, time: number): number |
   const transform = group(layer.properties, "ADBE Transform Group");
   const p = transform && prop(transform.children, matchName);
   if (!p) throw new Error(`layer "${layer.name}" has no ${matchName}`);
-  const value = valueAtTime(p, time, layer, transform.children);
+  const value = currentValue(p, time, layer, transform.children);
   if (typeof value === "number" || Array.isArray(value)) return value;
   throw new Error(`${matchName} on "${layer.name}" is not numeric`);
 }
@@ -237,7 +237,7 @@ export function cameraAt(comp: CompItem, time: number, cameraLayer: Layer | null
     .mul(Mat4.rotateZ(t.rotateZ));
   const options = group(cameraLayer.properties, "ADBE Camera Options Group");
   const zoomProp = options && prop(options.children, "ADBE Camera Zoom");
-  const zoom = zoomProp ? scalar(valueAtTime(zoomProp, time, cameraLayer) as number | number[]) : defaultCameraZoom(comp);
+  const zoom = zoomProp ? scalar(currentValue(zoomProp, time, cameraLayer) as number | number[]) : defaultCameraZoom(comp);
   return { position: t.position, rotation, zoom };
 }
 

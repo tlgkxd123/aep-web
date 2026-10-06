@@ -1,7 +1,7 @@
 // Shape layer rasterization on a 2D canvas. Geometry conventions (path start
 // points, directions, roundness handles, transform order) follow After
 // Effects as reproduced by lottie-web.
-import { valueAtTime } from "../aep/evaluate.ts";
+import { currentValue } from "../aep/evaluate.ts";
 import { isGradientValue, isShapeValue, type Gradient, type Layer, type Property, type PropertyGroup, type PropertyNode, type Shape } from "../aep/model.ts";
 
 /** 2D affine [a, b, c, d, e, f]: x' = a x + c y + e, y' = b x + d y + f. */
@@ -66,22 +66,22 @@ class Reader {
   }
   num(group: PropertyGroup, matchName: string, fallback: number): number {
     const p = this.prop(group, matchName);
-    const v = p ? valueAtTime(p, this.time, this.layer) : null;
+    const v = p ? currentValue(p, this.time, this.layer) : null;
     return typeof v === "number" ? v : Array.isArray(v) ? (v[0] ?? fallback) : fallback;
   }
   vec(group: PropertyGroup, matchName: string, fallback: number[]): number[] {
     const p = this.prop(group, matchName);
-    const v = p ? valueAtTime(p, this.time, this.layer) : null;
+    const v = p ? currentValue(p, this.time, this.layer) : null;
     return Array.isArray(v) ? v : fallback;
   }
   shape(group: PropertyGroup, matchName: string): Shape | null {
     const p = this.prop(group, matchName);
-    const v = p ? valueAtTime(p, this.time, this.layer) : null;
+    const v = p ? currentValue(p, this.time, this.layer) : null;
     return isShapeValue(v) ? v : null;
   }
   gradient(group: PropertyGroup, matchName: string): Gradient | null {
     const p = this.prop(group, matchName);
-    const v = p ? valueAtTime(p, this.time, this.layer) : null;
+    const v = p ? currentValue(p, this.time, this.layer) : null;
     return isGradientValue(v) ? v : null;
   }
 }

@@ -1,5 +1,5 @@
 // Rasterizes a layer's masks into one coverage image in layer space.
-import { valueAtTime } from "../aep/evaluate.ts";
+import { currentValue } from "../aep/evaluate.ts";
 import { isShapeValue, type Layer, type Property, type PropertyGroup, type Shape } from "../aep/model.ts";
 
 const MaskMode = { NONE: 6812, ADD: 6813, SUBTRACT: 6814, INTERSECT: 6815, LIGHTEN: 6816, DARKEN: 6817, DIFFERENCE: 6818 } as const;
@@ -13,7 +13,7 @@ function child(group: PropertyGroup, matchName: string): Property | undefined {
 
 function numberAt(prop: Property | undefined, time: number, layer: Layer, fallback: number): number {
   if (!prop) return fallback;
-  const v = valueAtTime(prop, time, layer);
+  const v = currentValue(prop, time, layer);
   return typeof v === "number" ? v : Array.isArray(v) ? (v[0] ?? fallback) : fallback;
 }
 
@@ -89,10 +89,10 @@ export function maskCoverage(
 
   for (const mask of masks) {
     const shapeProp = child(mask, "ADBE Mask Shape");
-    const shape = shapeProp ? valueAtTime(shapeProp, time, layer) : null;
+    const shape = shapeProp ? currentValue(shapeProp, time, layer) : null;
     const opacity = numberAt(child(mask, "ADBE Mask Opacity"), time, layer, 100) / 100;
     const featherProp = child(mask, "ADBE Mask Feather");
-    const featherValue = featherProp ? valueAtTime(featherProp, time, layer) : null;
+    const featherValue = featherProp ? currentValue(featherProp, time, layer) : null;
     const feather = Array.isArray(featherValue) ? Math.max(featherValue[0] ?? 0, featherValue[1] ?? 0) : 0;
     const expansion = numberAt(child(mask, "ADBE Mask Offset"), time, layer, 0);
 
