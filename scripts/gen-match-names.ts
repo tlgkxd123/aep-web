@@ -1,9 +1,10 @@
 // Regenerates src/aep/data/match-names.json from py-aep's MIT-licensed
 // MATCH_NAME_TO_AUTO_NAME table (https://github.com/forticheprod/py-aep).
 import { readFileSync, writeFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { join, resolve } from "node:path";
+import { PY_AEP } from "./lib/paths.ts";
 
-const source = resolve(process.argv[2] ?? "../_ref/py-aep/src/py_aep/data/match_names.py");
+const source = resolve(process.argv[2] ?? join(PY_AEP, "src/py_aep/data/match_names.py"));
 const text = readFileSync(source, "utf8");
 const start = text.indexOf("MATCH_NAME_TO_AUTO_NAME = {");
 if (start < 0) throw new Error(`MATCH_NAME_TO_AUTO_NAME not found in ${source}`);

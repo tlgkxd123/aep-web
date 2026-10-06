@@ -4,10 +4,12 @@
 // border, so bilinear sampling gives transformed layers antialiased edges.
 // Target memory follows GL convention (row 0 = bottom of the image).
 import { layerTimeAt, valueAtTime } from "../aep/evaluate.ts";
-import type { CompItem, Layer, Project, Property, PropertyNode } from "../aep/model.ts";
+import type { CompItem, Layer, Project, Property, PropertyGroup, PropertyNode } from "../aep/model.ts";
 import { cameraAt, localTransform, Mat4, worldMatrix, type Camera } from "../aep/transform.ts";
+import "./features.ts";
 import { bindTarget, compile, TargetPool, unitQuad, type GL, type Target } from "./gl.ts";
 import { maskCoverage } from "./masks.ts";
+import { contentProviders, effectRenderer, type LayerImage, type RenderContext } from "./registry.ts";
 import { rasterizeShapeLayer } from "./shapes.ts";
 import { COMPOSITE_FS, FILL_FS, FULLSCREEN_VS, LAYER_FS, LAYER_VS, MASK_FS, MatteMode } from "./shaders.ts";
 
@@ -26,15 +28,6 @@ interface Programs {
   mask: WebGLProgram;
   fill: WebGLProgram;
   composite: WebGLProgram;
-}
-
-/** Content of a layer in its own pixel space, with the 1px border. */
-interface LayerImage {
-  target: Target;
-  width: number;
-  height: number;
-  /** Layer-space position of the first content pixel (shape layers draw anywhere around their origin). */
-  origin: [number, number];
 }
 
 function findProperty(nodes: PropertyNode[], path: string[]): Property | undefined {
@@ -57,6 +50,7 @@ export class Renderer {
   private readonly uniforms = new Map<WebGLProgram, Map<string, WebGLUniformLocation | null>>();
   private project!: Project;
   private warnings = new Set<string>();
+  private readonly passPrograms = new Map<string, WebGLProgram>();
 
   constructor(canvas: HTMLCanvasElement | OffscreenCanvas) {
     const gl = canvas.getContext("webgl2", { premultipliedAlpha: true, alpha: true, antialias: false, preserveDrawingBuffer: true });
@@ -249,7 +243,7 @@ export class Renderer {
     if (asMatte && !this.isActive(layer, time)) return null;
     const content = this.layerContent(layer, time, depth);
     if (!content) return null;
-    const masked = this.applyMasks(layer, time, content);
+    const masked = this.applyEffects(layer, time, this.applyMasks(layer, time, content), depth);
     const width = comp.width + 2 * PAD;
     const height = comp.height + 2 * PAD;
     const out = this.pool.acquire(width, height);
@@ -298,8 +292,42 @@ export class Renderer {
     this.draw();
   }
 
+  private context(depth: number): RenderContext {
+    const gl = this.gl;
+    return {
+      gl,
+      pool: this.pool,
+      pad: PAD,
+      project: this.project,
+      warn: (message) => this.warnings.add(message),
+      upload: (source, width, height, origin = [0, 0]) => this.upload(source, width, height, origin),
+      renderComp: (comp, time) => this.renderComp(comp, time, depth + 1),
+      program: (fragment) => {
+        let program = this.passPrograms.get(fragment);
+        if (!program) this.passPrograms.set(fragment, (program = compile(gl, FULLSCREEN_VS, fragment)));
+        return program;
+      },
+      pass: (program, out, inputs, setUniforms) => {
+        bindTarget(gl, out);
+        gl.disable(gl.BLEND);
+        gl.useProgram(program);
+        inputs.forEach((input, unit) => this.bindTexture(unit, input.texture));
+        setUniforms?.((name) => this.uniform(program, name));
+        this.draw();
+      },
+    };
+  }
+
   private layerContent(layer: Layer, time: number, depth: number): LayerImage | null {
     const source = layer.sourceId ? this.project.items.get(layer.sourceId) : undefined;
+    const providers = contentProviders();
+    if (providers.length) {
+      const ctx = this.context(depth);
+      for (const provider of providers) {
+        const image = provider(layer, time, ctx);
+        if (image !== undefined) return image;
+      }
+    }
     if (layer.layerType === "ShapeLayer") return this.shapeContent(layer, time);
     if (layer.layerType !== "AVLayer") {
       this.warnings.add(`text layers are not rendered yet ("${layer.name}")`);
@@ -344,6 +372,37 @@ export class Renderer {
     gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
     gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
     return { target, width: raster.width, height: raster.height, origin: raster.origin };
+  }
+
+  /** Straight-alpha pixels (top row first) into a padded premultiplied image. */
+  private upload(source: TexImageSource, width: number, height: number, origin: [number, number]): LayerImage {
+    const gl = this.gl;
+    const target = this.pool.acquire(width + 2 * PAD, height + 2 * PAD);
+    gl.bindTexture(gl.TEXTURE_2D, target.texture);
+    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
+    gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, true);
+    gl.texSubImage2D(gl.TEXTURE_2D, 0, PAD, PAD, width, height, gl.RGBA, gl.UNSIGNED_BYTE, source);
+    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
+    gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
+    return { target, width, height, origin };
+  }
+
+  /** Runs the layer's enabled effects in stack order (after masks, before the transform). */
+  private applyEffects(layer: Layer, time: number, image: LayerImage, depth: number): LayerImage {
+    if (!layer.effectsActive) return image;
+    const parade = layer.properties.find((n): n is PropertyGroup => n.kind === "group" && n.matchName === "ADBE Effect Parade");
+    if (!parade) return image;
+    let ctx: RenderContext | undefined;
+    for (const effect of parade.children) {
+      if (effect.kind !== "group" || !effect.enabled) continue;
+      const render = effectRenderer(effect.matchName);
+      if (!render) {
+        this.warnings.add(`effect "${effect.effectName ?? effect.name}" (${effect.matchName}) is not rendered yet`);
+        continue;
+      }
+      image = render(image, effect, layer, time, (ctx ??= this.context(depth)));
+    }
+    return image;
   }
 
   private applyMasks(layer: Layer, time: number, content: LayerImage): LayerImage {

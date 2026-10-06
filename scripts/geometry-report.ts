@@ -3,14 +3,15 @@
 //
 //   node scripts/geometry-report.ts [--layer-samples DIR] [--require]
 import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { join, resolve } from "node:path";
+import { SAMPLES } from "./lib/paths.ts";
 import type { CompItem } from "../src/aep/model.ts";
 import { parseProject } from "../src/aep/parse.ts";
 import { compPointToSource, sourcePointToComp } from "../src/aep/transform.ts";
 
 const args = process.argv.slice(2);
 const dirArg = args.indexOf("--layer-samples");
-const dir = resolve(dirArg >= 0 ? args[dirArg + 1] : (process.env.AEP_LAYER_SAMPLES ?? "../_ref/py-aep/samples/models/layer"));
+const dir = resolve(dirArg >= 0 ? args[dirArg + 1] : (process.env.AEP_LAYER_SAMPLES ?? join(SAMPLES, "models/layer")));
 const TOLERANCE = 5e-3;
 const POINTS: [number, number][] = [[0, 0], [100, 50], [960, 540]];
 const CAMERA_POINTS: [number, number][] = [[0, 0], [100, 50], [200, 100]];

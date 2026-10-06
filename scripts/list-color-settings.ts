@@ -3,8 +3,9 @@
 //   node scripts/list-color-settings.ts [--samples DIR]
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative, resolve } from "node:path";
+import { SAMPLES } from "./lib/paths.ts";
 
-const dir = resolve(process.argv[3] ?? "../_ref/py-aep/samples");
+const dir = resolve(process.argv[3] ?? SAMPLES);
 const groups = new Map<string, string[]>();
 function* walk(d: string): Generator<string> {
   for (const n of readdirSync(d)) {

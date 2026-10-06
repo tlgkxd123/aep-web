@@ -4,10 +4,11 @@
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative, resolve } from "node:path";
 import { parseProject } from "../src/aep/parse.ts";
+import { SAMPLES } from "./lib/paths.ts";
 
 const args = process.argv.slice(2);
 const opt = (n: string) => (args.includes(n) ? args[args.indexOf(n) + 1] : undefined);
-const dir = resolve(opt("--samples") ?? "../_ref/py-aep/samples");
+const dir = resolve(opt("--samples") ?? SAMPLES);
 const maxMajor = Number(opt("--max-major") ?? 25);
 
 function* walk(d: string): Generator<string> {

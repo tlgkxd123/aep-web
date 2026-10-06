@@ -5,6 +5,7 @@
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative, resolve } from "node:path";
 import { parseProject } from "../src/aep/parse.ts";
+import { SAMPLES } from "./lib/paths.ts";
 import { isShapeValue, PropertyValueType, type Item, type Layer, type Property, type PropertyNode, type Shape } from "../src/aep/model.ts";
 
 type Json = Record<string, any>;
@@ -15,7 +16,7 @@ const option = (name: string) => {
   const i = args.indexOf(name);
   return i >= 0 ? args[i + 1] : undefined;
 };
-const samplesDir = resolve(option("--samples") ?? process.env.AEP_SAMPLES ?? "../_ref/py-aep/samples");
+const samplesDir = resolve(option("--samples") ?? SAMPLES);
 const verbose = flag("--verbose");
 
 // Exports that describe a different project state than the .aep beside them

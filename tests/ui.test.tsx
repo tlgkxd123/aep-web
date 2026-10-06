@@ -7,8 +7,9 @@ import type { CompItem } from "../src/aep/model.ts";
 import { parseProject } from "../src/aep/parse.ts";
 import { App } from "../src/ui/App.tsx";
 import { timecode } from "../src/ui/format.ts";
+import { SAMPLES } from "../scripts/lib/paths.ts";
 
-const samples = resolve(process.env.AEP_SAMPLES ?? resolve(__dirname, "../../_ref/py-aep/samples"));
+const samples = resolve(SAMPLES);
 
 afterEach(cleanup);
 

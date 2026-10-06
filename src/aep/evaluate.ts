@@ -651,3 +651,17 @@ export function valueAtTime(prop: Property, compTime: number, layer: Layer, sibl
   if (!prop.keyframes.length) return prop.value;
   return interpolate(prepare(prop, layer), layerTimeAt(layer, compTime));
 }
+
+/** Computes the post-expression value of a property; installed by the expression engine. */
+export type ExpressionEvaluator = (prop: Property, compTime: number, layer: Layer, preExpression: PropertyValue) => PropertyValue;
+let expressionEvaluator: ExpressionEvaluator | undefined;
+
+export function setExpressionEvaluator(evaluator: ExpressionEvaluator | undefined): void {
+  expressionEvaluator = evaluator;
+}
+
+/** The value of `prop` at `compTime` after its expression, when it has one and an engine is installed. */
+export function currentValue(prop: Property, compTime: number, layer: Layer, siblings?: PropertyNode[]): PropertyValue {
+  const value = valueAtTime(prop, compTime, layer, siblings);
+  return expressionEvaluator && prop.expressionEnabled ? expressionEvaluator(prop, compTime, layer, value) : value;
+}

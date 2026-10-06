@@ -1,24 +1,28 @@
-// Renders every fixture frame with the WebGL renderer in headless Edge and
-// compares it with After Effects' reference TIFF (refs/frames). Writes
-// side-by-side diff images for mismatching frames to refs/diff.
+// Renders every fixture frame of every suite (refs/fixtures/*manifest.json)
+// with the WebGL renderer in headless Edge and compares it with After Effects'
+// reference TIFF (refs/frames). Writes side-by-side diff images for
+// mismatching frames to refs/diff.
 //
-//   node scripts/pixel-report.ts [--only name,name] [--require] [--no-build]
+//   node scripts/pixel-report.ts [--only name,name] [--suite manifestBaseName] [--require] [--no-build] [--dump]
+//
+// A suite manifest may list accepted approximations as
+//   "known": { "comp@frame": "reason" }
+// which must still keep a mean error of at most 1/255.
 import { execSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { chromium } from "playwright-core";
 import { encodePng } from "./lib/png.ts";
+import { loadSuites, ROOT } from "./lib/suites.ts";
 import { readTiff } from "./lib/tiff.ts";
 
 const args = process.argv.slice(2);
 const onlyArg = args.indexOf("--only");
 const only = onlyArg >= 0 ? new Set(args[onlyArg + 1].split(",")) : undefined;
-const root = resolve("refs");
-const manifest = JSON.parse(readFileSync(join(root, "fixtures", "manifest.json"), "utf8")) as {
-  project: string;
-  comps: { comp: string; frames: number[] }[];
-};
-const FPS = 24;
+const suiteArg = args.indexOf("--suite");
+const root = ROOT;
+const suites = loadSuites(suiteArg >= 0 ? args[suiteArg + 1] : undefined);
+const DEFAULT_FPS = 24;
 /** A pixel counts as different when any premultiplied channel is off by more than this (of 255). */
 const CHANNEL_TOLERANCE = 3;
 /**
@@ -39,6 +43,7 @@ const MEAN_TOLERANCE = 1;
 const KNOWN_APPROXIMATIONS: Record<string, string> = {
   "mask_feather@0": "AE's feather falls off ~0.01 faster inside the edge than a Gaussian; outside it matches exactly",
 };
+for (const suite of suites) Object.assign(KNOWN_APPROXIMATIONS, suite.known);
 const KNOWN_MEAN_LIMIT = 1;
 
 if (!args.includes("--no-build")) execSync("npx vite build -c vite.harness.config.ts --logLevel error", { stdio: "inherit" });
@@ -47,9 +52,6 @@ const browser = await chromium.launch({ channel: "msedge", headless: true, args:
 const page = await browser.newPage();
 await page.setContent("<!doctype html><html><body></body></html>");
 await page.addScriptTag({ path: resolve("dist-harness/harness.js") });
-const projectBytes = readFileSync(join(root, "fixtures", manifest.project)).toString("base64");
-await page.evaluate((b64) => (globalThis as any).aepHarness.load(b64), projectBytes);
-
 const diffDir = join(root, "diff");
 rmSync(diffDir, { recursive: true, force: true });
 mkdirSync(diffDir, { recursive: true });
@@ -66,8 +68,16 @@ type Row = {
 const rows: Row[] = [];
 const premul = (d: Uint8Array, i: number, c: number) => (c === 3 ? d[i + 3] : (d[i + c] * d[i + 3]) / 255);
 
-for (const { comp, frames } of manifest.comps) {
-  if (only && !only.has(comp)) continue;
+const jobs = suites.flatMap((suite) =>
+  suite.comps.filter((c) => !only || only.has(c.comp)).map((c) => ({ ...c, project: suite.project })),
+);
+let loaded = "";
+for (const { comp, frames, project, fps = DEFAULT_FPS } of jobs) {
+  if (project !== loaded) {
+    const projectBytes = readFileSync(join(root, "fixtures", project)).toString("base64");
+    await page.evaluate((b64) => (globalThis as any).aepHarness.load(b64), projectBytes);
+    loaded = project;
+  }
   for (const frame of frames) {
     const name = `${comp}@${frame}`;
     const refPath = join(root, "frames", comp, `frame_${String(frame).padStart(5, "0")}.tif`);
@@ -78,7 +88,7 @@ for (const { comp, frames } of manifest.comps) {
     const ref = readTiff(new Uint8Array(readFileSync(refPath)));
     const result = await page.evaluate(
       ([c, t]) => (globalThis as any).aepHarness.render(c, t),
-      [comp, frame / FPS] as const,
+      [comp, frame / fps] as const,
     );
     const ours = new Uint8Array(Buffer.from(result.pixels, "base64"));
     if (args.includes("--dump")) {

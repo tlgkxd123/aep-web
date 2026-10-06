@@ -7,12 +7,13 @@ import { join, resolve } from "node:path";
 import { valueAtTime } from "../src/aep/evaluate.ts";
 import type { CompItem, PropertyNode, PropertyValue } from "../src/aep/model.ts";
 import { parseProject } from "../src/aep/parse.ts";
+import { SAMPLES } from "./lib/paths.ts";
 
 type Json = Record<string, any>;
 
 const args = process.argv.slice(2);
 const dirArg = args.indexOf("--dir");
-const dir = resolve(dirArg >= 0 ? args[dirArg + 1] : (process.env.AEP_VAT ?? "../_ref/py-aep/samples/models/property/value_at_time"));
+const dir = resolve(dirArg >= 0 ? args[dirArg + 1] : (process.env.AEP_VAT ?? join(SAMPLES, "models/property/value_at_time")));
 const verbose = args.includes("--verbose");
 const TOLERANCE = 1e-3;
 // AE's motion-path pipeline adds up to ~0.011 px of noise even on straight

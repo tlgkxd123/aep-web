@@ -1,34 +1,34 @@
-// Renders reference frames for every comp in refs/fixtures/manifest.json with
-// After Effects' aerender (render-only mode), as TIFF with alpha, into
-// refs/frames/<comp>/frame_#####.tif. Comps whose frames already exist are skipped.
+// Renders reference frames for every comp of every fixture suite
+// (refs/fixtures/*manifest.json) with After Effects' aerender in render-only
+// mode, as TIFF with alpha, into refs/frames/<comp>/frame_#####.tif. Comps
+// whose frames already exist are skipped. Runs are serialized machine-wide.
 //
-//   node scripts/render-refs.ts [--force] [--only name,name]
-import { existsSync, mkdirSync, readFileSync, renameSync, rmSync } from "node:fs";
-import { join, resolve } from "node:path";
+//   node scripts/render-refs.ts [--force] [--only name,name] [--suite manifestBaseName]
+import { existsSync, mkdirSync, renameSync, rmSync } from "node:fs";
+import { join } from "node:path";
 import { aerender } from "./aerender.ts";
+import { framePath, loadSuites, ROOT } from "./lib/suites.ts";
 
 // The render engine runs in the system locale; this is the Spanish name of "TIFF Sequence with Alpha".
 const TIFF_TEMPLATE = process.env.AE_TIFF_TEMPLATE ?? "Secuencia TIFF con alfa";
-const root = resolve("refs");
-const manifest = JSON.parse(readFileSync(join(root, "fixtures", "manifest.json"), "utf8")) as {
-  project: string;
-  comps: { comp: string; frames: number[] }[];
-};
+const root = ROOT;
 const force = process.argv.includes("--force");
 const onlyArg = process.argv.indexOf("--only");
 const only = onlyArg >= 0 ? new Set(process.argv[onlyArg + 1].split(",")) : undefined;
-
-export const framePath = (comp: string, frame: number) => join(root, "frames", comp, `frame_${String(frame).padStart(5, "0")}.tif`);
+const suiteArg = process.argv.indexOf("--suite");
 
 let rendered = 0;
 let failed = 0;
-for (const { comp, frames } of manifest.comps) {
+const work = loadSuites(suiteArg >= 0 ? process.argv[suiteArg + 1] : undefined).flatMap((m) =>
+  m.comps.map((c) => ({ ...c, project: m.project })),
+);
+for (const { comp, frames, project } of work) {
   if (only && !only.has(comp)) continue;
   if (!force && frames.every((f) => existsSync(framePath(comp, f)))) continue;
   mkdirSync(join(root, "frames", comp), { recursive: true });
   const step = frames.length > 1 ? frames[1] - frames[0] : 1;
   const args = [
-    "-project", join(root, "fixtures", manifest.project),
+    "-project", join(root, "fixtures", project),
     "-comp", comp,
     "-s", String(frames[0]),
     "-e", String(frames[frames.length - 1]),

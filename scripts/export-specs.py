@@ -8,7 +8,9 @@ import math
 import sys
 from pathlib import Path
 
-sys.path.insert(0, sys.argv[1] if len(sys.argv) > 1 else "../_ref/py-aep/src")
+import os  # noqa: E402
+
+sys.path.insert(0, sys.argv[1] if len(sys.argv) > 1 else os.path.join(os.environ.get("PY_AEP", "C:/Users/schxm/projects/_ref/py-aep"), "src"))
 
 from py_aep.synthesis import property as specs  # noqa: E402
 
