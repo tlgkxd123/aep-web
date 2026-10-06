@@ -40,7 +40,7 @@ export function ImportDialog({
   const [error, setError] = useState<string>();
   const [selected, setSelected] = useState<string[]>([]);
 
-  const go = (dir: string) => {
+  const go = (dir: string, fallBack = false) => {
     setError(undefined);
     browseLocal(dir).then(
       (l) => {
@@ -52,10 +52,11 @@ export function ImportDialog({
           // Private windows may refuse storage; the dialog then starts at the drives.
         }
       },
-      (e: Error) => (dir ? go("") : setError(e.message)),
+      (e: Error) => (fallBack && dir ? go("") : setError(`Could not open ${dir || "the list of drives"}: ${e.message}`)),
     );
   };
-  useEffect(() => go(lastFolder()), []);
+  // The last folder may have gone since: then the drives.
+  useEffect(() => go(lastFolder(), true), []);
 
   const entries = [...(listing?.entries ?? [])]
     .filter((e) => e.folder || isImportable(e.name))
@@ -74,9 +75,19 @@ export function ImportDialog({
         <button type="button" className="imp-up" aria-label="Up one level" disabled={listing?.parent == null} onClick={() => listing?.parent != null && go(listing.parent)}>
           <Icon name="chevronRight" size={12} className="imp-up-icon" />
         </button>
-        <span className="imp-path" title={listing?.dir || "This PC"}>
-          {listing?.dir || "This PC"}
-        </span>
+        <input
+          key={listing?.dir}
+          className="imp-path"
+          aria-label="Folder"
+          defaultValue={listing?.dir ?? ""}
+          placeholder="This PC"
+          spellCheck={false}
+          onKeyDown={(e) => {
+            if (e.key !== "Enter") return;
+            e.preventDefault();
+            go(e.currentTarget.value.trim().replace(/^"(.*)"$/, "$1"));
+          }}
+        />
       </div>
       <div className="imp-list" role="listbox" aria-label="Files" aria-multiselectable={multiple}>
         {error && <p className="panel-empty">{error}</p>}

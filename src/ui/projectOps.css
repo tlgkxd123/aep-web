@@ -319,9 +319,16 @@ select.ae-field option {
   background: var(--field);
   border: 1px solid #454545;
   border-radius: 3px;
+  color: var(--text-hi);
+  font: inherit;
   line-height: 20px;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.imp-path:focus {
+  border-color: var(--accent);
+  outline: none;
 }
 
 .imp-list {

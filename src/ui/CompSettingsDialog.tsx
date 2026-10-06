@@ -298,14 +298,26 @@ export function CompSettingsDialog({
           <div className="cs-sep" />
           <div className="cs-row">
             <label htmlFor="cs-start">Start Timecode:</label>
-            <input id="cs-start" className="ae-field cs-tc" value={start} onChange={(e) => setStart(e.target.value)} />
+            <input
+              id="cs-start"
+              className="ae-field cs-tc"
+              value={start}
+              onChange={(e) => setStart(e.target.value)}
+              onBlur={() => startFrames !== undefined && setStart(timecode(startFrames / rate, rate))}
+            />
             <span className="dim">
               {startFrames !== undefined && `is ${timecode(startFrames / rate, rate)}`} Base {base}
             </span>
           </div>
           <div className="cs-row">
             <label htmlFor="cs-duration">Duration:</label>
-            <input id="cs-duration" className="ae-field cs-tc" value={duration} onChange={(e) => setDuration(e.target.value)} />
+            <input
+              id="cs-duration"
+              className="ae-field cs-tc"
+              value={duration}
+              onChange={(e) => setDuration(e.target.value)}
+              onBlur={() => durationFrames !== undefined && setDuration(timecode(durationFrames / rate, rate))}
+            />
             <span className="dim">
               {durationFrames !== undefined && `is ${timecode(durationFrames / rate, rate)}`} Base {base}
             </span>

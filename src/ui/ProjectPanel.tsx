@@ -345,6 +345,7 @@ export const ProjectPanel = memo(function ProjectPanel({
     // Handled here: the window's drop handler sees the default prevented and leaves it.
     e.preventDefault();
     const folderId = dropFolder(target);
+    if (folderId) setExpanded((prev) => (prev.has(folderId) ? prev : new Set([...prev, folderId])));
     if (kind === "items") {
       e.stopPropagation();
       const ids = JSON.parse(e.dataTransfer.getData(ITEMS_TYPE) || "[]") as number[];
