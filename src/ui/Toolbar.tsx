@@ -35,15 +35,26 @@ const TOOL_GROUPS: Tool[][] = [
   ],
 ];
 
-const WORKSPACES = ["Default", "Review", "Learn", "Standard", "Small Screen", "Libraries"];
+export const WORKSPACES = ["Default", "Review", "Learn", "Standard", "Small Screen", "Libraries"] as const;
+export type Workspace = (typeof WORKSPACES)[number];
 
 /** The Tools strip: tool buttons on the left, snapping, and the workspace switcher on the right. */
-export const Toolbar = memo(function Toolbar({ onHome }: { onHome: () => void }) {
+export const Toolbar = memo(function Toolbar({
+  onHome,
+  workspace = "Default",
+  onWorkspace,
+}: {
+  onHome: () => void;
+  workspace?: Workspace;
+  onWorkspace?: (w: Workspace) => void;
+}) {
   const editing = useEditing();
   const [localTool, setLocalTool] = useState("selection");
   const tool = editing.setTool ? editing.tool : localTool;
   const setTool = editing.setTool ?? setLocalTool;
-  const [snapping, setSnapping] = useState(false);
+  const [localSnapping, setLocalSnapping] = useState(false);
+  const snapping = editing.setSnapping ? editing.snapping : localSnapping;
+  const setSnapping = editing.setSnapping ?? setLocalSnapping;
   return (
     <div className="toolbar" role="toolbar" aria-label="Tools">
       <button type="button" className="tool" title="Home" aria-label="Home" onClick={onHome}>
@@ -78,12 +89,25 @@ export const Toolbar = memo(function Toolbar({ onHome }: { onHome: () => void })
         <span>Snapping</span>
       </label>
       <nav className="workspaces" aria-label="Workspaces">
-        {WORKSPACES.map((w, i) => (
-          <span key={w} className={`workspace ${i === 0 ? "active" : ""}`} aria-current={i === 0 ? "true" : undefined}>
-            {w}
-            {i === 0 && <Icon name="menu" size={12} />}
-          </span>
-        ))}
+        {WORKSPACES.map((w) =>
+          onWorkspace ? (
+            <button
+              key={w}
+              type="button"
+              className={`workspace ${w === workspace ? "active" : ""}`}
+              aria-current={w === workspace ? "true" : undefined}
+              onClick={() => onWorkspace(w)}
+            >
+              {w}
+              {w === workspace && <Icon name="menu" size={12} />}
+            </button>
+          ) : (
+            <span key={w} className={`workspace ${w === workspace ? "active" : ""}`} aria-current={w === workspace ? "true" : undefined}>
+              {w}
+              {w === workspace && <Icon name="menu" size={12} />}
+            </span>
+          ),
+        )}
         <span className="workspace more" aria-hidden="true">
           <Icon name="overflow" size={12} />
         </span>

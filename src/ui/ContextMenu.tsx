@@ -42,6 +42,12 @@ export function openContextMenu(event: ReactMouseEvent | MouseEvent, entries: Me
   set({ x: event.clientX, y: event.clientY, entries });
 }
 
+/** Opens a menu under a control (popups, toolbar menus). */
+export function openMenuBelow(anchor: Element, entries: MenuEntries): void {
+  const r = anchor.getBoundingClientRect();
+  set({ x: r.left, y: r.bottom + 2, entries });
+}
+
 export function closeContextMenu(): void {
   set(null);
 }

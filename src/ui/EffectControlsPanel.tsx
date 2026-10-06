@@ -13,6 +13,9 @@ import {
   type OutlineContext,
 } from "./properties.ts";
 import { PropertyValueView, type ValueContext } from "./values.tsx";
+import { isEditableProperty } from "../edit/editor.ts";
+import { attempt, useEditing } from "./editing.tsx";
+import { canEditEffectValue, EffectValue } from "./EffectValue.tsx";
 
 function SliderTrack({ value, min, max }: { value: number; min: number; max: number }) {
   const t = max > min ? Math.min(1, Math.max(0, (value - min) / (max - min))) : 0;
@@ -60,6 +63,8 @@ function sliderRange(prop: Property, effect: PropertyGroup, ctx: RowProps["ctx"]
 }
 
 function ParamRow({ node, depth, effect, ctx, time, expanded, toggle, path }: RowProps) {
+  const editing = useEditing();
+  const { editor } = editing;
   const key = `${path}/${node.key}`;
   const open = expanded.has(key);
   const indent = { paddingLeft: 8 + depth * 14 };
@@ -103,7 +108,21 @@ function ParamRow({ node, depth, effect, ctx, time, expanded, toggle, path }: Ro
           ) : (
             <span className="twirl-space" />
           )}
-          {prop.canVaryOverTime ? (
+          {prop.canVaryOverTime && editor && isEditableProperty(prop) ? (
+            <button
+              type="button"
+              className={`stopwatch ${isAnimated(prop) ? "on" : ""}`}
+              aria-label={`${isAnimated(prop) ? "Remove" : "Enable"} keyframing for ${node.name}`}
+              aria-pressed={isAnimated(prop)}
+              title="Time-Vary Stopwatch"
+              onClick={(e) => {
+                e.stopPropagation();
+                attempt(editing, () => editor.toggleStopwatch(ctx.comp, ctx.layer, prop, time));
+              }}
+            >
+              <Icon name="stopwatch" size={13} />
+            </button>
+          ) : prop.canVaryOverTime ? (
             <span className={`stopwatch ${isAnimated(prop) ? "on" : ""}`} aria-hidden="true">
               <Icon name="stopwatch" size={13} />
             </span>
@@ -112,8 +131,12 @@ function ParamRow({ node, depth, effect, ctx, time, expanded, toggle, path }: Ro
           )}
           {!button && <span className="cell-text">{node.name}</span>}
         </span>
-        <span className="ec-value">
-          <PropertyValueView prop={prop} value={value} ctx={ctx} place="effect-controls" />
+        <span className="ec-value" onClick={(e) => e.stopPropagation()}>
+          {editor && canEditEffectValue(prop, value) ? (
+            <EffectValue comp={ctx.comp} layer={ctx.layer} prop={prop} value={value} time={time} />
+          ) : (
+            <PropertyValueView prop={prop} value={value} ctx={ctx} place="effect-controls" />
+          )}
         </span>
       </div>
       {open && range && typeof value === "number" && (

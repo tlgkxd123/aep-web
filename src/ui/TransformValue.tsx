@@ -13,7 +13,7 @@ const SCRUB_SLOP = 2;
  * AE's blue "hot text" number: drag left/right to scrub (Shift ×10, Ctrl ×0.1),
  * click to type a value. One scrub is one undo step.
  */
-function ScrubNumber({
+export function ScrubNumber({
   value,
   editValue = value,
   text,

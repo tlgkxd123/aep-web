@@ -1,4 +1,5 @@
 import { EffectControlType, isGradientValue, PropertyValueType, type CompItem, type Layer, type Property, type PropertyValue } from "../aep/model.ts";
+import { openMenuBelow, type MenuEntries } from "./ContextMenu.tsx";
 import { colorCss, fixed, isShape, rotationLabel, timecode } from "./format.ts";
 import { Icon } from "./icons.tsx";
 import { findGroup, is3D } from "./properties.ts";
@@ -67,20 +68,58 @@ export function valueText(prop: Property, value: PropertyValue, ctx: ValueContex
   return numberText(value);
 }
 
-export function Dropdown({ text, label, width }: { text: string; label: string; width?: number }) {
+/** An AE popup. With `menu`, clicking opens its entries under the control; without, it only shows the value. */
+export function Dropdown({ text, label, width, menu }: { text: string; label: string; width?: number; menu?: () => MenuEntries }) {
+  if (!menu) {
+    return (
+      <span className="ae-select" aria-label={`${label}: ${text}`} title={text} style={width ? { width } : undefined}>
+        <span className="ae-select-text">{text}</span>
+        <Icon name="chevronDown" size={10} />
+      </span>
+    );
+  }
   return (
-    <span className="ae-select" aria-label={`${label}: ${text}`} title={text} style={width ? { width } : undefined}>
+    <button
+      type="button"
+      className="ae-select"
+      aria-label={`${label}: ${text}`}
+      aria-haspopup="menu"
+      title={text}
+      style={width ? { width } : undefined}
+      onClick={(e) => {
+        e.stopPropagation();
+        openMenuBelow(e.currentTarget, menu());
+      }}
+    >
       <span className="ae-select-text">{text}</span>
       <Icon name="chevronDown" size={10} />
-    </span>
+    </button>
   );
 }
 
-export function Checkbox({ on, label }: { on: boolean; label: string }) {
+export function Checkbox({ on, label, onToggle }: { on: boolean; label: string; onToggle?: () => void }) {
+  if (!onToggle) {
+    return (
+      <span className={`ae-check ${on ? "on" : ""}`} role="img" aria-label={`${label}: ${on ? "on" : "off"}`}>
+        {on && <Icon name="check" size={10} />}
+      </span>
+    );
+  }
   return (
-    <span className={`ae-check ${on ? "on" : ""}`} role="img" aria-label={`${label}: ${on ? "on" : "off"}`}>
+    <button
+      type="button"
+      className={`ae-check ${on ? "on" : ""}`}
+      role="checkbox"
+      aria-checked={on}
+      aria-label={label}
+      title={label}
+      onClick={(e) => {
+        e.stopPropagation();
+        onToggle();
+      }}
+    >
       {on && <Icon name="check" size={10} />}
-    </span>
+    </button>
   );
 }
 

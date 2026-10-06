@@ -10,15 +10,18 @@ import {
   type CSSProperties,
   type DragEvent,
   type KeyboardEvent,
+  type MouseEvent as ReactMouseEvent,
   type PointerEvent as ReactPointerEvent,
 } from "react";
 import type { CompItem, Layer, Project, Property } from "../aep/model.ts";
+import type { Editor, LayerSwitch } from "../edit/editor.ts";
 import { addLayer } from "../edit/layers.ts";
 import { isTransformValue, resetTransform, toggleTransformStopwatch, transformProp } from "../edit/transform-ops.ts";
 import { keyframeAt, valueAt } from "./animate.ts";
 import { openContextMenu } from "./ContextMenu.tsx";
 import { AppActionsContext, layerMenu } from "./contextMenus.ts";
-import { attempt, ITEM_MIME, LAYER_MIME, useEditing } from "./editing.tsx";
+import { attempt, ITEM_MIME, LAYER_MIME, nextDragKey, useEditing } from "./editing.tsx";
+import { modeEntries, parentEntries, QUALITY, trackMatteEntries } from "./layerRowMenus.ts";
 import {
   blendingModeName,
   colorCss,
@@ -116,7 +119,17 @@ function Ruler({ comp, view, width }: { comp: CompItem; view: View; width: numbe
   );
 }
 
-function TimeDisplay({ comp, time, onTime }: { comp: CompItem; time: number; onTime: (t: number) => void }) {
+export function TimeDisplay({
+  comp,
+  time,
+  onTime,
+  title = "Current Time (click to edit)",
+}: {
+  comp: CompItem;
+  time: number;
+  onTime: (t: number) => void;
+  title?: string;
+}) {
   const [editing, setEditing] = useState(false);
   const tc = timecode(time + comp.displayStartTime, comp.frameRate);
   if (editing) {
@@ -141,7 +154,7 @@ function TimeDisplay({ comp, time, onTime }: { comp: CompItem; time: number; onT
     );
   }
   return (
-    <button type="button" className="tl-timecode" title="Current Time (click to edit)" onClick={() => setEditing(true)}>
+    <button type="button" className="tl-timecode" title={title} onClick={() => setEditing(true)}>
       {tc}
     </button>
   );
@@ -149,13 +162,79 @@ function TimeDisplay({ comp, time, onTime }: { comp: CompItem; time: number; onT
 
 /* ---------- rows ---------- */
 
-function Switch({ icon, on, label, blank }: { icon: IconName; on: boolean; label: string; blank?: boolean }) {
+function Switch({ icon, on, label, blank, onToggle }: { icon: IconName; on: boolean; label: string; blank?: boolean; onToggle?: (e: ReactMouseEvent) => void }) {
   if (blank) return <span className="sw blank" />;
+  if (!onToggle) {
+    return (
+      <span className={`sw ${on ? "on" : ""}`} role="img" aria-label={`${label}: ${on ? "on" : "off"}`} title={label}>
+        {on && <Icon name={icon} size={13} />}
+      </span>
+    );
+  }
   return (
-    <span className={`sw ${on ? "on" : ""}`} role="img" aria-label={`${label}: ${on ? "on" : "off"}`} title={label}>
+    <button
+      type="button"
+      className={`sw ${on ? "on" : ""}`}
+      aria-pressed={on}
+      aria-label={label}
+      title={label}
+      onClick={(e) => {
+        e.stopPropagation();
+        onToggle(e);
+      }}
+    >
       {on && <Icon name={icon} size={13} />}
-    </span>
+    </button>
   );
+}
+
+/** Pixels at either end of a layer bar that trim its in or out point instead of moving it. */
+const TRIM_GRIP = 5;
+
+/**
+ * Dragging a layer bar: the middle moves the layer in time, either end trims
+ * its in or out point. Times snap to frames; the whole drag is one undo step.
+ */
+function dragLayerBar(
+  e: ReactPointerEvent<HTMLSpanElement>,
+  editing: ReturnType<typeof useEditing>,
+  editor: Editor,
+  comp: CompItem,
+  layer: Layer,
+  view: View,
+  onSelect: (id: number) => void,
+) {
+  if (e.button !== 0) return;
+  e.stopPropagation();
+  e.preventDefault();
+  onSelect(layer.id);
+  const track = e.currentTarget.parentElement!.getBoundingClientRect();
+  const bar = e.currentTarget.getBoundingClientRect();
+  const perPixel = view.span / (track.width || 1);
+  const edge = e.clientX - bar.left < TRIM_GRIP ? "in" : bar.right - e.clientX < TRIM_GRIP ? "out" : "move";
+  const frame = comp.frameDuration || 1 / (comp.frameRate || 24);
+  const inT = Math.min(layer.inPoint, layer.outPoint);
+  const outT = Math.max(layer.inPoint, layer.outPoint);
+  const key = nextDragKey(`layer-${edge}`);
+  const id = layer.id;
+  const x0 = e.clientX;
+  const move = (ev: PointerEvent) => {
+    const delta = Math.round(((ev.clientX - x0) * perPixel) / frame) * frame;
+    const target = comp.layers.find((l) => l.id === id);
+    if (!target) return;
+    attempt(editing, () => {
+      if (edge === "move") editor.shiftLayers(comp, [target], delta, { coalesce: key });
+      else if (edge === "in") editor.setLayerTiming(comp, target, { inPoint: Math.min(outT - frame, inT + delta) }, { coalesce: key });
+      else editor.setLayerTiming(comp, target, { outPoint: Math.max(inT + frame, outT + delta) }, { coalesce: key });
+    });
+  };
+  const up = () => {
+    window.removeEventListener("pointermove", move);
+    window.removeEventListener("pointerup", up);
+    editor.commit();
+  };
+  window.addEventListener("pointermove", move);
+  window.addEventListener("pointerup", up);
 }
 
 interface LayerRowProps {
@@ -218,6 +297,10 @@ const LayerRow = memo(function LayerRow({
   dropMark,
 }: LayerRowProps) {
   const actions = useContext(AppActionsContext);
+  const editing = useEditing();
+  const { editor } = editing;
+  const toggle = (name: LayerSwitch, on: boolean) =>
+    editor ? () => attempt(editing, () => editor.setLayerSwitch(comp, layer, name, on)) : undefined;
   const name = displayName(layer, project);
   const hasVideo = layerHasVideo(layer, project);
   const hasAudio = layerHasAudio(layer, project);
@@ -262,10 +345,10 @@ const LayerRow = memo(function LayerRow({
     >
       <div className="tl-outline">
         <span className="c-av">
-          <Switch icon="eye" on={layer.enabled} label="Video" blank={!hasVideo} />
-          <Switch icon="speaker" on={layer.audioEnabled} label="Audio" blank={!hasAudio} />
-          <Switch icon="solo" on={layer.solo} label="Solo" blank={!hasVideo && !hasAudio} />
-          <Switch icon="lock" on={layer.locked} label="Lock" />
+          <Switch icon="eye" on={layer.enabled} label="Video" blank={!hasVideo} onToggle={toggle("enabled", !layer.enabled)} />
+          <Switch icon="speaker" on={layer.audioEnabled} label="Audio" blank={!hasAudio} onToggle={toggle("audioEnabled", !layer.audioEnabled)} />
+          <Switch icon="solo" on={layer.solo} label="Solo" blank={!hasVideo && !hasAudio} onToggle={toggle("solo", !layer.solo)} />
+          <Switch icon="lock" on={layer.locked} label="Lock" onToggle={toggle("locked", !layer.locked)} />
         </span>
         <span className="c-twirl">
           <button
@@ -295,35 +378,68 @@ const LayerRow = memo(function LayerRow({
           )}
         </span>
         <span className="c-switches">
-          <Switch icon={layer.shy ? "shyOn" : "shy"} on label="Shy" />
-          <Switch icon="collapse" on={layer.collapseTransformation} label="Collapse Transformations" blank={!collapsible} />
-          <Switch icon={QUALITY_ICON[layer.quality] ?? "qualityBest"} on label="Quality" blank={camLight || layer.nullLayer} />
-          <Switch icon="fx" on={layer.effectsActive} label="Effect" blank={effects.length === 0} />
+          <Switch icon={layer.shy ? "shyOn" : "shy"} on label="Shy" onToggle={toggle("shy", !layer.shy)} />
+          <Switch
+            icon="collapse"
+            on={layer.collapseTransformation}
+            label="Collapse Transformations"
+            blank={!collapsible}
+            onToggle={toggle("collapseTransformation", !layer.collapseTransformation)}
+          />
+          <Switch
+            icon={QUALITY_ICON[layer.quality] ?? "qualityBest"}
+            on
+            label="Quality"
+            blank={camLight || layer.nullLayer}
+            onToggle={
+              editor
+                ? (e) => {
+                    // Click alternates Best and Draft; Alt-click picks Wireframe, as in AE.
+                    const next = e.altKey ? QUALITY.WIREFRAME : layer.quality === QUALITY.BEST ? QUALITY.DRAFT : QUALITY.BEST;
+                    attempt(editing, () => editor.setLayerQuality(comp, layer, next));
+                  }
+                : undefined
+            }
+          />
+          <Switch icon="fx" on={layer.effectsActive} label="Effect" blank={effects.length === 0} onToggle={toggle("effectsActive", !layer.effectsActive)} />
           <Switch icon="frameBlend" on={layer.frameBlendingType !== FRAME_BLEND_NONE} label="Frame Blending" blank={!footageLike} />
-          <Switch icon="motionBlur" on={layer.motionBlur} label="Motion Blur" blank={camLight} />
-          <Switch icon="adjustment" on={layer.adjustmentLayer} label="Adjustment Layer" blank={camLight} />
-          <Switch icon="cube" on={layer.threeDLayer} label="3D Layer" blank={camLight} />
+          <Switch icon="motionBlur" on={layer.motionBlur} label="Motion Blur" blank={camLight} onToggle={toggle("motionBlur", !layer.motionBlur)} />
+          <Switch icon="adjustment" on={layer.adjustmentLayer} label="Adjustment Layer" blank={camLight} onToggle={toggle("adjustmentLayer", !layer.adjustmentLayer)} />
+          <Switch icon="cube" on={layer.threeDLayer} label="3D Layer" blank={camLight} onToggle={toggle("threeDLayer", !layer.threeDLayer)} />
         </span>
-        <span className="c-mode">{!camLight && <Dropdown text={blendingModeName(layer.blendingMode)} label="Mode" />}</span>
-        <span className="c-t">{!camLight && <Checkbox on={layer.preserveTransparency} label="Preserve Underlying Transparency" />}</span>
+        <span className="c-mode">
+          {!camLight && (
+            <Dropdown text={blendingModeName(layer.blendingMode)} label="Mode" menu={editor ? () => modeEntries(editing, editor, comp, layer) : undefined} />
+          )}
+        </span>
+        <span className="c-t">
+          {!camLight && (
+            <Checkbox
+              on={layer.preserveTransparency}
+              label="Preserve Underlying Transparency"
+              onToggle={toggle("preserveTransparency", !layer.preserveTransparency)}
+            />
+          )}
+        </span>
         <span className="c-trkmat">
           {!camLight && (
             <>
               <Icon name="pickwhip" size={12} className="dim" />
-              <Dropdown text={matte ?? "No Matte"} label="Track Matte" />
+              <Dropdown text={matte ?? "No Matte"} label="Track Matte" menu={editor ? () => trackMatteEntries(editing, editor, comp, layer) : undefined} />
             </>
           )}
         </span>
         <span className="c-parent">
           <Icon name="pickwhip" size={12} className="dim" />
-          <Dropdown text={parent ?? "None"} label="Parent & Link" />
+          <Dropdown text={parent ?? "None"} label="Parent & Link" menu={editor ? () => parentEntries(editing, editor, comp, layer) : undefined} />
         </span>
       </div>
       <div className="tl-track">
         <span
-          className="tl-bar"
+          className={`tl-bar ${editor && !layer.locked ? "draggable" : ""}`}
           style={{ left: pct(inT, view), width: `${((outT - inT) / view.span) * 100}%`, "--c": color } as CSSProperties}
           title={`${shown}: ${timecode(inT + comp.displayStartTime, comp.frameRate)} – ${timecode(outT + comp.displayStartTime, comp.frameRate)}`}
+          onPointerDown={editor && !layer.locked ? (e) => dragLayerBar(e, editing, editor, comp, layer, view, onSelect) : undefined}
         />
         {markers.map((m, i) => (
           <span key={i} className="tl-marker" style={{ left: pct(m.time, view) }} title={`Layer marker at ${timecode(m.time + comp.displayStartTime, comp.frameRate)}`} />
@@ -347,19 +463,38 @@ interface NodeRowProps {
   onSelectKey: (key: string, add: boolean) => void;
 }
 
-function KeyframeNav({ prop, time, comp, onTime }: { prop: Property; time: number; comp: CompItem; onTime: (t: number) => void }) {
+function KeyframeNav({ prop, layer, time, comp, onTime }: { prop: Property; layer: Layer; time: number; comp: CompItem; onTime: (t: number) => void }) {
+  const editing = useEditing();
+  const { editor } = editing;
   const eps = (comp.frameDuration || 1 / 24) / 2;
   const prev = [...prop.keyframes].reverse().find((k) => k.time < time - eps);
   const next = prop.keyframes.find((k) => k.time > time + eps);
-  const at = keyframeAt(prop, time, eps) >= 0;
+  const index = keyframeAt(prop, time, eps);
+  const at = index >= 0;
+  const label = at ? "Remove keyframe at current time" : "Add keyframe at current time";
   return (
     <span className="kf-nav">
       <button type="button" className="kf-nav-btn" aria-label="Go to previous keyframe" disabled={!prev} onClick={(e) => (e.stopPropagation(), prev && onTime(prev.time))}>
         <Icon name="kfPrev" size={10} />
       </button>
-      <span className={`kf-nav-here ${at ? "on" : ""}`} role="img" aria-label={at ? "Keyframe at current time" : "No keyframe at current time"}>
-        <Icon name="kfDiamond" size={10} />
-      </span>
+      {editor ? (
+        <button
+          type="button"
+          className={`kf-nav-here ${at ? "on" : ""}`}
+          aria-label={label}
+          title={label}
+          onClick={(e) => {
+            e.stopPropagation();
+            attempt(editing, () => (at ? editor.removeKeyframes(comp, layer, prop, [index]) : editor.addKeyframe(comp, layer, prop, time)));
+          }}
+        >
+          <Icon name="kfDiamond" size={10} />
+        </button>
+      ) : (
+        <span className={`kf-nav-here ${at ? "on" : ""}`} role="img" aria-label={at ? "Keyframe at current time" : "No keyframe at current time"}>
+          <Icon name="kfDiamond" size={10} />
+        </span>
+      )}
       <button type="button" className="kf-nav-btn" aria-label="Go to next keyframe" disabled={!next} onClick={(e) => (e.stopPropagation(), next && onTime(next.time))}>
         <Icon name="kfNext" size={10} />
       </button>
@@ -439,7 +574,7 @@ function NodeRow({ row, project, comp, open, time, view, selectedKeys, onToggle,
       onClick={() => onSelect(layer.id)}
     >
       <div className="tl-outline">
-        <span className="c-av">{prop && animated && <KeyframeNav prop={prop} time={time} comp={comp} onTime={onTime} />}</span>
+        <span className="c-av">{prop && animated && <KeyframeNav prop={prop} layer={layer} time={time} comp={comp} onTime={onTime} />}</span>
         <span className="c-prop-name" style={indent}>
           {isProp ? (
             <span className="twirl-space" />
@@ -604,6 +739,18 @@ export const TimelinePanel = memo(function TimelinePanel({
   const [hideShy, setHideShy] = useState(comp.hideShyLayers);
   const [sourceMode, setSourceMode] = useState(false);
   const [showModes, setShowModes] = useState(true);
+  const [switchesPane, setSwitchesPane] = useState(true);
+  const [transferPane, setTransferPane] = useState(true);
+  const transferShown = showModes && transferPane;
+  // The outline is one grid; hidden panes drop their columns so the rest stay aligned.
+  const columns = [
+    "72px 16px 18px 26px minmax(110px, 1fr)",
+    switchesPane ? "144px" : "",
+    transferShown ? "78px 20px 108px" : "",
+    "128px",
+  ]
+    .filter(Boolean)
+    .join(" ");
   const [zoom, setZoom] = useState(0);
   const [viewStart, setViewStart] = useState(0);
   const [selectedKeys, setSelectedKeys] = useState<Set<string>>(() => new Set());
@@ -839,8 +986,8 @@ export const TimelinePanel = memo(function TimelinePanel({
   return (
     <div
       ref={rootRef}
-      className={`tl ${showModes ? "" : "modes-off"}`}
-      style={{ "--outline-w": `${outlineWidth}px` } as CSSProperties}
+      className={`tl ${transferShown ? "" : "modes-off"} ${switchesPane ? "" : "no-switches"}`}
+      style={{ "--outline-w": `${outlineWidth}px`, "--cols": columns } as CSSProperties}
     >
       <div className="tl-head">
         <div className="tl-head-left">
@@ -1006,12 +1153,26 @@ export const TimelinePanel = memo(function TimelinePanel({
       <div className="tl-split" onPointerDown={onSplitDown} role="separator" aria-orientation="vertical" aria-label="Resize layer outline" />
       <div className="tl-foot">
         <div className="tl-foot-left">
-          <span className="tl-tool" title="Layer switches pane" aria-hidden="true">
+          <button
+            type="button"
+            className={`tl-tool ${switchesPane ? "on" : ""}`}
+            title="Layer switches pane"
+            aria-label="Layer switches pane"
+            aria-pressed={switchesPane}
+            onClick={() => setSwitchesPane(!switchesPane)}
+          >
             <Icon name="overflow" size={13} />
-          </span>
-          <span className="tl-tool" title="Transfer Controls pane" aria-hidden="true">
+          </button>
+          <button
+            type="button"
+            className={`tl-tool ${transferPane ? "on" : ""}`}
+            title="Transfer Controls pane"
+            aria-label="Transfer Controls pane"
+            aria-pressed={transferPane}
+            onClick={() => setTransferPane(!transferPane)}
+          >
             <Icon name="channels" size={13} />
-          </span>
+          </button>
           <span className="tl-tool" title="In/Out/Duration/Stretch panes" aria-hidden="true">
             <Icon name="first" size={13} />
           </span>

@@ -60,19 +60,18 @@ const BLEND_GROUPS = [
   [5244, 5245],
 ];
 
-function blendingModes(comp: CompItem, layer: Layer, a: AppActions): MenuEntries {
+/** AE's blending mode list with the current mode checked; `pick` makes the entries live. */
+export function blendingModeEntries(current: number, pick?: (mode: number) => void): MenuEntries {
   const out: MenuEntries = [];
   BLEND_GROUPS.forEach((group, i) => {
     if (i) out.push("-");
-    for (const mode of group) {
-      out.push({
-        label: blendingModeName(mode),
-        checked: mode === layer.blendingMode,
-        onSelect: a.setBlendingMode ? () => a.setBlendingMode!(comp, layer, mode) : undefined,
-      });
-    }
+    for (const mode of group) out.push({ label: blendingModeName(mode), checked: mode === current, onSelect: pick ? () => pick(mode) : undefined });
   });
   return out;
+}
+
+function blendingModes(comp: CompItem, layer: Layer, a: AppActions): MenuEntries {
+  return blendingModeEntries(layer.blendingMode, a.setBlendingMode ? (mode) => a.setBlendingMode!(comp, layer, mode) : undefined);
 }
 
 const newLayerEntries = (comp: CompItem, a: AppActions): MenuEntries => [

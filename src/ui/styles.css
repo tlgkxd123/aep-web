@@ -1460,6 +1460,73 @@ button.vb-btn:hover {
   margin-right: 4px;
 }
 
+.vb-exposure.scrub {
+  cursor: ew-resize;
+  user-select: none;
+}
+
+.vb-btn:disabled {
+  opacity: 0.4;
+}
+
+.vb-time .tl-timecode,
+.vb-time button {
+  font: inherit;
+  color: inherit;
+}
+
+.comp-svg.tool-hand {
+  cursor: grab;
+}
+
+.comp-svg.tool-hand:active {
+  cursor: grabbing;
+}
+
+.comp-svg.tool-zoom {
+  cursor: zoom-in;
+}
+
+.comp-svg.tool-roi {
+  cursor: crosshair;
+}
+
+.comp-snapshot {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+}
+
+.mask-paths path {
+  vector-effect: non-scaling-stroke;
+}
+
+.viewer-guides {
+  pointer-events: none;
+}
+
+.viewer-guides .safe-zones {
+  stroke: rgb(255 255 255 / 70%);
+}
+
+.viewer-guides .prop-grid {
+  stroke: rgb(0 200 255 / 55%);
+}
+
+.viewer-guides .grid-lines {
+  stroke: rgb(120 200 120 / 35%);
+}
+
+.roi-rect {
+  fill: none;
+  stroke: #fff;
+  stroke-dasharray: 4 3;
+  vector-effect: non-scaling-stroke;
+  pointer-events: none;
+}
+
 .vb-spacer {
   flex: 1;
   min-width: 8px;
@@ -1833,8 +1900,48 @@ button.vb-btn:hover {
 
 .tl.modes-off .c-mode,
 .tl.modes-off .c-t,
-.tl.modes-off .c-trkmat {
+.tl.modes-off .c-trkmat,
+.tl.no-switches .c-switches {
   display: none;
+}
+
+.tl-bar.draggable {
+  cursor: grab;
+  pointer-events: auto;
+}
+
+.tl-bar.draggable:active {
+  cursor: grabbing;
+}
+
+/* Trimming handles at both ends of a layer bar. */
+.tl-bar.draggable::before,
+.tl-bar.draggable::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 5px;
+  cursor: ew-resize;
+}
+
+.tl-bar.draggable::before {
+  left: 0;
+}
+
+.tl-bar.draggable::after {
+  right: 0;
+}
+
+button.sw,
+button.ae-check,
+button.ae-select,
+button.kf-nav-here {
+  cursor: pointer;
+}
+
+button.ae-select:hover {
+  border-color: #5a5a5a;
 }
 
 .tl-head {

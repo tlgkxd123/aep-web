@@ -5,8 +5,10 @@ import { anchorInComp, moveLayers, panBehind, rotateByDrag, scaleByHandle, type 
 import type { Target } from "../render/gl.ts";
 import { Renderer } from "../render/renderer.ts";
 import { apply, invert, layerAffine, type Matrix } from "./animate.ts";
-import { openContextMenu } from "./ContextMenu.tsx";
+import { openContextMenu, openMenuBelow, type MenuEntries } from "./ContextMenu.tsx";
 import { AppActionsContext, layerMenu, viewerMenu } from "./contextMenus.ts";
+import { TimeDisplay } from "./TimelinePanel.tsx";
+import { ChannelFilters, channelFilter, Guides, MaskPaths, snapDelta, snapTargets, type Channel, type GuideOptions } from "./viewerOverlays.tsx";
 import { attempt, ITEM_MIME, nextDragKey, useEditing } from "./editing.tsx";
 import { colorCss, labelColor, timecode } from "./format.ts";
 import { setHover } from "./hover.ts";
@@ -16,6 +18,8 @@ import { layerHasVideo } from "./properties.ts";
 import { Dropdown } from "./values.tsx";
 
 const ZOOMS = [0.015, 0.03, 0.06, 0.125, 0.25, 0.333, 0.5, 1, 2, 4, 8];
+/** Screen pixels within which a dragged layer snaps. */
+const SNAP_PIXELS = 8;
 
 interface Pickable {
   layer: Layer;
@@ -63,7 +67,7 @@ interface RenderState {
  * render per animation frame however fast `time` changes. Returns the
  * renderer state (for pixel readback) and what the renderer skipped.
  */
-function useCompRender(canvas: HTMLCanvasElement | null, project: Project, comp: CompItem, time: number, revision = 0) {
+function useCompRender(canvas: HTMLCanvasElement | null, project: Project, comp: CompItem, time: number, revision = 0, downsample = 1) {
   const state = useRef<RenderState | null>(null);
   const [notes, setNotes] = useState<string[]>([]);
   const [error, setError] = useState<string>();
@@ -76,9 +80,12 @@ function useCompRender(canvas: HTMLCanvasElement | null, project: Project, comp:
       try {
         state.current ??= { renderer: new Renderer(canvas) };
         const { renderer } = state.current;
-        if (canvas.width !== comp.width || canvas.height !== comp.height) {
-          canvas.width = comp.width;
-          canvas.height = comp.height;
+        // Lower resolutions present the frame on a smaller canvas, which the viewer scales up.
+        const width = Math.max(1, Math.ceil(comp.width / downsample));
+        const height = Math.max(1, Math.ceil(comp.height / downsample));
+        if (canvas.width !== width || canvas.height !== height) {
+          canvas.width = width;
+          canvas.height = height;
         }
         if (state.current.target) renderer.release(state.current.target);
         const target = renderer.render(project, comp, time);
@@ -91,11 +98,38 @@ function useCompRender(canvas: HTMLCanvasElement | null, project: Project, comp:
       }
     });
     return () => cancelAnimationFrame(frame);
-  }, [canvas, project, comp, time, footageVersion, revision]);
+  }, [canvas, project, comp, time, footageVersion, revision, downsample]);
   return { state, notes, error };
 }
 
-function ViewerButton({ icon, title, on, onClick }: { icon: IconName; title: string; on?: boolean; onClick?: () => void }) {
+function ViewerButton({
+  icon,
+  title,
+  on,
+  onClick,
+  onMenu,
+}: {
+  icon: IconName;
+  title: string;
+  on?: boolean;
+  onClick?: () => void;
+  /** Opens these entries under the button instead of acting directly. */
+  onMenu?: () => MenuEntries;
+}) {
+  if (onMenu) {
+    return (
+      <button
+        type="button"
+        className={`vb-btn ${on ? "on" : ""}`}
+        title={title}
+        aria-label={title}
+        aria-haspopup="menu"
+        onClick={(e) => openMenuBelow(e.currentTarget, onMenu())}
+      >
+        <Icon name={icon} size={14} />
+      </button>
+    );
+  }
   if (!onClick) {
     return (
       <span className="vb-btn" title={title} aria-hidden="true">
@@ -119,22 +153,51 @@ export function CompositionPanel({
   time,
   selectedLayerId,
   onSelectLayer,
+  onTime,
 }: {
   project: Project;
   comp: CompItem;
   time: number;
   selectedLayerId: number | undefined;
   onSelectLayer: (id: number | undefined) => void;
+  onTime?: (t: number) => void;
 }) {
   const viewerRef = useRef<HTMLDivElement>(null);
   const [viewer, setViewer] = useState({ width: 0, height: 0 });
   const actions = useContext(AppActionsContext);
   const [zoom, setZoom] = useState<"fit" | number>("fit");
+  const [pan, setPan] = useState<[number, number]>([0, 0]);
   const [grid, setGrid] = useState(false);
+  const [showMasks, setShowMasks] = useState(true);
+  const [guides, setGuides] = useState<GuideOptions>({ safe: false, proportional: false, grid: false });
+  const [channel, setChannel] = useState<Channel>("rgb");
+  const [exposure, setExposure] = useState(0);
+  const [snapshot, setSnapshot] = useState<string>();
+  const [showingSnapshot, setShowingSnapshot] = useState(false);
+  const [roiMode, setRoiMode] = useState(false);
+  const [roi, setRoi] = useState<[number, number, number, number]>();
+  const [fastPreviews, setFastPreviews] = useState(false);
+  const [alwaysPreview, setAlwaysPreview] = useState(false);
+  const spaceDown = useRef(false);
   const [canvas, setCanvas] = useState<HTMLCanvasElement | null>(null);
   const editing = useEditing();
   const { editor, revision, tool } = editing;
-  const render = useCompRender(canvas, project, comp, time, revision);
+  const downsample = Math.max(1, comp.resolutionFactor[0] || 1);
+  const render = useCompRender(canvas, project, comp, time, revision, downsample);
+
+  // Holding Space pans with the Hand tool, as in AE.
+  useEffect(() => {
+    const key = (e: KeyboardEvent) => {
+      if (e.code !== "Space" || (e.target as HTMLElement | null)?.closest?.("input, textarea, select")) return;
+      spaceDown.current = e.type === "keydown";
+    };
+    window.addEventListener("keydown", key);
+    window.addEventListener("keyup", key);
+    return () => {
+      window.removeEventListener("keydown", key);
+      window.removeEventListener("keyup", key);
+    };
+  }, []);
   const missing = missingFootage(project, comp).length;
   const svgRef = useRef<SVGSVGElement>(null);
   const [itemOver, setItemOver] = useState(false);
@@ -153,6 +216,56 @@ export function CompositionPanel({
   const fit =
     viewer.width && viewer.height ? Math.min(1, (viewer.width - 40) / frameW, (viewer.height - 40) / comp.height) : 0.33;
   const scale = zoom === "fit" ? Math.max(0.01, fit) : zoom;
+  // A fitted view stays centred; panning applies to explicit zoom levels.
+  const offset: [number, number] = zoom === "fit" ? [0, 0] : pan;
+
+  /** Zooms to `next`, keeping the comp point under (clientX, clientY) where it is, like AE's Zoom tool and wheel. */
+  const zoomAt = (next: number, clientX?: number, clientY?: number) => {
+    const el = viewerRef.current;
+    const clamped = Math.min(ZOOMS[ZOOMS.length - 1], Math.max(ZOOMS[0], next));
+    if (el && clientX !== undefined && clientY !== undefined) {
+      const r = el.getBoundingClientRect();
+      const cx = clientX - (r.left + r.width / 2);
+      const cy = clientY - (r.top + r.height / 2);
+      const k = clamped / scale;
+      setPan([cx - (cx - offset[0]) * k, cy - (cy - offset[1]) * k]);
+    } else if (zoom === "fit") setPan([0, 0]);
+    setZoom(clamped);
+  };
+  const zoomStep = (dir: 1 | -1) => {
+    const steps = dir > 0 ? ZOOMS.filter((z) => z > scale + 1e-6) : ZOOMS.filter((z) => z < scale - 1e-6).reverse();
+    return steps[0] ?? scale;
+  };
+  const latestZoom = useRef({ zoomAt, zoomStep });
+  latestZoom.current = { zoomAt, zoomStep };
+
+  // The wheel zooms around the cursor; the listener is not passive so the page does not scroll.
+  useEffect(() => {
+    const el = viewerRef.current;
+    if (!el) return;
+    const wheel = (e: WheelEvent) => {
+      e.preventDefault();
+      const { zoomAt: at, zoomStep: step } = latestZoom.current;
+      at(step(e.deltaY < 0 ? 1 : -1), e.clientX, e.clientY);
+    };
+    el.addEventListener("wheel", wheel, { passive: false });
+    return () => el.removeEventListener("wheel", wheel);
+  }, []);
+
+  /** Pans the view by dragging (Hand tool, Space or middle button). */
+  const panDrag = (e: PointerEvent<Element>) => {
+    e.preventDefault();
+    const start = [e.clientX, e.clientY];
+    const from = offset;
+    if (zoom === "fit") setZoom(scale);
+    const move = (ev: globalThis.PointerEvent) => setPan([from[0] + ev.clientX - start[0], from[1] + ev.clientY - start[1]]);
+    const up = () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+  };
   // `revision` changes after every edit; the layer objects behind `comp` are rebuilt then.
   const pickable = useMemo(() => pickableLayers(project, comp, time), [project, comp, time, revision]);
   const selected = comp.layers.find((l) => l.id === selectedLayerId);
@@ -183,9 +296,31 @@ export function CompositionPanel({
    * key, so the drag previews live and undoes in one step.
    */
   const onPointerDown = (e: PointerEvent<SVGSVGElement>) => {
+    if (e.button === 1 || (e.button === 0 && (tool === "hand" || spaceDown.current))) return panDrag(e);
     if (e.button !== undefined && e.button !== 0) return;
     const rect = e.currentTarget.getBoundingClientRect();
     const start = clientToComp(e.clientX, e.clientY, rect);
+    if (tool === "zoom") return zoomAt(zoomStep(e.altKey ? -1 : 1), e.clientX, e.clientY);
+    if (roiMode) {
+      // Drawing the region of interest.
+      e.preventDefault();
+      const move = (ev: globalThis.PointerEvent) => {
+        const at = clientToComp(ev.clientX, ev.clientY, rect);
+        const x0 = Math.max(0, Math.min(start[0], at[0]));
+        const y0 = Math.max(0, Math.min(start[1], at[1]));
+        const x1 = Math.min(comp.width, Math.max(start[0], at[0]));
+        const y1 = Math.min(comp.height, Math.max(start[1], at[1]));
+        setRoi([x0, y0, Math.max(1, x1 - x0), Math.max(1, y1 - y0)]);
+      };
+      const up = () => {
+        window.removeEventListener("pointermove", move);
+        window.removeEventListener("pointerup", up);
+        setRoiMode(false);
+      };
+      window.addEventListener("pointermove", move);
+      window.addEventListener("pointerup", up);
+      return;
+    }
     const grip = (e.target as Element).closest?.("[data-handle]")?.getAttribute("data-handle");
     const picked = hit(...start)?.layer;
     let kind: "move" | "scale" | "rotation" | "anchor" | undefined;
@@ -210,11 +345,14 @@ export function CompositionPanel({
     const key = nextDragKey(kind);
     const id = layer.id;
     const drag = kind;
+    const snap = editing.snapping && kind === "move" ? snapTargets(comp, layer, time) : undefined;
     const move = (ev: globalThis.PointerEvent | globalThis.MouseEvent) => {
       const at = clientToComp(ev.clientX, ev.clientY, rect);
       const target = comp.layers.find((l) => l.id === id);
       if (!target || !at.every(Number.isFinite)) return;
-      const delta: [number, number] = [at[0] - start[0], at[1] - start[1]];
+      let delta: [number, number] = [at[0] - start[0], at[1] - start[1]];
+      // Ctrl temporarily inverts Snapping, as in AE.
+      if (snap && !ev.ctrlKey) delta = snapDelta(snap, delta, SNAP_PIXELS / scale);
       attempt(editing, () => {
         if (drag === "move") moveLayers(editor, comp, [target], delta, time, { coalesce: key, constrain: ev.shiftKey });
         else if (drag === "scale") scaleByHandle(editor, comp, target, handle, start, at, time, { coalesce: key, proportional: ev.shiftKey });
@@ -287,12 +425,28 @@ export function CompositionPanel({
         <div className="pasteboard">
           <div
             className={`comp-frame ${grid ? "transparency" : ""}`}
-            style={{ width: frameW * scale, height: comp.height * scale, background: grid ? undefined : colorCss(comp.bgColor) }}
+            style={{
+              width: frameW * scale,
+              height: comp.height * scale,
+              background: grid ? undefined : channel === "rgb" || channel === "straight" ? colorCss(comp.bgColor) : "#000",
+              transform: offset[0] || offset[1] ? `translate(${offset[0]}px, ${offset[1]}px)` : undefined,
+            }}
           >
-            <canvas ref={setCanvas} className={`comp-canvas ${scale > 1 ? "pixelated" : ""}`} aria-hidden="true" />
+            <canvas
+              ref={setCanvas}
+              className={`comp-canvas ${scale * downsample > 1 ? "pixelated" : ""}`}
+              aria-hidden="true"
+              style={{
+                filter: channelFilter(channel, exposure),
+                clipPath: roi
+                  ? `inset(${(roi[1] / comp.height) * 100}% ${(1 - (roi[0] + roi[2]) / comp.width) * 100}% ${(1 - (roi[1] + roi[3]) / comp.height) * 100}% ${(roi[0] / comp.width) * 100}%)`
+                  : undefined,
+              }}
+            />
+            {showingSnapshot && snapshot && <img className="comp-snapshot" src={snapshot} alt="" aria-hidden="true" />}
             <svg
               ref={svgRef}
-              className={`comp-svg ${editor ? `tool-${tool}` : ""}`}
+              className={`comp-svg ${editor || tool === "hand" || tool === "zoom" ? `tool-${roiMode ? "roi" : tool}` : ""}`}
               viewBox={`0 0 ${comp.width} ${comp.height}`}
               preserveAspectRatio="none"
               role="img"
@@ -308,6 +462,9 @@ export function CompositionPanel({
                 openContextMenu(e, layer ? layerMenu(project, comp, layer, actions) : viewerMenu(comp, actions));
               }}
             >
+              {(guides.safe || guides.proportional || guides.grid) && <Guides comp={comp} options={guides} scale={scale} />}
+              {roi && <rect className="roi-rect" x={roi[0]} y={roi[1]} width={roi[2]} height={roi[3]} strokeWidth={1 / scale} />}
+              {showMasks && selected && selectedMatrix && <MaskPaths layer={selected} matrix={selectedMatrix} time={time} scale={scale} />}
               {selected && selectedMatrix && (
                 <g className="sel-box" style={{ color: labelColor(selected.label) }}>
                   <polygon
@@ -359,13 +516,17 @@ export function CompositionPanel({
           </div>
         )}
       </div>
+      <ChannelFilters />
       <div className="viewer-bar">
-        <ViewerButton icon="alwaysPreview" title="Always Preview This View" />
+        <ViewerButton icon="alwaysPreview" title="Always Preview This View" on={alwaysPreview} onClick={() => setAlwaysPreview(!alwaysPreview)} />
         <label className="vb-select" title="Magnification ratio popup">
           <select
             aria-label="Magnification"
             value={zoom === "fit" ? "fit" : String(zoom)}
-            onChange={(e) => setZoom(e.target.value === "fit" ? "fit" : Number(e.target.value))}
+            onChange={(e) => {
+              setPan([0, 0]);
+              setZoom(e.target.value === "fit" ? "fit" : Number(e.target.value));
+            }}
           >
             <option value="fit">{zoom === "fit" ? `(${pct})` : "Fit up to 100%"}</option>
             {ZOOMS.map((z) => (
@@ -376,24 +537,127 @@ export function CompositionPanel({
           </select>
           <Icon name="chevronDown" size={10} />
         </label>
-        <Dropdown text={resolution} label="Resolution/Down Sample Factor" width={64} />
-        <ViewerButton icon="fastPreview" title="Fast Previews" />
+        <Dropdown
+          text={resolution}
+          label="Resolution/Down Sample Factor"
+          width={64}
+          menu={() =>
+            [1, 2, 3, 4].map((f) => ({
+              label: RESOLUTIONS[f],
+              checked: downsample === f,
+              onSelect: editor ? () => attempt(editing, () => editor.setCompSettings(comp, { resolutionFactor: [f, f] })) : undefined,
+            }))
+          }
+        />
+        <ViewerButton icon="fastPreview" title="Fast Previews" on={fastPreviews} onClick={() => setFastPreviews(!fastPreviews)} />
         <ViewerButton icon="transparency" title="Toggle Transparency Grid" on={grid} onClick={() => setGrid(!grid)} />
-        <ViewerButton icon="maskPath" title="Toggle Mask and Shape Path Visibility" />
-        <ViewerButton icon="roi" title="Region of Interest" />
-        <ViewerButton icon="grid" title="Choose grid and guide options" />
-        <ViewerButton icon="channels" title="Show Channel and Color Management Settings" />
-        <span className="vb-time" title="Current time">
-          {timecode(time + comp.displayStartTime, comp.frameRate)}
+        <ViewerButton icon="maskPath" title="Toggle Mask and Shape Path Visibility" on={showMasks} onClick={() => setShowMasks(!showMasks)} />
+        <ViewerButton
+          icon="roi"
+          title="Region of Interest"
+          on={roiMode || !!roi}
+          onClick={() => {
+            // First click: drag a region in the viewer. Again: clear it.
+            if (roi || roiMode) {
+              setRoi(undefined);
+              setRoiMode(false);
+            } else setRoiMode(true);
+          }}
+        />
+        <ViewerButton
+          icon="grid"
+          title="Choose grid and guide options"
+          on={guides.safe || guides.proportional || guides.grid}
+          onMenu={() => [
+            { label: "Title/Action Safe", checked: guides.safe, onSelect: () => setGuides({ ...guides, safe: !guides.safe }) },
+            { label: "Proportional Grid", checked: guides.proportional, onSelect: () => setGuides({ ...guides, proportional: !guides.proportional }) },
+            { label: "Grid", checked: guides.grid, onSelect: () => setGuides({ ...guides, grid: !guides.grid }) },
+          ]}
+        />
+        <ViewerButton
+          icon="channels"
+          title="Show Channel and Color Management Settings"
+          on={channel !== "rgb"}
+          onMenu={() =>
+            (
+              [
+                ["rgb", "RGB"],
+                ["red", "Red"],
+                ["green", "Green"],
+                ["blue", "Blue"],
+                ["alpha", "Alpha"],
+                ["straight", "RGB Straight"],
+              ] as const
+            ).map(([id, label]) => ({ label, checked: channel === id, onSelect: () => setChannel(id) }))
+          }
+        />
+        {onTime ? (
+          <span className="vb-time">
+            <TimeDisplay comp={comp} time={time} onTime={onTime} title="Viewer Current Time (click to edit)" />
+          </span>
+        ) : (
+          <span className="vb-time" title="Current time">
+            {timecode(time + comp.displayStartTime, comp.frameRate)}
+          </span>
+        )}
+        <ViewerButton icon="snapshot" title="Take Snapshot" onClick={() => canvas && setSnapshot(canvas.toDataURL())} />
+        <button
+          type="button"
+          className={`vb-btn ${showingSnapshot ? "on" : ""}`}
+          title="Show Snapshot (hold)"
+          aria-label="Show Snapshot"
+          disabled={!snapshot}
+          onPointerDown={() => setShowingSnapshot(true)}
+          onPointerUp={() => setShowingSnapshot(false)}
+          onPointerLeave={() => setShowingSnapshot(false)}
+        >
+          <Icon name="showSnapshot" size={14} />
+        </button>
+        <ViewerButton icon="exposure" title="Reset Exposure" on={exposure !== 0} onClick={() => setExposure(0)} />
+        <span
+          className="vb-exposure scrub"
+          title="Adjust Exposure (drag)"
+          role="slider"
+          aria-label="Exposure"
+          aria-valuenow={exposure}
+          tabIndex={0}
+          onPointerDown={(e) => {
+            const x0 = e.clientX;
+            const from = exposure;
+            const move = (ev: globalThis.PointerEvent) => setExposure(Math.round((from + (ev.clientX - x0) / 20) * 10) / 10);
+            const up = () => {
+              window.removeEventListener("pointermove", move);
+              window.removeEventListener("pointerup", up);
+            };
+            window.addEventListener("pointermove", move);
+            window.addEventListener("pointerup", up);
+          }}
+          onKeyDown={(e) => {
+            if (e.key === "ArrowRight" || e.key === "ArrowUp") setExposure(Math.round((exposure + 0.1) * 10) / 10);
+            if (e.key === "ArrowLeft" || e.key === "ArrowDown") setExposure(Math.round((exposure - 0.1) * 10) / 10);
+          }}
+        >
+          {exposure >= 0 ? "+" : ""}
+          {exposure.toFixed(1)}
         </span>
-        <ViewerButton icon="snapshot" title="Take Snapshot" />
-        <ViewerButton icon="showSnapshot" title="Show Snapshot" />
-        <ViewerButton icon="exposure" title="Reset Exposure" />
-        <span className="vb-exposure" title="Adjust Exposure">+0.0</span>
         <span className="vb-spacer" />
         <span className="vb-label">Classic 3D</span>
-        <Dropdown text="Active Camera" label="3D View Popup" width={96} />
-        <Dropdown text="1 View" label="Select view layout" width={60} />
+        <Dropdown
+          text="Active Camera"
+          label="3D View Popup"
+          width={96}
+          menu={() => [
+            { label: "Active Camera", checked: true, onSelect: () => {} },
+            "-",
+            ...["Front", "Left", "Top", "Back", "Right", "Bottom", "Custom View 1", "Custom View 2", "Custom View 3"].map((label) => ({ label })),
+          ]}
+        />
+        <Dropdown
+          text="1 View"
+          label="Select view layout"
+          width={60}
+          menu={() => [{ label: "1 View", checked: true, onSelect: () => {} }, { label: "2 Views" }, { label: "4 Views" }]}
+        />
       </div>
     </div>
   );

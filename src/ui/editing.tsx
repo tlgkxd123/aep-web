@@ -13,9 +13,12 @@ export interface Editing {
   setTool?: (tool: ToolId) => void;
   /** Shows a failed edit the way AE does, in an alert. */
   report: (message: string) => void;
+  /** The Tools panel's Snapping checkbox: dragged layers snap to comp and layer edges and centres. */
+  snapping: boolean;
+  setSnapping?: (on: boolean) => void;
 }
 
-export const EditingContext = createContext<Editing>({ revision: 0, tool: "selection", report: () => {} });
+export const EditingContext = createContext<Editing>({ revision: 0, tool: "selection", report: () => {}, snapping: false });
 
 export const useEditing = () => useContext(EditingContext);
 

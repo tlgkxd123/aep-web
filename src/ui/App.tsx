@@ -19,10 +19,20 @@ import { MenuBar, type MenuCommand } from "./MenuBar.tsx";
 import { PanelFrame, type PanelTab } from "./Panel.tsx";
 import { droppedHandle, pickProjectHandle, type ProjectHandle } from "./projectFiles.ts";
 import { ProjectPanel } from "./ProjectPanel.tsx";
-import { RightPanels } from "./RightPanels.tsx";
+import { DEFAULT_PREVIEW, RightPanels, type PreviewSettings } from "./RightPanels.tsx";
 import { SolidSettings } from "./SolidSettings.tsx";
 import { TimelinePanel } from "./TimelinePanel.tsx";
-import { Toolbar } from "./Toolbar.tsx";
+import { Toolbar, type Workspace } from "./Toolbar.tsx";
+
+/** Panel sizes per workspace: left frame share, right column px, Timeline share. */
+const WORKSPACE_LAYOUTS: Record<Workspace, { left: number; right: number; bottom: number }> = {
+  Default: { left: 0.24, right: 300, bottom: 0.42 },
+  Review: { left: 0.16, right: 240, bottom: 0.3 },
+  Learn: { left: 0.22, right: 380, bottom: 0.36 },
+  Standard: { left: 0.26, right: 300, bottom: 0.4 },
+  "Small Screen": { left: 0.2, right: 240, bottom: 0.36 },
+  Libraries: { left: 0.22, right: 380, bottom: 0.4 },
+};
 import { useProjectOps, type Session } from "./useProjectOps.tsx";
 
 type Frame = "left" | "center" | "right" | "bottom";
@@ -116,7 +126,9 @@ export function App() {
   const [bottomTab, setBottomTab] = useState("comp");
   const [focused, setFocused] = useState<Frame>("bottom");
   const [playing, setPlaying] = useState(false);
-  const [layout, setLayout] = useState({ left: 0.24, right: 300, bottom: 0.42 });
+  const [layout, setLayout] = useState(WORKSPACE_LAYOUTS.Default);
+  const [workspaceName, setWorkspaceName] = useState<Workspace>("Default");
+  const [preview, setPreview] = useState<PreviewSettings>(DEFAULT_PREVIEW);
   const [tool, setTool] = useState<ToolId>("selection");
   const [revision, setRevision] = useState(0);
   const [editError, setEditError] = useState<string>();
@@ -131,9 +143,10 @@ export function App() {
   const view = activeComp ? (views[activeComp.id] ?? { time: 0 }) : undefined;
   const selectedLayer = activeComp?.layers.find((l) => l.id === view?.layerId);
 
+  const [snapping, setSnapping] = useState(false);
   const editing: Editing = useMemo(
-    () => ({ editor, revision, tool, setTool, report: setEditError }),
-    [editor, revision, tool],
+    () => ({ editor, revision, tool, setTool, report: setEditError, snapping, setSnapping }),
+    [editor, revision, tool, snapping],
   );
 
   const showSession = useCallback((session: Session) => {
@@ -277,23 +290,35 @@ export function App() {
   useEffect(() => {
     if (!playing || !activeComp || typeof requestAnimationFrame === "undefined") return;
     const frame = activeComp.frameDuration || 1 / 24;
-    const ws = activeComp.workAreaStart;
-    const we = Math.min(activeComp.duration, ws + activeComp.workAreaDuration);
-    const length = Math.max(frame, we - ws);
     const current = views[activeComp.id]?.time ?? 0;
-    const start = current >= ws && current < we ? current : ws;
+    // The preview range, as the Preview panel's Range popup sets it.
+    let ws = activeComp.workAreaStart;
+    let we = Math.min(activeComp.duration, ws + activeComp.workAreaDuration);
+    if (preview.range === "comp") [ws, we] = [0, activeComp.duration];
+    else if (preview.range === "extended") [ws, we] = [Math.min(ws, current), Math.max(we, Math.min(activeComp.duration, current + frame))];
+    const length = Math.max(frame, we - ws);
+    // Play From: the range start, or the current time when it lies inside the range.
+    const begin = preview.playFrom === "current" && current >= ws && current < we ? current : ws;
+    // Frame Rate (Auto = the comp's) and Skip set how often frames are shown.
+    const rate = preview.frameRate || activeComp.frameRate || 24;
+    const shownFrame = (1 / rate) * (preview.skip + 1);
     const startWall = performance.now();
-    if (project) audioPreview.play(project, activeComp, start, we);
+    if (project && preview.audio) audioPreview.play(project, activeComp, begin, we);
     let loop = 0;
     let raf = 0;
     const tick = (now: number) => {
-      const elapsed = start - ws + (now - startWall) / 1000;
-      const t = ws + (elapsed % length);
-      // Each pass over the work area restarts the audio from its start.
+      const elapsed = begin - ws + (now - startWall) / 1000;
+      if (!preview.loop && elapsed >= length) {
+        setTime(activeComp.id, we - frame);
+        setPlaying(false);
+        return;
+      }
+      const t = ws + Math.floor((elapsed % length) / shownFrame) * shownFrame;
+      // Each pass over the range restarts the audio from its start.
       const pass = Math.floor(elapsed / length);
       if (pass !== loop && project) {
         loop = pass;
-        audioPreview.play(project, activeComp, t, we);
+        if (preview.audio) audioPreview.play(project, activeComp, t, we);
       }
       setTime(activeComp.id, Math.floor(t / frame) * frame);
       raf = requestAnimationFrame(tick);
@@ -304,7 +329,7 @@ export function App() {
       audioPreview.stop();
     };
     // `views` is read once at start: playback must not restart on its own ticks.
-  }, [playing, activeComp, setTime, project]);
+  }, [playing, activeComp, setTime, project, preview]);
 
   // Decode the active comp's audio ahead of playback once its footage is located.
   const footageVersion = useFootageVersion();
@@ -592,6 +617,7 @@ export function App() {
               time={view?.time ?? 0}
               selectedLayerId={view?.layerId}
               onSelectLayer={(id) => selectLayer(activeComp.id, id)}
+              onTime={(t) => setTime(activeComp.id, t)}
             />
           ) : (
             <div className="viewer-empty">
@@ -602,7 +628,19 @@ export function App() {
         </PanelFrame>
         <div className="splitter v" role="separator" aria-orientation="vertical" aria-label="Resize right panels" onPointerDown={resize("right")} />
         <section className={`frame frame-right ${focused === "right" ? "focused" : ""}`} onPointerDownCapture={() => setFocused("right")}>
-          <RightPanels project={project} comp={activeComp} file={loaded.file} playing={playing} onPlay={togglePlay} onStep={step} onEdge={edge} />
+          <RightPanels
+            project={project}
+            comp={activeComp}
+            file={loaded.file}
+            playing={playing}
+            onPlay={togglePlay}
+            onStep={step}
+            onEdge={edge}
+            preview={preview}
+            onPreview={setPreview}
+            selectedLayer={selectedLayer}
+            time={view?.time ?? 0}
+          />
         </section>
       </div>
       <div className="splitter h" role="separator" aria-orientation="horizontal" aria-label="Resize Timeline" onPointerDown={resize("bottom")} />
@@ -652,7 +690,14 @@ export function App() {
   const app = (
     <div className={`app ${dragging ? "dragging" : ""}`} {...dropHandlers}>
       <MenuBar hasProject={!!loaded} onCommand={command} enabled={menuEnabled} label={menuLabel} />
-      <Toolbar onHome={() => setShowHome(true)} />
+      <Toolbar
+        onHome={() => setShowHome(true)}
+        workspace={workspaceName}
+        onWorkspace={(w) => {
+          setWorkspaceName(w);
+          setLayout(WORKSPACE_LAYOUTS[w]);
+        }}
+      />
       {workspace || (
         <HomeScreen onOpen={pickFile} onNew={() => command("new-project")} onDismiss={loaded ? () => setShowHome(false) : undefined} />
       )}
