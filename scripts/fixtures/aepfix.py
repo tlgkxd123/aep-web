@@ -13,15 +13,24 @@
 #   - py-aep divides mask points by the layer size, but AE reads masks on
 #     sourceless (shape/text) layers as layer pixels; pre-scale by (W, H).
 #   - stroke dashes cannot be added (add_property raises).
+#   - effects: py-aep only adds an effect the project already defines (LIST:EfdG;
+#     its baked table holds just Transform). Use `install_effects(suite, [...])`
+#     before `add_effect(layer, match_name, ...)`: it clones each definition from
+#     an After Effects-saved donor project and registers it as AE does.
 import json
 import os
+import struct
 import sys
 import traceback
+from io import BytesIO
 from pathlib import Path
 
 PY_AEP = Path(os.environ.get("PY_AEP", "C:/Users/schxm/projects/_ref/py-aep"))
 sys.path.insert(0, str(PY_AEP / "src"))
 import py_aep  # noqa: E402
+from py_aep.binary.chunk import read_chunks, write_chunk  # noqa: E402
+from py_aep.binary.mutations import clone_chunk_tree  # noqa: E402
+from py_aep.binary.utils import filter_by_list_type, find_by_list_type  # noqa: E402
 from py_aep.enums import BlendingMode, MaskMode, TrackMatteType  # noqa: E402,F401
 from py_aep.models.properties.shape import Shape  # noqa: E402
 
@@ -73,6 +82,129 @@ class Suite:
 
 def tr(layer, match_name):
     return layer["ADBE Transform Group"][match_name]
+
+
+# --- Effects ----------------------------------------------------------------------
+
+#: Projects saved by After Effects whose effect definitions (LIST:EfdG) can be cloned.
+#: The py-aep corpus is searched after these.
+EFFECT_DONORS = [
+    os.environ.get("AEP_EFFECT_DONOR"),
+    str(PY_AEP / "samples" / "versions" / "ae2025" / "complete.aep"),
+    "C:/Users/schxm/projects/_user/bass-supreme.aep",
+    "C:/Users/schxm/Downloads/TN 2020 2.aep",
+]
+DONOR_CACHE = REFS / "effect-donors.json"
+
+
+def _chunk_bytes(kind: str, payload: bytes) -> bytes:
+    return kind.encode() + struct.pack(">I", len(payload)) + payload + (b"\0" if len(payload) % 2 else b"")
+
+
+def _read_one(raw: bytes):
+    return read_chunks(BytesIO(raw), len(raw))[0]
+
+
+def _donor_definitions(path: str, wanted: set[str]) -> dict:
+    """Match name -> cloned LIST:EfDf for the wanted effects that `path` defines."""
+    raw = Path(path).read_bytes()
+    if not any(name.encode() in raw for name in wanted):
+        return {}
+    try:
+        efdg = find_by_list_type(py_aep.parse(path).project._rifx.chunks, "EfdG")
+    except Exception:  # noqa: BLE001 - unreadable donor or no definitions
+        return {}
+    found = {}
+    for efdf in filter_by_list_type(efdg.chunks, "EfDf"):
+        tdmn = next((c for c in efdf.chunks if getattr(c, "chunk_type", "") == "tdmn"), None)
+        if tdmn is not None and tdmn.value in wanted:
+            found[tdmn.value] = clone_chunk_tree(efdf)
+    return found
+
+
+def _donor_candidates() -> tuple[list[str], dict]:
+    cached = json.loads(DONOR_CACHE.read_text(encoding="utf-8")) if DONOR_CACHE.exists() else {}
+    explicit = [d for d in EFFECT_DONORS if d and Path(d).exists()]
+    corpus = sorted(str(p) for p in (PY_AEP / "samples").rglob("*.aep"))
+    return list(dict.fromkeys([*cached.values(), *explicit, *corpus])), cached
+
+
+def install_effects(suite: "Suite", match_names: list[str]) -> None:
+    """Defines the effects in the suite's project so `add_effect` can apply them."""
+    wanted = set(match_names)
+    candidates, cached = _donor_candidates()
+    defs: dict = {}
+    for name, donor in cached.items():
+        if name in wanted and Path(donor).exists():
+            defs.update({k: v for k, v in _donor_definitions(donor, {name}).items()})
+    for donor in candidates:
+        missing = wanted - defs.keys()
+        if not missing:
+            break
+        for name, efdf in _donor_definitions(donor, missing).items():
+            defs[name] = efdf
+            cached[name] = donor
+    if wanted - defs.keys():
+        raise SystemExit(f"no donor project defines {sorted(wanted - defs.keys())}; set AEP_EFFECT_DONOR")
+    REFS.mkdir(parents=True, exist_ok=True)
+    DONOR_CACHE.write_text(json.dumps(dict(sorted(cached.items())), indent=1) + "\n", encoding="utf-8")
+
+    rifx = suite.project._rifx
+    existing = []
+    try:
+        old = find_by_list_type(rifx.chunks, "EfdG")
+        existing = [c for c in filter_by_list_type(old.chunks, "EfDf")]
+        index = rifx.chunks.index(old)
+        rifx.chunks.remove(old)
+    except Exception:  # noqa: BLE001 - the base project defines no effects yet
+        index = None
+    have = {next(c for c in e.chunks if getattr(c, "chunk_type", "") == "tdmn").value for e in existing}
+    entries = existing + [defs[n] for n in match_names if n not in have]
+    blobs = []
+    for entry in entries:
+        buf = BytesIO()
+        write_chunk(buf, entry)
+        blobs.append(buf.getvalue())
+    efdg = _read_one(_chunk_bytes("LIST", b"EfdG" + _chunk_bytes("EfDC", struct.pack("<I", len(blobs))) + b"".join(blobs)))
+    pefl = find_by_list_type(rifx.chunks, "Pefl")
+    names = {getattr(c, "value", None) for c in pefl.chunks}
+    for name in match_names:
+        if name not in names:
+            pefl.chunks.append(_read_one(_chunk_bytes("pjef", name.encode() + b"\0")))
+    rifx.chunks.insert(index if index is not None else rifx.chunks.index(pefl) + 1, efdg)
+    suite.project._effect_definitions_cache = None
+
+
+def _leaves(group):
+    for child in group.properties:
+        if hasattr(child, "properties"):
+            yield from _leaves(child)
+        else:
+            yield child
+
+
+def set_layer_param(prop, layer) -> None:
+    """Layer parameters keep the referenced layer's id in a tdpi chunk (py-aep's value setter writes only cdat)."""
+    prop._ensure_materialized()
+    prop._tdpi.value = layer.id if layer is not None else 0
+
+
+def add_effect(layer, match_name: str, **params):
+    """Applies an installed effect; params by 1-based index, e.g. add_effect(l, "ADBE Fill", p2=[1, 0, 0, 1]).
+
+    Parameters start at the defaults stored in the donor's definition, which are
+    not always AE's factory defaults: set every parameter a fixture depends on.
+    """
+    fx = layer["ADBE Effect Parade"].add_property(match_name)
+    # Definitions are often stored switched off; an applied effect is on.
+    fx.enabled = True
+    # A cloned definition still names the donor's layers (AE then fails with "cannot find layer id").
+    for leaf in _leaves(fx):
+        if getattr(leaf, "_tdpi", None) is not None and not leaf.match_name.endswith("-0000"):
+            leaf._tdpi.value = 0
+    for key, value in params.items():
+        fx[f"{match_name}-{int(key[1:]):04d}"].value = value
+    return fx
 
 
 def rect(x0, y0, x1, y1):

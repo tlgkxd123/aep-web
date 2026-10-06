@@ -92,6 +92,17 @@ Gate ledgers follow the unlazy skill (`C:/Users/schxm/.claude/skills/unlazy/SKIL
     - masks on sourceless layers are in pixels;
     - stroke dashes can't be authored.
 
+  - Effects: py-aep can only add effects the project already defines.
+    1. Call `install_effects(suite, ["ADBE Fill", ...])` once. It clones each definition from
+       a project that After Effects itself saved (the donors are cached in
+       `refs/fixtures/effect-donors.json`).
+    2. Then call `add_effect(layer, match_name, p1=..., p2=...)`. It switches the effect on,
+       because copied definitions are often stored switched off. It also clears layer
+       parameters that would still point at the donor's layers.
+    3. Set every parameter the fixture depends on. The copied defaults are the donor's
+       stored values, not After Effects' factory defaults (for example, Gaussian Blur comes
+       in at 25).
+
   When py-aep cannot author something, check whether a corpus sample already has it and AE 2025
   can open that file (copy it into `refs/fixtures/`), or extend the authoring in `aepfix.py`.
 
