@@ -17,17 +17,17 @@ Scope: the app creates, edits, organizes, imports into and saves projects the wa
 - [x] G2: the editor operations and the UI flows (menus, shortcuts, dialogs, Project panel rename/drag/delete/import/replace, save, undo/redo of each) pass their tests
   CHECK: npx vitest run tests/project-ops.test.ts tests/project-ops-ui.test.tsx
   EXPECT: /Test Files\s+2 passed \(2\)/
-  EVIDENCE: automatic-evidence=v1; definition-sha256=ce71cf24648b6553db11aeecb5a19926399d312d6b8c87a567780647425d12d5; exit=0; EXPECT=matched; output-sha256=4ce84d6dfe8ecb0c4422c5e1ff925824e71c10e0d62b0e047a3843f3fa513c62; output-bytes=1226; shell=C:\WINDOWS\system32\cmd.exe; cwd=C:\Users\schxm\projects\aep-wt\project-ops; path=a39720789bd5/52 entries
+  EVIDENCE: automatic-evidence=v1; definition-sha256=ce71cf24648b6553db11aeecb5a19926399d312d6b8c87a567780647425d12d5; exit=0; EXPECT=matched; output-sha256=02c2110b4b59d99ea10f84f5968b27ed0b9ced1729d4ca1932a6a6c78dbd7249; output-bytes=1192; shell=C:\WINDOWS\system32\cmd.exe; cwd=C:\Users\schxm\projects\aep-wt\project-ops; path=a39720789bd5/52 entries
 
 - [ ] G3: every test in the repository passes
   CHECK: npx vitest run
   EXPECT: /Test Files\s+\d+ passed \(\d+\)\s*\r?\n\s*Tests\s+\d+ passed/
   EVIDENCE: pending
 
-- [x] G4: in the real app in headless Edge, a project made through the UI (New Project, New Composition, local-file import with absolute paths, folder, drag, Replace Footage, Duplicate + undo, Save As) is saved, re-parsed, and rendered by aerender at the comp's size
+- [ ] G4: in the real app in headless Edge, a project made through the UI (New Project, New Composition, local-file import with absolute paths, folder, drag, Replace Footage, Duplicate + undo, Save As) is saved, re-parsed, and rendered by aerender at the comp's size
   CHECK: node scripts/check-project-ops-app.ts --aerender
   EXPECT: PROJECT-OPS-APP-PASSED
-  EVIDENCE: automatic-evidence=v1; definition-sha256=a925c0213f3a3a67661a989e648f38d8d5ce2b417773c778136c892446e192c6; exit=0; EXPECT=matched; output-sha256=84d3e7cddf2738faefb352268c4e42ceb96ac2664413d7c91b98477632a24a5d; output-bytes=1036; shell=C:\WINDOWS\system32\cmd.exe; cwd=C:\Users\schxm\projects\aep-wt\project-ops; path=a39720789bd5/52 entries
+  EVIDENCE: pending
 
 - [x] G5: py-aep reads the editor-built fixture and the UI-saved project with the same items and layers as aep-web, and both write back byte-identically
   CHECK: node scripts/projectops-check.ts refs/fixtures/projectops.aep refs/probe-projectops-ui.aep
@@ -42,12 +42,12 @@ Scope: the app creates, edits, organizes, imports into and saves projects the wa
 - [x] G7: the production bundle builds
   CHECK: npx vite build
   EXPECT: /built in/
-  EVIDENCE: automatic-evidence=v1; definition-sha256=202b6423274a1e776d6ddcc8d133917c5c706a45d1cd69c285f24b4a854abbd3; exit=0; EXPECT=matched; output-sha256=0ce1766313e240822bdf7c97925fe63d8b6a7ad936c613b0e868fe3f17964566; output-bytes=684; shell=C:\WINDOWS\system32\cmd.exe; cwd=C:\Users\schxm\projects\aep-wt\project-ops; path=a39720789bd5/52 entries
+  EVIDENCE: automatic-evidence=v1; definition-sha256=202b6423274a1e776d6ddcc8d133917c5c706a45d1cd69c285f24b4a854abbd3; exit=0; EXPECT=matched; output-sha256=262992eb1b1fd47399986bb556da36a03f6e5f9e4cfcd9f18c505b5eba1b8986; output-bytes=684; shell=C:\WINDOWS\system32\cmd.exe; cwd=C:\Users\schxm\projects\aep-wt\project-ops; path=a39720789bd5/52 entries
 
-- [ ] G8: every frame of the full pixel regression that passes on master still passes on this branch
+- [x] G8: every frame of the full pixel regression that passes on master still passes on this branch
   CHECK: node scripts/pixel-vs-master.ts master
   EXPECT: NO-PIXEL-REGRESSION-VS-MASTER
-  EVIDENCE: pending
+  EVIDENCE: automatic-evidence=v1; definition-sha256=a9f7ebda697e7281107e993b719b7d7c695ff4a0ca200324a7fd35ffe3a51785; exit=0; EXPECT=matched; output-sha256=44f03b9be36ef3e5171783a1edc9deec429b7b408d07da721b1b2071c718ef0f; output-bytes=114; shell=C:\WINDOWS\system32\cmd.exe; cwd=C:\Users\schxm\projects\aep-wt\project-ops; path=a39720789bd5/52 entries
 
 - [x] G9: the impeccable detector finds no anti-patterns in the new and changed UI
   CHECK: C:/Users/schxm/.claude/skills/impeccable/scripts/impeccable.cmd detect --json src/ui/CompSettingsDialog.tsx src/ui/Dialog.tsx src/ui/ImportDialog.tsx src/ui/projectOps.css src/ui/ProjectPanel.tsx src/ui/MenuBar.tsx src/ui/Panel.tsx

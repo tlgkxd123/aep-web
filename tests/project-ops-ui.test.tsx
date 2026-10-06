@@ -87,7 +87,7 @@ test("File > New > New Project opens an empty, unmodified project", async () => 
   fireEvent.click(within(screen.getByRole("menu", { name: "New" })).getByRole("menuitem", { name: /^New Project/ }));
   await screen.findByRole("tree", { name: "Project items" });
   expect(rowNames()).toEqual([]);
-  expect(document.title).toBe("Untitled Project.aep - AEP Web");
+  await waitFor(() => expect(document.title).toBe("Untitled Project.aep - AEP Web"));
 });
 
 test("New Composition creates the comp from the dialog, opens it, and undoes and redoes", async () => {

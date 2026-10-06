@@ -95,7 +95,7 @@ await nameField.fill("Footage");
 await nameField.press("Enter");
 await row("Footage").waitFor();
 await row("straight.png").dragTo(row("Footage"));
-await page.waitForTimeout(200);
+await row("straight.png").and(page.locator('[aria-level="2"]')).waitFor({ timeout: 10_000 }).catch(() => {});
 check("drag into a folder", (await row("straight.png").getAttribute("aria-level")) === "2", `level ${await row("straight.png").getAttribute("aria-level")}`);
 
 await row("photo.jpg").click();
@@ -112,7 +112,7 @@ await row("ui_comp 2").waitFor();
 check("Duplicate", true);
 
 await page.keyboard.press("Control+z");
-await page.waitForTimeout(100);
+await row("ui_comp 2").waitFor({ state: "detached", timeout: 10_000 }).catch(() => {});
 check("Undo Duplicate", (await row("ui_comp 2").count()) === 0);
 
 await page.screenshot({ path: "refs/probe-projectops-workspace.png" });
