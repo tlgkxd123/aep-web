@@ -12,3 +12,4 @@ import "./effects/polar.ts";
 import "./effects/soundKeys.ts";
 import "./effects/superpose.ts";
 import "./footage.ts";
+import "./effects/mirrorRamp.ts";
