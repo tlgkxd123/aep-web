@@ -40,10 +40,10 @@ for (const { comp, frames, project } of work) {
   const started = Date.now();
   for (const f of frames) rmSync(framePath(comp, f), { force: true });
   const result = await aerender(args, 180_000);
-  // With an increment, aerender numbers its outputs 0, 1, 2... rather than by comp frame.
+  // With an increment, aerender numbers its outputs consecutively from the start frame rather than by comp frame.
   if (step > 1) {
     for (let k = frames.length - 1; k > 0; k--) {
-      const written = framePath(comp, k);
+      const written = framePath(comp, frames[0] + k);
       if (existsSync(written)) renameSync(written, framePath(comp, frames[k]));
     }
   }

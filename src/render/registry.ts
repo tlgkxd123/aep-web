@@ -17,8 +17,17 @@ export interface LayerImage {
   origin: [number, number];
 }
 
+export interface RendererOptions {
+  /**
+   * Effects whose plugins are not installed are skipped, as After Effects does.
+   * When set, unverified look-alikes drawn from their stored parameters are used instead.
+   */
+  approximateMissingPlugins: boolean;
+}
+
 export interface RenderContext {
   readonly gl: GL;
+  readonly options: Readonly<RendererOptions>;
   readonly pool: TargetPool;
   /** Width of the transparent border around every image. */
   readonly pad: number;

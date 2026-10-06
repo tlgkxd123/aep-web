@@ -1,0 +1,189 @@
+{
+ "project": "fxextra.aep",
+ "comps": [
+  {
+   "comp": "fxextra_keylight_red",
+   "frames": [
+    0
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "fxextra_keylight_colours",
+   "frames": [
+    0
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "fxextra_keylight_mattes",
+   "frames": [
+    0
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "fxextra_keylight_controls",
+   "frames": [
+    0
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "fxextra_keylight_final2",
+   "frames": [
+    0
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "fxextra_keylight_gain",
+   "frames": [
+    0
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "fxextra_keylight_alpha",
+   "frames": [
+    0
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "fxextra_vignette_white",
+   "frames": [
+    0
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "fxextra_vignette_palette",
+   "frames": [
+    0
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "fxextra_vignette_pin",
+   "frames": [
+    0
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "fxextra_vignette_pin2",
+   "frames": [
+    0
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "fxextra_vignette_sizes",
+   "frames": [
+    0
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "fxextra_rcm",
+   "frames": [
+    0
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "fxextra_minimax_a",
+   "frames": [
+    0
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "fxextra_minimax_b",
+   "frames": [
+    0
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "fxextra_minimax_c",
+   "frames": [
+    0
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "fxextra_superpose",
+   "frames": [
+    0,
+    12
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "fxextra_superpose_sweep",
+   "frames": [
+    0,
+    2,
+    4,
+    6,
+    8,
+    10,
+    12,
+    14,
+    16,
+    18,
+    20
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "fxextra_missing_xmult",
+   "frames": [
+    0
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "fxextra_missing_sblur",
+   "frames": [
+    0
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "fxextra_missing_sglow",
+   "frames": [
+    0
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "fxextra_missing_sshake",
+   "frames": [
+    0,
+    6
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "fxextra_missing_szglow",
+   "frames": [
+    0
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "fxextra_missing_sflicker",
+   "frames": [
+    0,
+    6
+   ],
+   "fps": 24.0
+  }
+ ],
+ "known": {
+  "fxextra_keylight_alpha@0": "Screen Matte of the 10%-opacity cells is 4/255 bright: AE keys their exact colour, ours keys the colour recovered from 8-bit premultiplied layer pixels"
+ }
+}
