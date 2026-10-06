@@ -2,13 +2,15 @@ import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, 
 import type { CompItem, Project } from "../aep/model.ts";
 import { parseProject } from "../aep/parse.ts";
 import { audioPreview } from "../media/audioPreview.ts";
-import { loadLocalFootage } from "../media/localFootage.ts";
+import { loadLocalFootage, localFootageAvailable } from "../media/localFootage.ts";
+import { ContextMenuHost } from "./ContextMenu.tsx";
+import { AppActionsContext, type AppActions } from "./contextMenus.ts";
 import { ChunkPanel } from "./ChunkPanel.tsx";
 import { CompositionPanel } from "./CompositionPanel.tsx";
 import { EffectControlsPanel } from "./EffectControlsPanel.tsx";
 import { HomeScreen } from "./HomeScreen.tsx";
 import { Icon } from "./icons.tsx";
-import { addDroppedFootage, useFootageVersion } from "./LocateFootage.tsx";
+import { addDroppedFootage, locateFootageFolder, useFootageVersion } from "./LocateFootage.tsx";
 import { MenuBar, type MenuCommand } from "./MenuBar.tsx";
 import { PanelFrame, type PanelTab } from "./Panel.tsx";
 import { ProjectPanel } from "./ProjectPanel.tsx";
@@ -374,7 +376,31 @@ export function App() {
   ];
   const bottomActive = bottomTab === "render-queue" || !activeComp ? "render-queue" : `comp:${activeComp.id}`;
 
+  const actions = useMemo<AppActions>(
+    () => ({
+      openComp: openItem,
+      revealInProject: (id) => {
+        setSelectedItemId(id);
+        setLeftTab("project");
+        setFocused("left");
+      },
+      selectLayer,
+      locateFootage: () => void locateFootageFolder(),
+      reloadFootage:
+        project && localFootageAvailable()
+          ? () => void loadLocalFootage(project).catch((e: Error) => setError(`Could not load footage from disk: ${e.message}`))
+          : undefined,
+      showEffectControls: (compId, layerId) => {
+        selectLayer(compId, layerId);
+        setLeftTab("effects");
+        setFocused("left");
+      },
+    }),
+    [openItem, selectLayer, project],
+  );
+
   const workspace = loaded && project && !showHome && (
+    <AppActionsContext.Provider value={actions}>
     <div
       ref={workspaceRef}
       className="ws"
@@ -451,6 +477,7 @@ export function App() {
         )}
       </PanelFrame>
     </div>
+    </AppActionsContext.Provider>
   );
 
   return (
@@ -458,6 +485,7 @@ export function App() {
       <MenuBar hasProject={!!loaded} onCommand={command} />
       <Toolbar onHome={() => setShowHome(true)} />
       {workspace || <HomeScreen onOpen={pickFile} onDismiss={loaded ? () => setShowHome(false) : undefined} />}
+      <ContextMenuHost />
       <input
         ref={inputRef}
         type="file"

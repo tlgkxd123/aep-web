@@ -1,6 +1,8 @@
-import { memo, useEffect, useMemo, useState, type KeyboardEvent } from "react";
+import { memo, useContext, useEffect, useMemo, useState, type KeyboardEvent } from "react";
 import type { Item, Project } from "../aep/model.ts";
 import { footageStore } from "../media/store.ts";
+import { openContextMenu } from "./ContextMenu.tsx";
+import { AppActionsContext, projectItemMenu, projectPanelMenu } from "./contextMenus.ts";
 import { bitsPerChannel, colorCss, fpsLabel, fpsShort, labelColor, labelName, timecode } from "./format.ts";
 import { Icon } from "./icons.tsx";
 import { ItemIcon } from "./itemIcons.tsx";
@@ -140,9 +142,17 @@ export const ProjectPanel = memo(function ProjectPanel({
   const [sort, setSort] = useState<{ key: SortKey; dir: 1 | -1 }>({ key: "name", dir: 1 });
   useFootageVersion();
 
+  const actions = useContext(AppActionsContext);
+
   useEffect(() => {
     setExpanded(new Set(ancestors(project, selectedId)));
   }, [project]);
+
+  // Revealing an item (e.g. a layer's source) opens the folders that hold it.
+  useEffect(() => {
+    const path = ancestors(project, selectedId);
+    setExpanded((prev) => (path.every((id) => prev.has(id)) ? prev : new Set([...prev, ...path])));
+  }, [selectedId]);
 
   const uses = useMemo(() => {
     const counts = new Map<number, number>();
@@ -209,7 +219,7 @@ export const ProjectPanel = memo(function ProjectPanel({
         <Icon name="search" size={12} />
         <input type="search" placeholder="" aria-label="Search project" value={query} onChange={(e) => setQuery(e.target.value)} />
       </label>
-      <div className="proj-scroll">
+      <div className="proj-scroll" onContextMenu={(e) => actions && openContextMenu(e, projectPanelMenu(actions))}>
         <div className="proj-table">
           <div className="proj-head" role="presentation">
             {COLUMNS.map((col) => (
@@ -242,6 +252,11 @@ export const ProjectPanel = memo(function ProjectPanel({
                   className={`proj-row ${item.id === selectedId ? "selected" : ""} ${missing ? "missing" : ""}`}
                   onClick={() => onSelect(item.id)}
                   onDoubleClick={() => (isFolder ? toggle(item.id) : onOpenItem(item.id))}
+                  onContextMenu={(e) => {
+                    if (!actions) return;
+                    onSelect(item.id);
+                    openContextMenu(e, projectItemMenu(item, actions));
+                  }}
                   title={pathText(item) || undefined}
                 >
                   <span className="pc-name" style={{ paddingLeft: 4 + depth * 14 }}>

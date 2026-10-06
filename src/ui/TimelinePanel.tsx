@@ -1,6 +1,7 @@
 import {
   memo,
   useCallback,
+  useContext,
   useDeferredValue,
   useEffect,
   useMemo,
@@ -12,6 +13,8 @@ import {
 } from "react";
 import type { CompItem, Layer, Project, Property } from "../aep/model.ts";
 import { keyframeAt, valueAt } from "./animate.ts";
+import { openContextMenu } from "./ContextMenu.tsx";
+import { AppActionsContext, layerMenu } from "./contextMenus.ts";
 import {
   blendingModeName,
   colorCss,
@@ -163,6 +166,7 @@ interface LayerRowProps {
 }
 
 const LayerRow = memo(function LayerRow({ layer, project, comp, open, selected, sourceMode, view, onToggle, onSelect }: LayerRowProps) {
+  const actions = useContext(AppActionsContext);
   const name = displayName(layer, project);
   const hasVideo = layerHasVideo(layer, project);
   const hasAudio = layerHasAudio(layer, project);
@@ -188,6 +192,11 @@ const LayerRow = memo(function LayerRow({ layer, project, comp, open, selected, 
       aria-selected={selected}
       className={`tl-row tl-layer ${selected ? "selected" : ""} ${layer.enabled ? "" : "video-off"}`}
       onClick={() => onSelect(layer.id)}
+      onContextMenu={(e) => {
+        if (!actions) return;
+        onSelect(layer.id);
+        openContextMenu(e, layerMenu(project, comp, layer, actions));
+      }}
     >
       <div className="tl-outline">
         <span className="c-av">

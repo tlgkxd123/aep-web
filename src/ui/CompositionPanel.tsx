@@ -1,8 +1,10 @@
-import { useEffect, useMemo, useRef, useState, type MouseEvent, type PointerEvent } from "react";
+import { useContext, useEffect, useMemo, useRef, useState, type MouseEvent, type PointerEvent } from "react";
 import type { CompItem, Layer, Project } from "../aep/model.ts";
 import type { Target } from "../render/gl.ts";
 import { Renderer } from "../render/renderer.ts";
 import { apply, invert, layerAffine, type Matrix } from "./animate.ts";
+import { openContextMenu } from "./ContextMenu.tsx";
+import { AppActionsContext, layerMenu, viewerMenu } from "./contextMenus.ts";
 import { colorCss, labelColor, timecode } from "./format.ts";
 import { setHover } from "./hover.ts";
 import { Icon, type IconName } from "./icons.tsx";
@@ -107,6 +109,7 @@ export function CompositionPanel({
 }) {
   const viewerRef = useRef<HTMLDivElement>(null);
   const [viewer, setViewer] = useState({ width: 0, height: 0 });
+  const actions = useContext(AppActionsContext);
   const [zoom, setZoom] = useState<"fit" | number>("fit");
   const [grid, setGrid] = useState(false);
   const [canvas, setCanvas] = useState<HTMLCanvasElement | null>(null);
@@ -185,6 +188,13 @@ export function CompositionPanel({
               onPointerMove={onMove}
               onPointerLeave={() => setHover(undefined)}
               onClick={(e) => onSelectLayer(hit(...toComp(e))?.layer.id)}
+              onContextMenu={(e) => {
+                if (!actions) return;
+                // Like AE: right-clicking a layer selects it and shows the layer menu; elsewhere the comp menu.
+                const layer = hit(...toComp(e))?.layer;
+                if (layer) onSelectLayer(layer.id);
+                openContextMenu(e, layer ? layerMenu(project, comp, layer, actions) : viewerMenu(comp, actions));
+              }}
             >
               {selected && selectedMatrix && (
                 <g className="sel-box" style={{ color: labelColor(selected.label) }}>
