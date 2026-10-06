@@ -3,9 +3,13 @@
 // absolute paths first, then a relink search (most trailing path components in
 // common, file name at least) over the user's folders and the other drives.
 //
+// It also backs File > Import with a browser over this machine's folders and
+// finds where a picked or dropped file lives, so imported footage records its
+// real absolute path.
+//
 // Only the page served by this dev server can use it: every request needs the
-// per-start token injected into index.html, and only media files that a locate
-// request returned can be read.
+// per-start token injected into index.html, and only media files that a locate,
+// browse or identify request returned can be read.
 import { randomBytes } from "node:crypto";
 import { createReadStream, existsSync, readdirSync, statSync } from "node:fs";
 import { homedir } from "node:os";
@@ -136,9 +140,67 @@ export interface LocateResult {
   siblings?: string[];
 }
 
+export interface BrowseEntry {
+  name: string;
+  path: string;
+  folder: boolean;
+  size?: number;
+}
+
+/** A folder's subfolders and media files for File > Import; the drives and user folders for "". */
+function browse(dir: string): { dir: string; parent: string | null; entries: BrowseEntry[] } {
+  if (!dir) {
+    const home = process.env.USERPROFILE ?? homedir();
+    const drives = "CDEFGHIJKLMNOPQRSTUVWXYZ".split("").map((l) => `${l}:\\`).filter((d) => existsSync(d));
+    const places = [home, ...["Desktop", "Documents", "Downloads", "Pictures", "Videos"].map((d) => join(home, d))].filter((d) => existsSync(d));
+    return { dir: "", parent: null, entries: [...places, ...drives].map((path) => ({ name: path, path, folder: true })) };
+  }
+  const entries: BrowseEntry[] = [];
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const path = join(dir, entry.name);
+    if (entry.isDirectory()) {
+      if (!entry.name.startsWith("$")) entries.push({ name: entry.name, path, folder: true });
+    } else if (entry.isFile() && mediaType(entry.name)) {
+      let size: number | undefined;
+      try {
+        size = statSync(path).size;
+      } catch {
+        continue;
+      }
+      entries.push({ name: entry.name, path, folder: false, size });
+    }
+  }
+  const parent = dirname(dir);
+  return { dir, parent: parent === dir ? "" : parent, entries };
+}
+
+/**
+ * The absolute path of a file the browser picked or dropped, which it only
+ * knows by name, size and modification time: a match among the indexed media
+ * files and the user folders, when exactly one file matches.
+ */
+async function identify(name: string, size: number, lastModified: number, folders: Iterable<string>): Promise<string | null> {
+  const candidates = new Set((await buildIndex()).get(name.toLowerCase()) ?? []);
+  for (const folder of folders) {
+    const path = join(folder, basename(name));
+    if (existsSync(path)) candidates.add(path);
+  }
+  const matches = [...candidates].filter((path) => {
+    try {
+      const stat = statSync(path);
+      return stat.size === size && Math.abs(stat.mtimeMs - lastModified) < 2000;
+    } catch {
+      return false;
+    }
+  });
+  return matches.length === 1 ? matches[0] : null;
+}
+
 export function localFootage(): Plugin {
   const token = randomBytes(24).toString("hex");
   const readable = new Set<string>();
+  /** Folders of footage this session located or browsed: where picked files most likely come from. */
+  const folders = new Set<string>([process.cwd()]);
   return {
     name: "aep-local-footage",
     apply: "serve",
@@ -156,7 +218,10 @@ export function localFootage(): Plugin {
             for (const [i, path] of body.paths.entries()) {
               const file = await resolveFootage(path);
               const result: LocateResult = { path, file };
-              if (file) readable.add(file);
+              if (file) {
+                readable.add(file);
+                folders.add(dirname(file));
+              }
               if (file && body.sequences?.[i]) {
                 const ext = extname(file).toLowerCase();
                 result.siblings = readdirSync(dirname(file))
@@ -167,6 +232,25 @@ export function localFootage(): Plugin {
               results.push(result);
             }
             return send(res, 200, { results });
+          }
+          if (req.method === "POST" && url.pathname === "/browse") {
+            const body = JSON.parse(await readBody(req)) as { token: string; dir: string };
+            if (body.token !== token) return send(res, 403, { error: "forbidden" });
+            const listing = browse(body.dir);
+            if (listing.dir) folders.add(listing.dir);
+            for (const entry of listing.entries) if (!entry.folder) readable.add(entry.path);
+            return send(res, 200, listing);
+          }
+          if (req.method === "POST" && url.pathname === "/identify") {
+            const body = JSON.parse(await readBody(req)) as { token: string; files: { name: string; size: number; lastModified: number }[] };
+            if (body.token !== token) return send(res, 403, { error: "forbidden" });
+            const paths: (string | null)[] = [];
+            for (const f of body.files) {
+              const path = await identify(f.name, f.size, f.lastModified, folders);
+              if (path) readable.add(path);
+              paths.push(path);
+            }
+            return send(res, 200, { paths });
           }
           if (req.method === "GET" && url.pathname === "/file") {
             const file = url.searchParams.get("file") ?? "";

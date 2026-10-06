@@ -12,6 +12,7 @@ import {
   projectFromRifx,
   propertyCodec,
   refreshCompositions,
+  refreshProject,
   type PropertyCodec,
 } from "../aep/parse.ts";
 import { findChild, findList, readRifx, type Chunk, type RifxFile } from "../aep/riff.ts";
@@ -113,6 +114,11 @@ export interface CompSettingsEdit {
   frameRate?: number;
   duration?: number;
   bgColor?: [number, number, number];
+  pixelAspect?: number;
+  /** Resolution downsample factors, [1, 1] for Full. */
+  resolutionFactor?: [number, number];
+  /** Start timecode in seconds. */
+  displayStartTime?: number;
 }
 
 export interface CommandOptions {
@@ -198,8 +204,10 @@ export class Editor {
   }
 
   private changed(comps: CompItem[], items = false): void {
-    if (items) this.syncItems();
-    refreshCompositions(this.project, comps);
+    // Renames, moves, re-sourced footage and removed layers in any comp all
+    // need the full re-derivation, not just the item tree.
+    if (items) refreshProject(this.project);
+    else refreshCompositions(this.project, comps);
     this.revision++;
     this.notify();
   }
@@ -245,6 +253,15 @@ export class Editor {
   private refreshBatch(batch: { comps: CompItem[]; items?: boolean }): void {
     if (batch.items) this.syncItems();
     refreshCompositions(this.project, batch.comps);
+  }
+
+  /**
+   * Runs a project-level command (src/edit/project.ts): `body` rewrites the
+   * item chunks through `tx`, and the item tree and every composition are
+   * re-derived after it and after its undo and redo.
+   */
+  runProjectCommand(label: string, body: (tx: Transaction) => void): void {
+    this.perform(label, [], body, { items: true });
   }
 
   private allComps(): CompItem[] {
@@ -835,6 +852,9 @@ export class Editor {
         if (edit.width !== undefined) view.setUint16(CDTA.width, edit.width);
         if (edit.height !== undefined) view.setUint16(CDTA.height, edit.height);
         if (edit.bgColor) edit.bgColor.forEach((c, i) => (bytes[CDTA.bgColor + i] = Math.round(c * 255)));
+        if (edit.pixelAspect !== undefined) setRatio(view, CDTA.pixelAspect, edit.pixelAspect, false);
+        if (edit.resolutionFactor) edit.resolutionFactor.forEach((f, i) => view.setUint16(CDTA.resolutionFactor + i * 2, f));
+        if (edit.displayStartTime !== undefined) setRatio(view, CDTA.displayStartTime, edit.displayStartTime);
         const fps = edit.frameRate !== undefined && edit.frameRate !== before.frameRate ? edit.frameRate : undefined;
         if (fps !== undefined) {
           writeFrameRate(view, fps);
@@ -855,8 +875,11 @@ export class Editor {
           }
         }
       });
+      const pixelAspect = edit.pixelAspect ?? before.pixelAspect;
       if (edit.frameRate !== undefined && edit.frameRate !== before.frameRate) {
-        retime(tx, list, before.internalTimebase, timebaseFor(edit.frameRate).internalTimebase, comp.pixelAspect);
+        retime(tx, list, before.internalTimebase, timebaseFor(edit.frameRate).internalTimebase, pixelAspect);
+      } else if (pixelAspect !== before.pixelAspect) {
+        retime(tx, list, before.internalTimebase, before.internalTimebase, pixelAspect);
       }
     });
   }

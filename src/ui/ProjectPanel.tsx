@@ -1,5 +1,5 @@
-import { memo, useContext, useEffect, useMemo, useState, type KeyboardEvent } from "react";
-import type { Item, Project } from "../aep/model.ts";
+import { memo, useContext, useEffect, useMemo, useRef, useState, type DragEvent, type KeyboardEvent, type MouseEvent } from "react";
+import type { FootageItem, Item, Project } from "../aep/model.ts";
 import { footageStore } from "../media/store.ts";
 import { openContextMenu } from "./ContextMenu.tsx";
 import { AppActionsContext, projectItemMenu, projectPanelMenu } from "./contextMenus.ts";
@@ -126,21 +126,75 @@ function ItemInfo({ item, uses }: { item: Item | undefined; uses: number }) {
   );
 }
 
+/** Editing of the project's items from the panel (see useProjectOps). */
+export interface ProjectPanelOps {
+  rename(item: Item, name: string): void;
+  move(items: Item[], folderId: number): void;
+  /** Edit > Clear: asks first when the items are in use. */
+  remove(items: Item[]): void;
+  newFolder(): void;
+  newComp(): void;
+  importFiles(files: File[], folderId: number): void;
+  replace(item: FootageItem, file: File): void;
+  /** The item whose name is being edited. */
+  renamingId: number | undefined;
+  onRenamingChange(id: number | undefined): void;
+}
+
+const ITEMS_TYPE = "application/x-aep-items";
+const isFileFootage = (item: Item): item is FootageItem => item.kind === "footage" && item.mainSource.sourceType === "FileSource";
+
+function RenameField({ initial, onDone }: { initial: string; onDone: (name: string | undefined) => void }) {
+  const done = useRef(false);
+  const finish = (name: string | undefined) => {
+    if (done.current) return;
+    done.current = true;
+    onDone(name);
+  };
+  return (
+    <input
+      className="proj-rename"
+      aria-label="Item name"
+      defaultValue={initial}
+      autoFocus
+      onFocus={(e) => e.target.select()}
+      onClick={(e) => e.stopPropagation()}
+      onDoubleClick={(e) => e.stopPropagation()}
+      onKeyDown={(e) => {
+        e.stopPropagation();
+        if (e.key === "Enter") finish(e.currentTarget.value);
+        else if (e.key === "Escape") finish(undefined);
+      }}
+      onBlur={(e) => finish(e.target.value)}
+    />
+  );
+}
+
 /** AE's Project panel: item info header, search, sortable item columns and the colour-depth footer. */
 export const ProjectPanel = memo(function ProjectPanel({
   project,
   selectedId,
   onSelect,
   onOpenItem,
+  selectedIds,
+  onSelectIds,
+  ops,
 }: {
   project: Project;
   selectedId: number | undefined;
   onSelect: (id: number) => void;
   onOpenItem: (id: number) => void;
+  /** The whole selection (Ctrl/Shift-click), when the host tracks it. */
+  selectedIds?: readonly number[];
+  onSelectIds?: (ids: number[]) => void;
+  ops?: ProjectPanelOps;
 }) {
   const [expanded, setExpanded] = useState<Set<number>>(() => new Set(ancestors(project, selectedId)));
   const [query, setQuery] = useState("");
   const [sort, setSort] = useState<{ key: SortKey; dir: 1 | -1 }>({ key: "name", dir: 1 });
+  const [dropTarget, setDropTarget] = useState<number>();
+  const renameTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  const rowsRef = useRef<HTMLDivElement>(null);
   useFootageVersion();
   // New solids and the Solids folder change the item tree inside the same project object.
   const { revision } = useEditing();
@@ -149,7 +203,25 @@ export const ProjectPanel = memo(function ProjectPanel({
 
   useEffect(() => {
     setExpanded(new Set(ancestors(project, selectedId)));
-  }, [project]);
+  }, [project.file]);
+
+  // Reveal items that commands select (an import into a folder, a new folder inside another).
+  useEffect(() => {
+    const up = ancestors(project, selectedId);
+    if (up.length) setExpanded((prev) => (up.every((id) => prev.has(id)) ? prev : new Set([...prev, ...up])));
+  }, [selectedId, project.items]);
+
+  const selection = selectedIds ?? (selectedId !== undefined ? [selectedId] : []);
+  const isSelected = (id: number) => selection.includes(id);
+  const renamingId = ops?.renamingId;
+  const startRename = (id: number) => {
+    if (ops) ops.onRenamingChange(id);
+  };
+  const finishRename = (item: Item, name: string | undefined) => {
+    ops?.onRenamingChange(undefined);
+    if (name !== undefined && name !== item.name) ops?.rename(item, name);
+    rowsRef.current?.focus();
+  };
 
   // Revealing an item (e.g. a layer's source) opens the folders that hold it.
   useEffect(() => {
@@ -195,18 +267,54 @@ export const ProjectPanel = memo(function ProjectPanel({
       return next;
     });
 
+  const select = (ids: number[]) => {
+    if (onSelectIds) onSelectIds(ids);
+    else if (ids.length) onSelect(ids[0]);
+  };
+
+  const clickRow = (e: MouseEvent, item: Item) => {
+    if (onSelectIds && (e.ctrlKey || e.metaKey)) {
+      const rest = selection.filter((id) => id !== item.id);
+      return select(rest.length === selection.length ? [item.id, ...selection] : rest);
+    }
+    if (onSelectIds && e.shiftKey && selectedId !== undefined) {
+      const a = rows.findIndex((r) => r.item.id === selectedId);
+      const b = rows.findIndex((r) => r.item.id === item.id);
+      if (a >= 0 && b >= 0) {
+        const range = rows.slice(Math.min(a, b), Math.max(a, b) + 1).map((r) => r.item.id);
+        return select([selectedId, ...range.filter((id) => id !== selectedId)]);
+      }
+    }
+    select([item.id]);
+  };
+
+  /** A click on the name of the only selected item renames it, like Explorer's slow double-click. */
+  const clickName = (e: MouseEvent, item: Item) => {
+    clearTimeout(renameTimer.current);
+    if (!ops || e.ctrlKey || e.metaKey || e.shiftKey || e.detail > 1) return;
+    if (selection.length === 1 && selection[0] === item.id) renameTimer.current = setTimeout(() => startRename(item.id), 500);
+  };
+
+  const selectedItems = () => selection.map((id) => project.items.get(id)).filter((i): i is Item => !!i);
+
   const onKeyDown = (e: KeyboardEvent) => {
     const index = rows.findIndex((r) => r.item.id === selectedId);
     const row = rows[index];
     if (e.key === "ArrowDown" || e.key === "ArrowUp") {
       e.preventDefault();
       const next = rows[Math.min(rows.length - 1, Math.max(0, index + (e.key === "ArrowDown" ? 1 : -1)))];
-      if (next) onSelect(next.item.id);
+      if (next) select([next.item.id]);
+    } else if (ops && row && e.key === "Enter" && e.code !== "NumpadEnter" && !e.altKey) {
+      e.preventDefault();
+      startRename(row.item.id);
+    } else if (ops && (e.key === "Delete" || e.key === "Backspace") && selection.length) {
+      e.preventDefault();
+      ops.remove(selectedItems());
     } else if (row && e.key === "ArrowRight" && row.item.kind === "folder" && !expanded.has(row.item.id)) {
       toggle(row.item.id);
     } else if (row && e.key === "ArrowLeft") {
       if (row.item.kind === "folder" && expanded.has(row.item.id)) toggle(row.item.id);
-      else if (row.item.parentFolderId && project.items.has(row.item.parentFolderId)) onSelect(row.item.parentFolderId);
+      else if (row.item.parentFolderId && project.items.has(row.item.parentFolderId)) select([row.item.parentFolderId]);
     } else if (row && e.key === "Enter") {
       if (row.item.kind === "folder") toggle(row.item.id);
       else onOpenItem(row.item.id);
@@ -215,6 +323,42 @@ export const ProjectPanel = memo(function ProjectPanel({
 
   const selected = selectedId !== undefined ? project.items.get(selectedId) : undefined;
 
+  const dragKind = (e: DragEvent) => {
+    const types = Array.from(e.dataTransfer?.types ?? []);
+    return types.includes(ITEMS_TYPE) ? "items" : types.includes("Files") ? "files" : undefined;
+  };
+  /** Dropping on a folder puts the items in it; on another item, in that item's folder; below the rows, at the root. */
+  const dropFolder = (target: Item | undefined) => (!target ? 0 : target.kind === "folder" ? target.id : target.parentFolderId);
+  const dragOver = (e: DragEvent, target: Item | undefined) => {
+    const kind = dragKind(e);
+    if (!ops || !kind) return;
+    e.preventDefault();
+    e.stopPropagation();
+    e.dataTransfer.dropEffect = kind === "items" ? "move" : "copy";
+    const id = target && e.altKey && kind === "files" && isFileFootage(target) ? target.id : dropFolder(target);
+    if (dropTarget !== id) setDropTarget(id);
+  };
+  const drop = (e: DragEvent, target: Item | undefined) => {
+    const kind = dragKind(e);
+    setDropTarget(undefined);
+    if (!ops || !kind || e.defaultPrevented) return;
+    // Handled here: the window's drop handler sees the default prevented and leaves it.
+    e.preventDefault();
+    const folderId = dropFolder(target);
+    if (folderId) setExpanded((prev) => (prev.has(folderId) ? prev : new Set([...prev, folderId])));
+    if (kind === "items") {
+      e.stopPropagation();
+      const ids = JSON.parse(e.dataTransfer.getData(ITEMS_TYPE) || "[]") as number[];
+      const items = ids.map((id) => project.items.get(id)).filter((i): i is Item => !!i);
+      if (items.length) ops.move(items, folderId);
+      return;
+    }
+    const files = Array.from(e.dataTransfer.files);
+    if (!files.length) return;
+    if (e.altKey && target && isFileFootage(target)) ops.replace(target, files[0]);
+    else ops.importFiles(files, folderId);
+  };
+
   return (
     <div className="project">
       <ItemInfo item={selected} uses={selected ? (uses.get(selected.id) ?? 0) : 0} />
@@ -222,7 +366,13 @@ export const ProjectPanel = memo(function ProjectPanel({
         <Icon name="search" size={12} />
         <input type="search" placeholder="" aria-label="Search project" value={query} onChange={(e) => setQuery(e.target.value)} />
       </label>
-      <div className="proj-scroll" onContextMenu={(e) => actions && openContextMenu(e, projectPanelMenu(actions))}>
+      <div
+        className={`proj-scroll ${dropTarget === 0 ? "drop-root" : ""}`}
+        onContextMenu={(e) => actions && openContextMenu(e, projectPanelMenu(actions))}
+        onDragOver={(e) => dragOver(e, undefined)}
+        onDragLeave={(e) => !e.currentTarget.contains(e.relatedTarget as Node | null) && setDropTarget(undefined)}
+        onDrop={(e) => drop(e, undefined)}
+      >
         <div className="proj-table">
           <div className="proj-head" role="presentation">
             {COLUMNS.map((col) => (
@@ -240,36 +390,49 @@ export const ProjectPanel = memo(function ProjectPanel({
               </button>
             ))}
           </div>
-          <div className="proj-rows" role="tree" aria-label="Project items" tabIndex={0} onKeyDown={onKeyDown}>
+          <div
+            ref={rowsRef}
+            className="proj-rows"
+            role="tree"
+            aria-label="Project items"
+            aria-multiselectable={onSelectIds ? true : undefined}
+            tabIndex={0}
+            onKeyDown={onKeyDown}
+          >
             {rows.map(({ item, depth }) => {
               const isFolder = item.kind === "folder";
               const open = isFolder && (expanded.has(item.id) || !!query.trim());
               const missing = isMissing(item);
+              const renaming = renamingId === item.id;
               return (
                 <div
                   key={item.id}
                   role="treeitem"
                   aria-level={depth + 1}
-                  aria-selected={item.id === selectedId}
+                  aria-selected={isSelected(item.id)}
                   aria-expanded={isFolder ? open : undefined}
-                  className={`proj-row ${item.id === selectedId ? "selected" : ""} ${missing ? "missing" : ""}`}
-                  draggable={isFolder ? undefined : true}
-                  onDragStart={
-                    isFolder
-                      ? undefined
-                      : (e) => {
-                          e.dataTransfer.setData(ITEM_MIME, String(item.id));
-                          e.dataTransfer.effectAllowed = "copy";
-                          onSelect(item.id);
-                        }
-                  }
-                  onClick={() => onSelect(item.id)}
-                  onDoubleClick={() => (isFolder ? toggle(item.id) : onOpenItem(item.id))}
+                  className={`proj-row ${isSelected(item.id) ? "selected" : ""} ${missing ? "missing" : ""} ${dropTarget === item.id ? "drop-target" : ""}`}
+                  onClick={(e) => clickRow(e, item)}
+                  onDoubleClick={() => {
+                    clearTimeout(renameTimer.current);
+                    if (isFolder) toggle(item.id);
+                    else onOpenItem(item.id);
+                  }}
                   onContextMenu={(e) => {
                     if (!actions) return;
-                    onSelect(item.id);
+                    if (!isSelected(item.id)) onSelect(item.id);
                     openContextMenu(e, projectItemMenu(item, actions));
                   }}
+                  draggable={!renaming && (!!ops || !isFolder)}
+                  onDragStart={(e) => {
+                    // Moves the selection between folders, or drops this item into a comp.
+                    if (ops) e.dataTransfer.setData(ITEMS_TYPE, JSON.stringify(isSelected(item.id) ? selection : [item.id]));
+                    if (!isFolder) e.dataTransfer.setData(ITEM_MIME, String(item.id));
+                    e.dataTransfer.effectAllowed = ops ? (isFolder ? "move" : "copyMove") : "copy";
+                    if (!isSelected(item.id)) onSelect(item.id);
+                  }}
+                  onDragOver={(e) => dragOver(e, item)}
+                  onDrop={(e) => drop(e, item)}
                   title={pathText(item) || undefined}
                 >
                   <span className="pc-name" style={{ paddingLeft: 4 + depth * 14 }}>
@@ -288,7 +451,13 @@ export const ProjectPanel = memo(function ProjectPanel({
                       <span className="twirl-space" />
                     )}
                     <ItemIcon item={item} />
-                    <span className="cell-text">{item.name || "(unnamed)"}</span>
+                    {renaming ? (
+                      <RenameField initial={item.name} onDone={(name) => finishRename(item, name)} />
+                    ) : (
+                      <span className="cell-text" onClick={(e) => clickName(e, item)}>
+                        {item.name || "(unnamed)"}
+                      </span>
+                    )}
                     {missing && (
                       <span className="missing-mark" title="Missing footage" aria-label="missing">
                         <Icon name="warning" size={10} />
@@ -312,12 +481,25 @@ export const ProjectPanel = memo(function ProjectPanel({
         <span className="foot-btn" title="Interpret Footage" aria-hidden="true">
           <Icon name="interpret" size={14} />
         </span>
-        <span className="foot-btn" title="Create a new Folder" aria-hidden="true">
-          <Icon name="folder" size={14} />
-        </span>
-        <span className="foot-btn" title="Create a new Composition" aria-hidden="true">
-          <Icon name="comp" size={14} />
-        </span>
+        {ops ? (
+          <>
+            <button type="button" className="foot-btn" title="Create a new Folder" aria-label="Create a new Folder" onClick={ops.newFolder}>
+              <Icon name="folder" size={14} />
+            </button>
+            <button type="button" className="foot-btn" title="Create a new Composition" aria-label="Create a new Composition" onClick={ops.newComp}>
+              <Icon name="comp" size={14} />
+            </button>
+          </>
+        ) : (
+          <>
+            <span className="foot-btn" title="Create a new Folder" aria-hidden="true">
+              <Icon name="folder" size={14} />
+            </span>
+            <span className="foot-btn" title="Create a new Composition" aria-hidden="true">
+              <Icon name="comp" size={14} />
+            </span>
+          </>
+        )}
         <span className="foot-btn" title="Composition Flowchart" aria-hidden="true">
           <Icon name="flowchart" size={14} />
         </span>
@@ -325,9 +507,22 @@ export const ProjectPanel = memo(function ProjectPanel({
         <span className="foot-bpc" title="Project color depth">
           {bitsPerChannel(project.bitsPerChannel)} bpc
         </span>
-        <span className="foot-btn foot-end" title="Delete" aria-hidden="true">
-          <Icon name="trash" size={14} />
-        </span>
+        {ops ? (
+          <button
+            type="button"
+            className="foot-btn foot-end"
+            title="Delete"
+            aria-label="Delete selected items"
+            disabled={!selection.length}
+            onClick={() => ops.remove(selectedItems())}
+          >
+            <Icon name="trash" size={14} />
+          </button>
+        ) : (
+          <span className="foot-btn foot-end" title="Delete" aria-hidden="true">
+            <Icon name="trash" size={14} />
+          </span>
+        )}
       </footer>
     </div>
   );

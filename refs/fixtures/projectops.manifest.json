@@ -1,0 +1,78 @@
+{
+ "project": "projectops.aep",
+ "media": [
+  "media/straight.png",
+  "media/photo.jpg",
+  "media/big.png",
+  "media/clip.mp4",
+  "media/still.bmp",
+  "media/alpha.tif"
+ ],
+ "comps": [
+  {
+   "comp": "projectops_solid",
+   "frames": [
+    0
+   ],
+   "fps": 24
+  },
+  {
+   "comp": "projectops_png",
+   "frames": [
+    0
+   ],
+   "fps": 24
+  },
+  {
+   "comp": "projectops_replaced",
+   "frames": [
+    0
+   ],
+   "fps": 24
+  },
+  {
+   "comp": "projectops_renamed",
+   "frames": [
+    0
+   ],
+   "fps": 24
+  },
+  {
+   "comp": "projectops_duplicate",
+   "frames": [
+    0
+   ],
+   "fps": 24
+  },
+  {
+   "comp": "projectops_settings",
+   "frames": [
+    30,
+    59
+   ],
+   "fps": 30
+  },
+  {
+   "comp": "projectops_precomp",
+   "frames": [
+    0
+   ],
+   "fps": 24
+  },
+  {
+   "comp": "projectops_mp4",
+   "frames": [
+    0,
+    12
+   ],
+   "fps": 24
+  },
+  {
+   "comp": "projectops_tiff",
+   "frames": [
+    0
+   ],
+   "fps": 24
+  }
+ ]
+}

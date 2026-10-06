@@ -89,3 +89,54 @@ export async function loadLocalFootage(project: Project): Promise<number> {
   await Promise.all(Array.from({ length: CONCURRENCY }, worker));
   return added;
 }
+
+export interface LocalEntry {
+  name: string;
+  path: string;
+  folder: boolean;
+  size?: number;
+}
+
+export interface LocalListing {
+  /** "" for the list of drives and user folders. */
+  dir: string;
+  parent: string | null;
+  entries: LocalEntry[];
+}
+
+async function post<T>(endpoint: string, body: object): Promise<T> {
+  const key = token();
+  if (!key) throw new Error("The local footage service is not available");
+  const response = await fetch(`/__aep/footage/${endpoint}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ token: key, ...body }),
+  });
+  if (!response.ok) throw new Error(((await response.json().catch(() => ({}))) as { error?: string }).error ?? `${endpoint} failed: ${response.status}`);
+  return (await response.json()) as T;
+}
+
+/** A folder's subfolders and media files; the drives and user folders for "". */
+export const browseLocal = (dir: string) => post<LocalListing>("browse", { dir });
+
+/** The absolute paths of picked or dropped files (null where the file cannot be found on disk). */
+export async function identifyLocal(files: readonly File[]): Promise<(string | null)[]> {
+  if (!localFootageAvailable() || !files.length) return files.map(() => null);
+  try {
+    const { paths } = await post<{ paths: (string | null)[] }>("identify", {
+      files: files.map((f) => ({ name: f.name, size: f.size, lastModified: f.lastModified })),
+    });
+    return paths;
+  } catch {
+    return files.map(() => null);
+  }
+}
+
+/** A file listed by {@link browseLocal}, as a File named like it on disk. */
+export async function readLocal(path: string): Promise<File> {
+  const key = token();
+  const response = await fetch(`/__aep/footage/file?token=${encodeURIComponent(key ?? "")}&file=${encodeURIComponent(path)}`);
+  if (!response.ok) throw new Error(`Could not read ${path}`);
+  const blob = await response.blob();
+  return new File([blob], baseName(path), { type: blob.type });
+}

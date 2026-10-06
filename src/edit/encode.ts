@@ -123,6 +123,7 @@ export const LDTA = {
 // ---------------------------------------------------------------- cdta
 
 export const CDTA = {
+  resolutionFactor: 0,
   timeScale: 5,
   internalTimebase: 8,
   workAreaStart: 28,
@@ -131,7 +132,9 @@ export const CDTA = {
   bgColor: 52,
   width: 140,
   height: 142,
+  pixelAspect: 144,
   frameRate: 156,
+  displayStartTime: 164,
 } as const;
 
 const NTSC_MULTIPLIERS = new Set([24, 30, 48, 60, 120]);
