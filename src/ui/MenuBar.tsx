@@ -11,7 +11,17 @@ export type MenuCommand =
   | "show-chunks"
   | "show-composition"
   | "home"
-  | LayerCommand;
+  | LayerCommand
+  | "new-project"
+  | "new-folder"
+  | "new-comp"
+  | "comp-settings"
+  | "save"
+  | "save-as"
+  | "import"
+  | "replace-footage"
+  | "duplicate"
+  | "clear";
 
 interface Item {
   label: string;
@@ -29,19 +39,48 @@ const MENUS: { name: string; items: Entry[] }[] = [
   {
     name: "File",
     items: [
-      { label: "New", submenu: true },
+      {
+        label: "New",
+        submenu: true,
+        items: [
+          { label: "New Project", shortcut: "Ctrl+Alt+N", command: "new-project" },
+          { label: "New Team Project..." },
+          { label: "New Folder", shortcut: "Ctrl+Alt+Shift+N", command: "new-folder", needsProject: true },
+          { label: "Adobe Photoshop File..." },
+          { label: "Maxon Cinema 4D File..." },
+        ],
+      },
       { label: "Open Project...", shortcut: "Ctrl+O", command: "open" },
       { label: "Open Team Project..." },
       { label: "Open Recent", submenu: true },
       "-",
       { label: "Close", shortcut: "Ctrl+W" },
       { label: "Close Project", command: "close-project", needsProject: true },
-      { label: "Save", shortcut: "Ctrl+S" },
-      { label: "Save As", submenu: true },
+      { label: "Save", shortcut: "Ctrl+S", command: "save", needsProject: true },
+      {
+        label: "Save As",
+        submenu: true,
+        items: [
+          { label: "Save As...", shortcut: "Ctrl+Shift+S", command: "save-as", needsProject: true },
+          { label: "Save a Copy..." },
+          { label: "Save a Copy As XML..." },
+        ],
+      },
       { label: "Increment and Save", shortcut: "Ctrl+Alt+Shift+S" },
       { label: "Revert" },
       "-",
-      { label: "Import", submenu: true },
+      {
+        label: "Import",
+        submenu: true,
+        items: [
+          { label: "File...", shortcut: "Ctrl+I", command: "import", needsProject: true },
+          { label: "Multiple Files...", shortcut: "Ctrl+Alt+I", command: "import", needsProject: true },
+          { label: "Dependencies", submenu: true },
+          { label: "Adobe Premiere Pro Project..." },
+          { label: "Placeholder..." },
+          { label: "Solid..." },
+        ],
+      },
       { label: "Import Recent Footage", submenu: true },
       { label: "Export", submenu: true },
       "-",
@@ -55,7 +94,16 @@ const MENUS: { name: string; items: Entry[] }[] = [
       { label: "Create Proxy", submenu: true },
       { label: "Set Proxy", submenu: true },
       { label: "Interpret Footage", submenu: true },
-      { label: "Replace Footage", submenu: true },
+      {
+        label: "Replace Footage",
+        submenu: true,
+        items: [
+          { label: "File...", shortcut: "Ctrl+H", command: "replace-footage", needsProject: true },
+          { label: "With Layered Comp" },
+          { label: "Placeholder..." },
+          { label: "Solid..." },
+        ],
+      },
       { label: "Reload Footage", shortcut: "Ctrl+Alt+L" },
       "-",
       { label: "Project Settings...", shortcut: "Ctrl+Alt+Shift+K" },
@@ -66,8 +114,8 @@ const MENUS: { name: string; items: Entry[] }[] = [
   {
     name: "Edit",
     items: [
-      { label: "Undo", shortcut: "Ctrl+Z", command: "undo" },
-      { label: "Redo", shortcut: "Ctrl+Shift+Z", command: "redo" },
+      { label: "Undo", shortcut: "Ctrl+Z", command: "undo", needsProject: true },
+      { label: "Redo", shortcut: "Ctrl+Shift+Z", command: "redo", needsProject: true },
       { label: "History", submenu: true },
       "-",
       { label: "Cut", shortcut: "Ctrl+X" },
@@ -75,9 +123,9 @@ const MENUS: { name: string; items: Entry[] }[] = [
       { label: "Copy with Property Links", shortcut: "Ctrl+Alt+C" },
       { label: "Copy Expression Only" },
       { label: "Paste", shortcut: "Ctrl+V" },
-      { label: "Clear", shortcut: "Delete", command: "delete-layer" },
+      { label: "Clear", shortcut: "Delete", command: "clear", needsProject: true },
       "-",
-      { label: "Duplicate", shortcut: "Ctrl+D", command: "duplicate-layer" },
+      { label: "Duplicate", shortcut: "Ctrl+D", command: "duplicate", needsProject: true },
       { label: "Split Layer", shortcut: "Ctrl+Shift+D" },
       { label: "Lift Work Area" },
       { label: "Extract Work Area" },
@@ -97,9 +145,9 @@ const MENUS: { name: string; items: Entry[] }[] = [
   {
     name: "Composition",
     items: [
-      { label: "New Composition...", shortcut: "Ctrl+N" },
+      { label: "New Composition...", shortcut: "Ctrl+N", command: "new-comp", needsProject: true },
       "-",
-      { label: "Composition Settings...", shortcut: "Ctrl+K" },
+      { label: "Composition Settings...", shortcut: "Ctrl+K", command: "comp-settings", needsProject: true },
       { label: "Set Poster Time" },
       { label: "Trim Comp to Work Area", shortcut: "Ctrl+Shift+X" },
       { label: "Crop Comp to Region of Interest" },

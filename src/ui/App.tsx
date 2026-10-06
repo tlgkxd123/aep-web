@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type DragEvent, type PointerEvent as ReactPointerEvent } from "react";
 import type { CompItem, Layer, Project } from "../aep/model.ts";
-import { parseProject } from "../aep/parse.ts";
 import { Editor, type LayerSwitch } from "../edit/editor.ts";
 import { addLayer } from "../edit/layers.ts";
 import { nudgeLayers } from "../edit/transform-ops.ts";
@@ -18,22 +17,22 @@ import { canRunLayerCommand, isLayerCommand, layerShortcut, runLayerCommand, typ
 import { addDroppedFootage, locateFootageFolder, useFootageVersion } from "./LocateFootage.tsx";
 import { MenuBar, type MenuCommand } from "./MenuBar.tsx";
 import { PanelFrame, type PanelTab } from "./Panel.tsx";
+import { droppedHandle, pickProjectHandle, type ProjectHandle } from "./projectFiles.ts";
 import { ProjectPanel } from "./ProjectPanel.tsx";
-import { RightPanels, type FileInfo } from "./RightPanels.tsx";
+import { RightPanels } from "./RightPanels.tsx";
 import { SolidSettings } from "./SolidSettings.tsx";
 import { TimelinePanel } from "./TimelinePanel.tsx";
 import { Toolbar } from "./Toolbar.tsx";
+import { useProjectOps, type Session } from "./useProjectOps.tsx";
 
 type Frame = "left" | "center" | "right" | "bottom";
 
-interface Loaded {
-  project: Project;
-  file: FileInfo;
-  editor: Editor;
-}
-
 const TOOL_KEYS: Record<string, ToolId> = { v: "selection", w: "rotation", y: "anchor" };
 const NUDGES: Record<string, [number, number]> = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] };
+
+/** The layer command a menu command runs when the Project panel does not take it (Edit > Clear, Duplicate). */
+const layerCommandFor = (cmd: MenuCommand): LayerCommand | undefined =>
+  cmd === "clear" ? "delete-layer" : cmd === "duplicate" ? "duplicate-layer" : isLayerCommand(cmd) ? cmd : undefined;
 
 interface CompView {
   time: number;
@@ -98,7 +97,7 @@ function RenderQueue() {
 }
 
 export function App() {
-  const [loaded, setLoaded] = useState<Loaded>();
+  const [loaded, setLoaded] = useState<Session>();
   const [error, setError] = useState<string>();
   const [busy, setBusy] = useState(false);
   const [dragging, setDragging] = useState(false);
@@ -108,7 +107,9 @@ export function App() {
   const [showHome, setShowHome] = useState(false);
   const [openComps, setOpenComps] = useState<number[]>([]);
   const [activeCompId, setActiveCompId] = useState<number>();
-  const [selectedItemId, setSelectedItemId] = useState<number>();
+  const [selectedIds, setSelectedIds] = useState<number[]>([]);
+  const selectedItemId = selectedIds[0];
+  const setSelectedItemId = useCallback((id: number | undefined) => setSelectedIds(id === undefined ? [] : [id]), []);
   const [views, setViews] = useState<Record<number, CompView>>({});
   const [leftTab, setLeftTab] = useState("project");
   const [centerTab, setCenterTab] = useState("composition");
@@ -121,48 +122,108 @@ export function App() {
   const [editError, setEditError] = useState<string>();
   const [solidFor, setSolidFor] = useState<number>();
 
-  const project = loaded?.project;
   const editor = loaded?.editor;
+  useEffect(() => editor?.subscribe(() => setRevision(editor.revision)), [editor]);
+  // Panels are memoized on the project: each edit hands them a new snapshot of the editor's model.
+  const project = useMemo<Project | undefined>(() => editor && { ...editor.project }, [editor, revision]);
   const comp = activeCompId !== undefined ? project?.items.get(activeCompId) : undefined;
   const activeComp = comp?.kind === "comp" ? comp : undefined;
   const view = activeComp ? (views[activeComp.id] ?? { time: 0 }) : undefined;
   const selectedLayer = activeComp?.layers.find((l) => l.id === view?.layerId);
 
-  useEffect(() => editor?.subscribe(() => setRevision(editor.revision)), [editor]);
   const editing: Editing = useMemo(
     () => ({ editor, revision, tool, setTool, report: setEditError }),
     [editor, revision, tool],
   );
 
-  const open = useCallback(async (file: File) => {
-    setBusy(true);
-    setError(undefined);
+  const showSession = useCallback((session: Session) => {
+    const initial = initialComp(session.editor.project);
+    setLoaded(session);
+    setOpenComps(initial ? [initial.id] : []);
+    setActiveCompId(initial?.id);
+    setSelectedItemId(initial?.id);
+    setViews({});
+    setLeftTab("project");
+    setCenterTab("composition");
+    setBottomTab("comp");
+    setShowHome(false);
     setPlaying(false);
-    try {
-      const bytes = await readBytes(file);
-      const started = performance.now();
-      const parsed = parseProject(bytes);
-      const parseMs = performance.now() - started;
-      const initial = initialComp(parsed);
-      setLoaded({ project: parsed, file: { name: file.name, size: bytes.length, parseMs }, editor: new Editor(parsed.file, parsed) });
-      setOpenComps(initial ? [initial.id] : []);
-      setActiveCompId(initial?.id);
-      setSelectedItemId(initial?.id);
-      setViews({});
-      setLeftTab("project");
-      setCenterTab("composition");
-      setBottomTab("comp");
-      setShowHome(false);
-      audioPreview.reset();
-      void loadLocalFootage(parsed).catch((e: Error) => setError(`Could not load footage from disk: ${e.message}`));
-    } catch (e) {
-      setError(`Could not read ${file.name}: ${(e as Error).message}`);
-    } finally {
-      setBusy(false);
-    }
+    audioPreview.reset();
+    void loadLocalFootage(session.editor.project).catch((e: Error) => setError(`Could not load footage from disk: ${e.message}`));
+  }, [setSelectedItemId]);
+
+  const showComp = useCallback((id: number) => {
+    setOpenComps((prev) => (prev.includes(id) ? prev : [...prev, id]));
+    setActiveCompId(id);
+    setCenterTab("composition");
+    setBottomTab("comp");
+    setPlaying(false);
   }, []);
 
-  const pickFile = useCallback(() => inputRef.current?.click(), []);
+  const ops = useProjectOps({
+    session: loaded,
+    project,
+    activeComp,
+    selectedIds,
+    projectFocused: focused === "left" && leftTab === "project",
+    showSession,
+    updateSession: setLoaded,
+    select: setSelectedIds,
+    showComp,
+  });
+  const { confirmClose } = ops;
+
+  useEffect(() => {
+    document.title = ops.title;
+  }, [ops.title]);
+
+  useEffect(() => {
+    if (!editor) return;
+    const warn = (e: BeforeUnloadEvent) => {
+      if (editor.dirty) e.preventDefault();
+    };
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [editor]);
+
+  // Items an undo or a delete removed leave the timeline tabs and the selection.
+  useEffect(() => {
+    if (!project) return;
+    const isComp = (id: number) => project.items.get(id)?.kind === "comp";
+    setOpenComps((prev) => (prev.every(isComp) ? prev : prev.filter(isComp)));
+    setActiveCompId((id) => (id === undefined || isComp(id) ? id : undefined));
+    setSelectedIds((prev) => (prev.every((id) => project.items.has(id)) ? prev : prev.filter((id) => project.items.has(id))));
+  }, [project]);
+  useEffect(() => {
+    if (activeCompId === undefined && openComps.length) setActiveCompId(openComps[openComps.length - 1]);
+  }, [activeCompId, openComps]);
+
+  const open = useCallback(
+    async (file: File, handle?: ProjectHandle) => {
+      if (!(await confirmClose())) return;
+      setBusy(true);
+      setError(undefined);
+      setPlaying(false);
+      try {
+        const bytes = await readBytes(file);
+        const started = performance.now();
+        const opened = Editor.fromBytes(bytes);
+        const parseMs = performance.now() - started;
+        showSession({ editor: opened, file: { name: file.name, size: bytes.length, parseMs }, handle });
+      } catch (e) {
+        setError(`Could not read ${file.name}: ${(e as Error).message}`);
+      } finally {
+        setBusy(false);
+      }
+    },
+    [confirmClose, showSession],
+  );
+
+  const pickFile = useCallback(async () => {
+    const picked = await pickProjectHandle();
+    if (picked === null) inputRef.current?.click();
+    else if (picked) void open(picked.file, picked.handle);
+  }, [open]);
 
   const setTime = useCallback(
     (compId: number, t: number) => {
@@ -183,14 +244,9 @@ export function App() {
   const openItem = useCallback(
     (id: number) => {
       const item = project?.items.get(id);
-      if (item?.kind !== "comp") return;
-      setOpenComps((prev) => (prev.includes(id) ? prev : [...prev, id]));
-      setActiveCompId(id);
-      setCenterTab("composition");
-      setBottomTab("comp");
-      setPlaying(false);
+      if (item?.kind === "comp") showComp(id);
     },
-    [project],
+    [project, showComp],
   );
 
   const closeComp = (id: number) => {
@@ -275,15 +331,19 @@ export function App() {
 
   const command = useCallback(
     (cmd: MenuCommand) => {
+      if (ops.command(cmd)) return;
       switch (cmd) {
         case "open":
-          pickFile();
+          void pickFile();
           break;
         case "close-project":
-          setLoaded(undefined);
-          setOpenComps([]);
-          setActiveCompId(undefined);
-          setPlaying(false);
+          void confirmClose().then((go) => {
+            if (!go) return;
+            setLoaded(undefined);
+            setOpenComps([]);
+            setActiveCompId(undefined);
+            setPlaying(false);
+          });
           break;
         case "home":
           setShowHome(true);
@@ -308,11 +368,13 @@ export function App() {
           setCenterTab("composition");
           setFocused("center");
           break;
-        default:
-          if (isLayerCommand(cmd)) runLayerRef.current(cmd);
+        default: {
+          const layerCmd = layerCommandFor(cmd);
+          if (layerCmd) runLayerRef.current(layerCmd);
+        }
       }
     },
-    [pickFile],
+    [pickFile, ops, confirmClose],
   );
 
   useEffect(() => {
@@ -320,9 +382,10 @@ export function App() {
       if (e.defaultPrevented || isTyping(e.target)) return;
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "o") {
         e.preventDefault();
-        pickFile();
+        void pickFile();
         return;
       }
+      if (ops.keyDown(e)) return;
       const layerCmd = editor ? layerShortcut(e) : undefined;
       // Delete and Ctrl+D in the Project panel act on project items, not layers.
       if (layerCmd && !((layerCmd === "delete-layer" || layerCmd === "duplicate-layer") && focused === "left")) {
@@ -361,7 +424,7 @@ export function App() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [activeComp, pickFile, togglePlay, step, edge, editor, focused, selectedLayer, views]);
+  }, [activeComp, pickFile, togglePlay, step, edge, editor, focused, selectedLayer, views, ops]);
 
   const hasFiles = (e: DragEvent) => Array.from(e.dataTransfer?.types ?? []).includes("Files");
   const dropHandlers = {
@@ -379,13 +442,16 @@ export function App() {
       if (dragDepth.current === 0) setDragging(false);
     },
     onDrop: (e: DragEvent) => {
+      const handled = e.defaultPrevented;
       e.preventDefault();
       dragDepth.current = 0;
       setDragging(false);
+      if (handled) return;
       const files = Array.from(e.dataTransfer.files);
       const projectFile = files.find((f) => /\.aep$/i.test(f.name));
       if (loaded && !projectFile) void addDroppedFootage(e.dataTransfer);
-      else if (projectFile ?? files[0]) void open(projectFile ?? files[0]);
+      else if (projectFile) void droppedHandle(e.dataTransfer, projectFile).then((handle) => open(projectFile, handle));
+      else if (files[0]) void open(files[0]);
     },
   };
 
@@ -434,7 +500,9 @@ export function App() {
   const bottomTabs: PanelTab[] = [
     ...openComps.flatMap((id) => {
       const item = project?.items.get(id);
-      return item ? [{ id: `comp:${id}`, name: item.name, title: item.name, onClose: () => closeComp(id) }] : [];
+      return item
+        ? [{ id: `comp:${id}`, name: item.name, title: item.name, onClose: () => closeComp(id), onRename: (name: string) => ops.rename(item, name) }]
+        : [];
     }),
     { id: "render-queue", name: "Render Queue", title: "Render Queue" },
   ];
@@ -492,7 +560,15 @@ export function App() {
       <div className="ws-top">
         <PanelFrame tabs={leftTabs} active={leftTab} onSelect={setLeftTab} focused={focused === "left"} onFocus={() => setFocused("left")} className="frame-left">
           {leftTab === "project" ? (
-            <ProjectPanel project={project} selectedId={selectedItemId} onSelect={setSelectedItemId} onOpenItem={openItem} />
+            <ProjectPanel
+              project={project}
+              selectedId={selectedItemId}
+              onSelect={setSelectedItemId}
+              onOpenItem={openItem}
+              selectedIds={selectedIds}
+              onSelectIds={setSelectedIds}
+              ops={ops.panel}
+            />
           ) : (
             <EffectControlsPanel project={project} comp={activeComp} layer={selectedLayer} time={view?.time ?? 0} />
           )}
@@ -563,16 +639,22 @@ export function App() {
     </AppActionsContext.Provider>
   );
 
-  const menuEnabled = (cmd: MenuCommand) => !isLayerCommand(cmd) || canRunLayerCommand(cmd, layerTarget);
-  const menuLabel = (cmd: MenuCommand) =>
-    cmd === "undo" && editor?.undoLabel ? `Undo ${editor.undoLabel}` : cmd === "redo" && editor?.redoLabel ? `Redo ${editor.redoLabel}` : undefined;
+  const menuEnabled = (cmd: MenuCommand) => {
+    const own = ops.menu.enabled[cmd];
+    if (own !== undefined) return own;
+    const layerCmd = layerCommandFor(cmd);
+    return !layerCmd || canRunLayerCommand(layerCmd, layerTarget);
+  };
+  const menuLabel = (cmd: MenuCommand) => ops.menu.labels[cmd];
   const solidComp = solidFor !== undefined ? project?.items.get(solidFor) : undefined;
 
   const app = (
     <div className={`app ${dragging ? "dragging" : ""}`} {...dropHandlers}>
       <MenuBar hasProject={!!loaded} onCommand={command} enabled={menuEnabled} label={menuLabel} />
       <Toolbar onHome={() => setShowHome(true)} />
-      {workspace || <HomeScreen onOpen={pickFile} onDismiss={loaded ? () => setShowHome(false) : undefined} />}
+      {workspace || (
+        <HomeScreen onOpen={pickFile} onNew={() => command("new-project")} onDismiss={loaded ? () => setShowHome(false) : undefined} />
+      )}
       <ContextMenuHost />
       <input
         ref={inputRef}
@@ -586,6 +668,7 @@ export function App() {
           e.target.value = "";
         }}
       />
+      {ops.dialogs}
       {busy && (
         <div className="busy" role="status">
           Reading project…

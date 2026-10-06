@@ -1,11 +1,16 @@
 import { Icon } from "./icons.tsx";
 
 /** AE's Home screen: shown when no project is open, or over the workspace from the Home tool. */
-export function HomeScreen({ onOpen, onDismiss }: { onOpen: () => void; onDismiss?: () => void }) {
+export function HomeScreen({ onOpen, onNew, onDismiss }: { onOpen: () => void; onNew?: () => void; onDismiss?: () => void }) {
   return (
     <div className="home" role="region" aria-label="Home">
       <aside className="home-rail">
-        <button type="button" className="ae-primary" onClick={onOpen}>
+        {onNew && (
+          <button type="button" className="ae-primary" onClick={onNew}>
+            New Project
+          </button>
+        )}
+        <button type="button" className={onNew ? "ae-secondary" : "ae-primary"} onClick={onOpen}>
           Open Project
         </button>
         {onDismiss && (

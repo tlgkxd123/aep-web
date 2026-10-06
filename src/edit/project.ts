@@ -46,7 +46,8 @@ export const DEFAULT_COMP_SETTINGS: CompSettings = {
   height: 1080,
   pixelAspect: 1,
   frameRate: 30000 / 1001,
-  duration: 30,
+  /** 0:00:30:00, 900 frames. */
+  duration: (900 * 1001) / 30000,
   bgColor: [0, 0, 0],
   resolutionFactor: [1, 1],
   displayStartTime: 0,
@@ -122,7 +123,8 @@ function durationUnits(duration: number, frameRate: number, timebase: number): n
   return Math.round(duration * frameRate) * Math.round(timebase / frameRate);
 }
 
-function validateCompSettings(s: CompSettings): void {
+/** Throws AE's complaint about settings it would not accept. */
+export function validateCompSettings(s: CompSettings): void {
   if (!s.name.trim()) throw new Error("The composition needs a name");
   for (const [what, v] of [["Width", s.width], ["Height", s.height]] as const) {
     if (!Number.isInteger(v) || v < 4 || v > 30000) throw new Error(`${what} must be a whole number from 4 to 30000`);
