@@ -1010,15 +1010,8 @@ export function parseProject(bytes: Uint8Array): Project {
  * name and layers. Items keep their identity; layers are rebuilt.
  */
 export function refreshCompositions(project: Project, comps: Iterable<CompItem>): void {
-  const parser = new Parser();
+  const parser = parserFor(project);
   for (const [id, item] of project.items) parser.items.set(id, item);
-  for (const [matchName, name] of project.effectTypes) parser.effectTypes.set(matchName, name);
-  for (const [matchName, defs] of project.effectParams) {
-    parser.effectDefs.set(
-      matchName,
-      defs.map((d) => ({ matchName: d.matchName, name: d.name, options: d.options, pard: { ...d, name: d.name } })),
-    );
-  }
   for (const comp of comps) {
     const list = comp.chunk;
     const cdta = findChild(list, "cdta");
@@ -1027,6 +1020,61 @@ export function refreshCompositions(project: Project, comps: Iterable<CompItem>)
     parser.compChunks.push([comp, list]);
   }
   parser.parseLayers();
+}
+
+function parserFor(project: Project): Parser {
+  const parser = new Parser();
+  for (const [matchName, name] of project.effectTypes) parser.effectTypes.set(matchName, name);
+  for (const [matchName, defs] of project.effectParams) {
+    parser.effectDefs.set(
+      matchName,
+      defs.map((d) => ({ matchName: d.matchName, name: d.name, options: d.options, pard: { ...d, name: d.name } })),
+    );
+  }
+  return parser;
+}
+
+/** Item objects by their `LIST:Item` chunk, so an item an undo brings back gets its old object. */
+const itemsByChunk = new WeakMap<Chunk, Item>();
+
+const sourceKey = (item: Item) => (item.kind === "footage" ? JSON.stringify(item.mainSource) : "");
+
+/**
+ * Re-derives the item tree in place after items were added, removed, moved,
+ * renamed or re-sourced in the chunks, then every composition's layers. An
+ * item keeps its object while its chunk, kind and footage source stay the same.
+ */
+export function refreshProject(project: Project): void {
+  const parser = parserFor(project);
+  const rootList = findList(project.file.root, "Fold");
+  if (!rootList) throw new Error("project has no root folder (LIST:Fold)");
+  for (const item of project.items.values()) if (item.chunk && !itemsByChunk.has(item.chunk)) itemsByChunk.set(item.chunk, item);
+  const roots: Item[] = [];
+  for (const itemList of filterLists(rootList, "Item")) {
+    const item = parser.parseItemList(itemList, 0);
+    if (item) roots.push(item);
+  }
+  const canonical = new Map<number, Item>();
+  for (const [id, fresh] of parser.items) {
+    const known = (fresh.chunk && itemsByChunk.get(fresh.chunk)) || project.items.get(id);
+    const keep = known && known.kind === fresh.kind && known.chunk === fresh.chunk && sourceKey(known) === sourceKey(fresh);
+    canonical.set(id, keep ? known : fresh);
+  }
+  const resolve = (item: Item) => canonical.get(item.id) ?? item;
+  for (const [id, fresh] of parser.items) {
+    const item = canonical.get(id)!;
+    if (item !== fresh) Object.assign(item, fresh);
+    if (item.kind === "folder" && fresh.kind === "folder") item.items = fresh.items.map(resolve);
+    if (item.chunk) itemsByChunk.set(item.chunk, item);
+  }
+  parser.compChunks.splice(0, parser.compChunks.length, ...parser.compChunks.map(([comp, list]) => [resolve(comp) as CompItem, list] as [CompItem, Chunk]));
+  parser.items.clear();
+  for (const [id, item] of canonical) parser.items.set(id, item);
+  parser.parseLayers();
+  project.items.clear();
+  for (const [id, item] of canonical) project.items.set(id, item);
+  project.rootFolder.items = roots.map(resolve);
+  project.warnings.push(...parser.warnings.filter((w) => !project.warnings.includes(w)));
 }
 
 export function projectFromRifx(file: RifxFile): Project {
