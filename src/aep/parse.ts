@@ -49,7 +49,7 @@ import {
   type PropertyValue,
   type Shape,
 } from "./model.ts";
-import { filterLists, findChild, findList, readRifx, type Chunk } from "./riff.ts";
+import { filterLists, findChild, findList, readRifx, type Chunk, type RifxFile } from "./riff.ts";
 import { SPEC_NAMES, synthesizeLayer } from "./synthesize.ts";
 
 const AUTO_NAMES: Record<string, string> = autoNames;
@@ -57,14 +57,14 @@ const UNNAMED = "-_0_/-";
 const PERCENT_MATCH_NAMES = new Set(["ADBE Opacity", "ADBE Scale", "ADBE Mask Opacity"]);
 const SKIP_RUN_CHUNKS = new Set(["engv", "aRbs"]);
 
-const BLENDING_MODES: Record<number, number> = {
+export const BLENDING_MODES: Record<number, number> = {
   0: 5212, 2: 5212, 3: 5213, 4: 5220, 5: 5216, 6: 5222, 7: 5226, 8: 5227, 9: 5228,
   10: 5215, 11: 5221, 12: 5234, 13: 5236, 14: 5237, 15: 5238, 16: 5239, 17: 5240,
   18: 5241, 19: 5242, 20: 5243, 21: 5245, 22: 5244, 23: 5225, 24: 5219, 25: 5235,
   26: 5233, 27: 5224, 28: 5218, 29: 5223, 30: 5217, 31: 5229, 32: 5230, 33: 5231,
   34: 5232, 35: 5246, 36: 5247, 37: 5248, 38: 5249,
 };
-const DANCING_DISSOLVE = 5214;
+export const DANCING_DISSOLVE = 5214;
 
 const LAYER_TYPES: Record<number, [LayerType, string]> = {
   0: ["AVLayer", "ADBE AV Layer"],
@@ -201,7 +201,7 @@ function valueTypeFromFlags(tdb4: Tdb4): number {
 }
 
 /** Converts stored units to the units ExtendScript reports. */
-class ValueResolver {
+export class ValueResolver {
   readonly percent: boolean;
   readonly color: boolean;
   readonly dimensions: number;
@@ -210,7 +210,12 @@ class ValueResolver {
   /** Ease speeds of effect points are stored against the layer height. */
   speedFactor = 1;
 
-  constructor(matchName: string, tdb4: Tdb4 | undefined, ctx: LayerContext, options: ResolvedOptions) {
+  constructor(
+    matchName: string,
+    tdb4: Tdb4 | undefined,
+    ctx: Pick<LayerContext, "hasSource" | "width" | "height" | "is3D">,
+    options: ResolvedOptions,
+  ) {
     this.percent = PERCENT_MATCH_NAMES.has(matchName);
     this.color = options.controlType === EffectControlType.COLOR || (tdb4?.color ?? false);
     this.dimensions = tdb4?.dimensions ?? 1;
@@ -250,6 +255,97 @@ class ValueResolver {
   speed(raw: number): number {
     return (this.percent ? raw * 100 : raw) * this.speedFactor;
   }
+
+  /**
+   * Inverse of `value`: the stored doubles for `value`, laid over `template`
+   * (the doubles stored now). Components whose decoded value is unchanged keep
+   * their stored bits; a 2D layer's dead Scale Z keeps its stored value.
+   */
+  raw(value: PropertyValue, template: number[] = []): number[] {
+    const wanted = typeof value === "number" ? [value] : Array.isArray(value) ? value : [];
+    const current = this.value(template);
+    const shown = typeof current === "number" ? [current] : Array.isArray(current) ? current : [];
+    const out = template.slice();
+    let v = wanted.map((x, i) => (this.scale && i < this.scale.length ? x / this.scale[i] : x));
+    const argb = this.color && v.length === 4;
+    if (argb) {
+      const [r, g, b, a] = v;
+      v = [a * 255, r * 255, g * 255, b * 255];
+    }
+    if (this.percent) v = v.map((x) => x / 100);
+    v.forEach((x, j) => {
+      if (this.flattenScaleZ && j === 2 && j < template.length) return;
+      const m = argb ? (j + 3) % 4 : j;
+      out[j] = j < template.length && shown[m] === wanted[m] ? template[j] : x;
+    });
+    return out;
+  }
+
+  rawSpeed(speed: number): number {
+    return speed / this.speedFactor / (this.percent ? 100 : 1);
+  }
+
+  unscaled(v: number[]): number[] {
+    const scale = this.scale;
+    return scale ? v.map((x, i) => (i < scale.length ? x / scale[i] : x)) : v;
+  }
+}
+
+/** How a parsed property's stored values and keyframe times map to the model. */
+export interface PropertyCodec {
+  resolver: ValueResolver;
+  /** Keyframe item layout, when the property has a keyframe list. */
+  kind: LdatKind | undefined;
+  /** Keyframe time units per layer second. */
+  timeBase: number;
+  /** Layer seconds to comp seconds: `layerTime * stretch + offset`. */
+  stretch: number;
+  offset: number;
+}
+
+const codecs = new WeakMap<Property, PropertyCodec>();
+
+/** The codec a property was decoded with; undefined for properties AE did not store. */
+export const propertyCodec = (prop: Property): PropertyCodec | undefined => codecs.get(prop);
+
+export function keyframeKind(tdbs: Chunk): LdatKind | undefined {
+  const lhd3 = findChild(findList(tdbs, "list"), "lhd3");
+  const tdb4 = findChild(tdbs, "tdb4");
+  if (!lhd3) return undefined;
+  const kind = decodeLhd3(lhd3).kind;
+  return kind === LdatKind.threeD && tdb4 && decodeTdb4(tdb4).isSpatial ? LdatKind.threeDSpatial : kind;
+}
+
+function layerTiming(ctx: LayerContext): { timeBase: number; stretch: number; offset: number } {
+  return {
+    timeBase: Math.floor(ctx.internalTimebase * Math.max(1, Math.abs(ctx.stretchFactor))) || 1,
+    stretch: ctx.stretchFactor,
+    offset: ctx.stretchFactor >= 0 ? ctx.ldta.startTime : ctx.ldta.startTime - Math.abs(ctx.stretchFactor) / 3000,
+  };
+}
+
+type CompSettings = Omit<CompItem, keyof Item | "layers">;
+
+function compSettings(cdta: ReturnType<typeof decodeCdta>): CompSettings {
+  return {
+    width: cdta.width,
+    height: cdta.height,
+    duration: cdta.duration,
+    frameRate: cdta.frameRate,
+    frameDuration: cdta.frameRate ? 1 / cdta.frameRate : 0,
+    pixelAspect: cdta.pixelAspect,
+    bgColor: cdta.bgColor,
+    displayStartTime: cdta.displayStartTime,
+    workAreaStart: cdta.workAreaStart,
+    workAreaDuration: cdta.workAreaDuration,
+    shutterAngle: cdta.shutterAngle,
+    shutterPhase: cdta.shutterPhase,
+    motionBlur: cdta.motionBlur,
+    frameBlending: cdta.frameBlending,
+    hideShyLayers: cdta.hideShyLayers,
+    draft3d: cdta.draft3d,
+    resolutionFactor: cdta.resolutionFactor,
+  };
 }
 
 class Parser {
@@ -257,7 +353,7 @@ class Parser {
   readonly items = new Map<number, Item>();
   readonly effectTypes = new Map<string, string>();
   readonly effectDefs = new Map<string, ParamDef[]>();
-  private readonly compChunks: [CompItem, Chunk][] = [];
+  readonly compChunks: [CompItem, Chunk][] = [];
 
   parseItemList(list: Chunk, parentFolderId: number): Item | undefined {
     const idtaChunk = findChild(list, "idta");
@@ -285,30 +381,7 @@ class Parser {
     } else if (idta.itemType === 4) {
       const cdtaChunk = findChild(list, "cdta");
       if (!cdtaChunk) throw new Error(`composition "${base.name}" has no cdta chunk`);
-      const cdta = decodeCdta(cdtaChunk);
-      const comp: CompItem = {
-        ...base,
-        kind: "comp",
-        typeName: "Composition",
-        width: cdta.width,
-        height: cdta.height,
-        duration: cdta.duration,
-        frameRate: cdta.frameRate,
-        frameDuration: cdta.frameRate ? 1 / cdta.frameRate : 0,
-        pixelAspect: cdta.pixelAspect,
-        bgColor: cdta.bgColor,
-        displayStartTime: cdta.displayStartTime,
-        workAreaStart: cdta.workAreaStart,
-        workAreaDuration: cdta.workAreaDuration,
-        shutterAngle: cdta.shutterAngle,
-        shutterPhase: cdta.shutterPhase,
-        motionBlur: cdta.motionBlur,
-        frameBlending: cdta.frameBlending,
-        hideShyLayers: cdta.hideShyLayers,
-        draft3d: cdta.draft3d,
-        resolutionFactor: cdta.resolutionFactor,
-        layers: [],
-      };
+      const comp: CompItem = { ...base, kind: "comp", typeName: "Composition", ...compSettings(decodeCdta(cdtaChunk)), layers: [] };
       this.compChunks.push([comp, list]);
       item = comp;
     } else if (idta.itemType === 7) {
@@ -718,7 +791,7 @@ class Parser {
     let name = displayName(findChild(tdbs, "tdsn"), matchName, options.fallbackName);
     if (options.inEffect && propertyValueType === PropertyValueType.NO_VALUE && name === matchName) name = "";
 
-    return {
+    const prop: Property = {
       kind: "property",
       matchName,
       name,
@@ -735,6 +808,8 @@ class Parser {
       canVaryOverTime: tdb4?.canVaryOverTime ?? true,
       chunk: tdbs,
     };
+    codecs.set(prop, { resolver, kind: keyframeKind(tdbs), ...layerTiming(ctx) });
+    return prop;
   }
 
   parseKeyframes(tdbs: Chunk, tdb4: Tdb4 | undefined, resolver: ValueResolver, ctx: LayerContext): Keyframe[] {
@@ -745,8 +820,7 @@ class Parser {
     const lhd3 = decodeLhd3(lhd3Chunk);
     let kind = lhd3.kind;
     if (kind === LdatKind.threeD && tdb4?.isSpatial) kind = LdatKind.threeDSpatial;
-    const base = Math.floor(ctx.internalTimebase * Math.max(1, Math.abs(ctx.stretchFactor))) || 1;
-    const offset = ctx.stretchFactor >= 0 ? ctx.ldta.startTime : ctx.ldta.startTime - Math.abs(ctx.stretchFactor) / 3000;
+    const { timeBase: base, offset } = layerTiming(ctx);
     const keyframes = ldatItems(ldat, lhd3).map((item) => {
       const raw: RawKeyframe = decodeKeyframe(item, kind);
       const ease = (e: { speed: number; influence: number }) => ({
@@ -1007,7 +1081,34 @@ export function findNode(nodes: PropertyNode[], path: string[]): PropertyNode | 
 }
 
 export function parseProject(bytes: Uint8Array): Project {
-  const file = readRifx(bytes);
+  return projectFromRifx(readRifx(bytes));
+}
+
+/**
+ * Re-derives compositions in place from their (edited) chunks: settings,
+ * name and layers. Items keep their identity; layers are rebuilt.
+ */
+export function refreshCompositions(project: Project, comps: Iterable<CompItem>): void {
+  const parser = new Parser();
+  for (const [id, item] of project.items) parser.items.set(id, item);
+  for (const [matchName, name] of project.effectTypes) parser.effectTypes.set(matchName, name);
+  for (const [matchName, defs] of project.effectParams) {
+    parser.effectDefs.set(
+      matchName,
+      defs.map((d) => ({ matchName: d.matchName, name: d.name, options: d.options, pard: { ...d, name: d.name } })),
+    );
+  }
+  for (const comp of comps) {
+    const list = comp.chunk;
+    const cdta = findChild(list, "cdta");
+    if (!list || !cdta) continue;
+    Object.assign(comp, compSettings(decodeCdta(cdta)), { name: utf8Of(findChild(list, "Utf8")) });
+    parser.compChunks.push([comp, list]);
+  }
+  parser.parseLayers();
+}
+
+export function projectFromRifx(file: RifxFile): Project {
   const root = file.root;
   const parser = new Parser();
   if (root.error) parser.warnings.push(root.error);
