@@ -6,6 +6,7 @@
 import { layerTimeAt, valueAtTime } from "../aep/evaluate.ts";
 import type { CompItem, Layer, Project, Property, PropertyGroup, PropertyNode } from "../aep/model.ts";
 import { cameraAt, localTransform, Mat4, worldMatrix, type Camera } from "../aep/transform.ts";
+import { LayerCache, valuesKey } from "./contentCache.ts";
 import "./features.ts";
 import { bindTarget, compile, TargetPool, unitQuad, type GL, type Target } from "./gl.ts";
 import { maskCoverage } from "./masks.ts";
@@ -22,6 +23,16 @@ const MATTE_MODES: Record<number, number> = {
   5016: MatteMode.LUMA_INVERTED,
 };
 const MAX_DEPTH = 16;
+const POOL_BYTES = 256 * 1024 * 1024;
+
+export interface RenderOptions {
+  /**
+   * Resolution of the result relative to the comp (1/2 for Half...). Only the
+   * top-level comp is scaled: layer content, nested comps and effects still
+   * render at full resolution and are resampled when placed.
+   */
+  scale?: number;
+}
 
 interface Programs {
   layer: WebGLProgram;
@@ -52,6 +63,10 @@ export class Renderer {
   private warnings = new Set<string>();
   private readonly passPrograms = new Map<string, WebGLProgram>();
   private readonly layersInProgress = new Set<Layer>();
+  private scale = 1;
+  private readonly shapeCache: LayerCache<LayerImage | null>;
+  private readonly maskCache: LayerCache<WebGLTexture>;
+  private cachedProject?: Project;
 
   constructor(canvas: HTMLCanvasElement | OffscreenCanvas) {
     const gl = canvas.getContext("webgl2", { premultipliedAlpha: true, alpha: true, antialias: false, preserveDrawingBuffer: true });
@@ -65,6 +80,14 @@ export class Renderer {
       fill: compile(this.gl, FULLSCREEN_VS, FILL_FS),
       composite: compile(this.gl, FULLSCREEN_VS, COMPOSITE_FS),
     };
+    this.shapeCache = new LayerCache((image) => image && this.pool.release(image.target));
+    this.maskCache = new LayerCache((texture) => this.gl.deleteTexture(texture));
+  }
+
+  /** Drops cached layer content; needed only when the project changes in ways its values do not show. */
+  clearCaches(): void {
+    this.shapeCache.clear();
+    this.maskCache.clear();
   }
 
   /** Things the renderer skipped or approximated in the last frame (unsupported layer kinds, missing footage...). */
@@ -73,10 +96,17 @@ export class Renderer {
   }
 
   /** Renders `comp` at composition time `time`; the returned target is owned by the caller (see `release`). */
-  render(project: Project, comp: CompItem, time: number): Target {
+  render(project: Project, comp: CompItem, time: number, options: RenderOptions = {}): Target {
+    if (project !== this.cachedProject) {
+      this.clearCaches();
+      this.cachedProject = project;
+    }
     this.project = project;
     this.warnings = new Set();
-    return this.renderComp(comp, time, 0);
+    this.scale = options.scale ?? 1;
+    const result = this.renderComp(comp, time, 0);
+    this.pool.trim(Math.max(POOL_BYTES, 8 * result.width * result.height * 4));
+    return result;
   }
 
   release(target: Target): void {
@@ -150,8 +180,9 @@ export class Renderer {
   }
 
   private renderComp(comp: CompItem, time: number, depth: number): Target {
-    const width = comp.width + 2 * PAD;
-    const height = comp.height + 2 * PAD;
+    const scale = depth === 0 ? this.scale : 1;
+    const width = Math.ceil(comp.width * scale) + 2 * PAD;
+    const height = Math.ceil(comp.height * scale) + 2 * PAD;
     let accumulated = this.pool.acquire(width, height);
     if (depth > MAX_DEPTH) {
       this.warnings.add(`compositions nested deeper than ${MAX_DEPTH} levels were not rendered`);
@@ -245,18 +276,19 @@ export class Renderer {
     const content = this.layerContent(layer, time, depth);
     if (!content) return null;
     const masked = this.applyEffects(layer, time, this.applyMasks(layer, time, content), depth);
-    const width = comp.width + 2 * PAD;
-    const height = comp.height + 2 * PAD;
+    const scale = depth === 0 ? this.scale : 1;
+    const width = Math.ceil(comp.width * scale) + 2 * PAD;
+    const height = Math.ceil(comp.height * scale) + 2 * PAD;
     const out = this.pool.acquire(width, height);
     const world = worldMatrix(layer, comp, time);
-    const toTarget = Mat4.translation(PAD, PAD, 0);
+    const toTarget = scale === 1 ? Mat4.translation(PAD, PAD, 0) : Mat4.translation(PAD, PAD, 0).mul(Mat4.scale(scale, scale, 1));
     let toView: Mat4;
     let perspective: { zoom: number } | null = null;
     if (layer.threeDLayer && camera) {
       // World -> camera space: R^T (p - eye).
       const view = camera.rotation.inverse().mul(Mat4.translation(-camera.position[0], -camera.position[1], -camera.position[2]));
       toView = view.mul(world);
-      perspective = { zoom: camera.zoom };
+      perspective = { zoom: camera.zoom * scale };
     } else {
       toView = toTarget.mul(world);
     }
@@ -372,7 +404,34 @@ export class Renderer {
     return null;
   }
 
+  /** A copy of `image` in a pooled target the caller may release. */
+  private copyImage(image: LayerImage): LayerImage {
+    const gl = this.gl;
+    const { width, height } = image.target;
+    const out = this.pool.acquire(width, height);
+    gl.bindFramebuffer(gl.READ_FRAMEBUFFER, image.target.framebuffer);
+    gl.bindFramebuffer(gl.DRAW_FRAMEBUFFER, out.framebuffer);
+    gl.blitFramebuffer(0, 0, width, height, 0, 0, width, height, gl.COLOR_BUFFER_BIT, gl.NEAREST);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, out.framebuffer);
+    return { ...image, target: out };
+  }
+
   private shapeContent(layer: Layer, time: number): LayerImage | null {
+    const key = valuesKey(
+      layer.properties.filter((n) => n.matchName === "ADBE Root Vectors Group"),
+      time,
+      layer,
+    );
+    if (key !== null) {
+      const cached = this.shapeCache.get(layer, key);
+      if (cached !== undefined) return cached && this.copyImage(cached);
+    }
+    const image = this.rasterizeShapes(layer, time);
+    if (key !== null) this.shapeCache.offer(layer, key, () => image && this.copyImage(image));
+    return image;
+  }
+
+  private rasterizeShapes(layer: Layer, time: number): LayerImage | null {
     const raster = rasterizeShapeLayer(layer, time, PAD);
     if (!raster) return null;
     const gl = this.gl;
@@ -422,19 +481,36 @@ export class Renderer {
     return image;
   }
 
-  private applyMasks(layer: Layer, time: number, content: LayerImage): LayerImage {
+  /** The layer's mask coverage as a texture (alpha channel), or null when no mask is active. */
+  private maskTexture(layer: Layer, time: number, content: LayerImage): WebGLTexture | null {
+    const parade = layer.properties.filter((n) => n.matchName === "ADBE Mask Parade");
+    const values = valuesKey(parade, time, layer);
+    const key = values === null ? null : `${content.width}x${content.height}@${content.origin.join(",")};${values}`;
+    if (key !== null) {
+      const cached = this.maskCache.get(layer, key);
+      if (cached) return cached;
+    }
     const coverage = maskCoverage(layer, time, content.width, content.height, PAD, content.origin);
-    if (!coverage) return content;
+    if (!coverage) return null;
     const gl = this.gl;
-    const w = content.width + 2 * PAD;
-    const h = content.height + 2 * PAD;
-    const maskTexture = gl.createTexture()!;
-    gl.bindTexture(gl.TEXTURE_2D, maskTexture);
+    const texture = this.maskCache.peek(layer) ?? gl.createTexture()!;
+    gl.bindTexture(gl.TEXTURE_2D, texture);
     gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
-    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, w, h, 0, gl.RGBA, gl.UNSIGNED_BYTE, coverage);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, content.width + 2 * PAD, content.height + 2 * PAD, 0, gl.RGBA, gl.UNSIGNED_BYTE, coverage);
     gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+    // Expression-driven masks keep their texture under a key no frame matches.
+    this.maskCache.set(layer, key ?? "", texture);
+    return texture;
+  }
+
+  private applyMasks(layer: Layer, time: number, content: LayerImage): LayerImage {
+    const maskTexture = this.maskTexture(layer, time, content);
+    if (!maskTexture) return content;
+    const gl = this.gl;
+    const w = content.width + 2 * PAD;
+    const h = content.height + 2 * PAD;
     const out = this.pool.acquire(w, h);
     const p = this.programs.mask;
     gl.useProgram(p);
@@ -443,7 +519,6 @@ export class Renderer {
     this.bindTexture(0, content.target.texture);
     this.bindTexture(1, maskTexture);
     this.draw();
-    gl.deleteTexture(maskTexture);
     this.pool.release(content.target);
     return { target: out, width: content.width, height: content.height, origin: content.origin };
   }

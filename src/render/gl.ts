@@ -41,6 +41,9 @@ export function createTexture(gl: GL, width: number, height: number, linear = tr
 /** Pools render targets by size so a frame does not allocate textures per layer. */
 export class TargetPool {
   private readonly free = new Map<string, Target[]>();
+  private readonly released = new Map<Target, number>();
+  private releases = 0;
+  private freeBytes = 0;
   private readonly gl: GL;
   constructor(gl: GL) {
     this.gl = gl;
@@ -50,7 +53,12 @@ export class TargetPool {
     const w = Math.max(1, Math.ceil(width));
     const h = Math.max(1, Math.ceil(height));
     const list = this.free.get(`${w}x${h}`);
-    const target = list?.pop() ?? this.create(w, h);
+    const pooled = list?.pop();
+    if (pooled) {
+      this.released.delete(pooled);
+      this.freeBytes -= w * h * 4;
+    }
+    const target = pooled ?? this.create(w, h);
     const gl = this.gl;
     gl.bindFramebuffer(gl.FRAMEBUFFER, target.framebuffer);
     gl.viewport(0, 0, w, h);
@@ -64,6 +72,28 @@ export class TargetPool {
     const list = this.free.get(key) ?? [];
     list.push(target);
     this.free.set(key, list);
+    this.released.set(target, ++this.releases);
+    this.freeBytes += target.width * target.height * 4;
+  }
+
+  /**
+   * Deletes pooled targets, least recently released first, until at most
+   * `maxBytes` stay pooled. Content whose size changes every frame (animated
+   * shapes) would otherwise leave one texture per size behind.
+   */
+  trim(maxBytes: number): void {
+    while (this.freeBytes > maxBytes) {
+      let oldest: Target[] | undefined;
+      for (const list of this.free.values()) {
+        if (list.length && (!oldest || this.released.get(list[0])! < this.released.get(oldest[0])!)) oldest = list;
+      }
+      const target = oldest?.shift();
+      if (!target) break;
+      this.released.delete(target);
+      this.freeBytes -= target.width * target.height * 4;
+      this.gl.deleteFramebuffer(target.framebuffer);
+      this.gl.deleteTexture(target.texture);
+    }
   }
 
   private create(width: number, height: number): Target {

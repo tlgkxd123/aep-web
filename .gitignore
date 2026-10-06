@@ -3,6 +3,7 @@ dist
 .unlazy
 .unlazy-hook-state.json
 dist-harness
+dist-tools
 refs/diff
 refs/ours
 refs/probe
