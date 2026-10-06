@@ -109,7 +109,9 @@ export function readTiff(bytes: Uint8Array): Image {
   const rowsPerStrip = get(278, height)!;
   const planar = get(284, 1)!;
   const predictor = get(317, 1)!;
-  const associated = (tags.get(338) ?? [])[0] === 1;
+  // After Effects writes premultiplied color but tags ExtraSamples as 0 (unspecified); only 2 means straight.
+  const extra = (tags.get(338) ?? [])[0];
+  const associated = extra === 1 || extra === 0;
   const offsets = tags.get(273) ?? [];
   const counts = tags.get(279) ?? [];
   const bps = bits / 8;
