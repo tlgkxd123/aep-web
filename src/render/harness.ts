@@ -2,10 +2,14 @@
 // frames to straight-alpha RGBA, exposed on window.aepHarness.
 import type { CompItem, Project } from "../aep/model.ts";
 import { parseProject } from "../aep/parse.ts";
+import { footageStore } from "../media/store.ts";
 import { Renderer } from "./renderer.ts";
 
 let project: Project | undefined;
 let renderer: Renderer | undefined;
+
+/** Render passes allowed while footage frames are still arriving. */
+const MAX_PASSES = 32;
 
 function decodeBase64(text: string): Uint8Array {
   const binary = atob(text);
@@ -26,14 +30,69 @@ const harness = {
     renderer ??= new Renderer(new OffscreenCanvas(16, 16));
     return project.warnings;
   },
-  render(compName: string, time: number): { width: number; height: number; pixels: string; warnings: string[] } {
+  /** Makes a footage file available, by its path relative to the project (e.g. "media/clip.mp4"). */
+  addFile(path: string, base64: string): void {
+    footageStore.addFiles([{ path, blob: new Blob([decodeBase64(base64) as BlobPart]) }]);
+  },
+  /** Resolves once no footage is decoding. */
+  ready(): Promise<void> {
+    return footageStore.idle();
+  },
+  /** Renders a frame, waiting for the footage frames it needs to decode. */
+  async render(compName: string, time: number): Promise<{ width: number; height: number; pixels: string; warnings: string[] }> {
     if (!project || !renderer) throw new Error("load a project first");
     const comp = [...project.items.values()].find((i): i is CompItem => i.kind === "comp" && i.name === compName);
     if (!comp) throw new Error(`no composition named ${compName}`);
-    const target = renderer.render(project, comp, time);
+    let target = renderer.render(project, comp, time);
+    for (let pass = 1; pass < MAX_PASSES && footageStore.busy; pass++) {
+      renderer.release(target);
+      await footageStore.idle();
+      target = renderer.render(project, comp, time);
+    }
     const pixels = renderer.readPixels(target, comp.width, comp.height);
     renderer.release(target);
     return { width: comp.width, height: comp.height, pixels: encodeBase64(pixels), warnings: renderer.lastWarnings };
+  },
+  /** Renders `times` (after one warm-up render each) with the stage profiler on; returns ms per frame and per stage. */
+  async profile(compName: string, times: number[]): Promise<{ frameMs: number[]; warmMs: number[]; stages: [string, number, number][]; gpu: string }> {
+    if (!project || !renderer) throw new Error("load a project first");
+    const comp = [...project.items.values()].find((i): i is CompItem => i.kind === "comp" && i.name === compName);
+    if (!comp) throw new Error(`no composition named ${compName}`);
+    const gl = renderer.gl;
+    const info = gl.getExtension("WEBGL_debug_renderer_info");
+    const gpu = info ? String(gl.getParameter(info.UNMASKED_RENDERER_WEBGL)) : "unknown";
+    const frameMs: number[] = [];
+    const warmMs: number[] = [];
+    const stages = new Map<string, { ms: number; count: number }>();
+    for (const time of times) {
+      const warming = performance.now();
+      renderer.release(await harness.renderTarget(comp, time));
+      warmMs.push(performance.now() - warming);
+      renderer.profile = stages;
+      const started = performance.now();
+      renderer.release(renderer.render(project, comp, time));
+      gl.finish();
+      frameMs.push(performance.now() - started);
+      renderer.profile = null;
+    }
+    const rows = [...stages].map(([k, v]): [string, number, number] => [k, v.ms / times.length, v.count / times.length]);
+    rows.sort((a, b) => b[1] - a[1]);
+    return { frameMs, warmMs, stages: rows, gpu };
+  },
+  /** A rendered target once the footage it needs has decoded. */
+  async renderTarget(comp: CompItem, time: number) {
+    let target = renderer!.render(project!, comp, time);
+    for (let pass = 1; pass < MAX_PASSES && footageStore.busy; pass++) {
+      renderer!.release(target);
+      await footageStore.idle();
+      target = renderer!.render(project!, comp, time);
+    }
+    return target;
+  },
+  /** Composition names with their layer counts. */
+  comps(): [string, number, number, number][] {
+    if (!project) throw new Error("load a project first");
+    return [...project.items.values()].flatMap((i) => (i.kind === "comp" ? [[i.name, i.layers.length, i.width, i.height] as [string, number, number, number]] : []));
   },
 };
 

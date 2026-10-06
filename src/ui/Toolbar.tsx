@@ -1,4 +1,5 @@
 import { memo, useState } from "react";
+import { useEditing } from "./editing.tsx";
 import { Icon, type IconName } from "./icons.tsx";
 
 interface Tool {
@@ -21,6 +22,7 @@ const TOOL_GROUPS: Tool[][] = [
     { id: "dolly", icon: "dolly", name: "Dolly Towards Cursor Tool", shortcut: "3", flyout: true },
   ],
   [
+    { id: "rotation", icon: "rotation", name: "Rotation Tool", shortcut: "W" },
     { id: "anchor", icon: "anchor", name: "Pan Behind (Anchor Point) Tool", shortcut: "Y" },
     { id: "rect", icon: "rect", name: "Rectangle Tool", shortcut: "Q", flyout: true },
     { id: "pen", icon: "pen", name: "Pen Tool", shortcut: "G", flyout: true },
@@ -37,7 +39,10 @@ const WORKSPACES = ["Default", "Review", "Learn", "Standard", "Small Screen", "L
 
 /** The Tools strip: tool buttons on the left, snapping, and the workspace switcher on the right. */
 export const Toolbar = memo(function Toolbar({ onHome }: { onHome: () => void }) {
-  const [tool, setTool] = useState("selection");
+  const editing = useEditing();
+  const [localTool, setLocalTool] = useState("selection");
+  const tool = editing.setTool ? editing.tool : localTool;
+  const setTool = editing.setTool ?? setLocalTool;
   const [snapping, setSnapping] = useState(false);
   return (
     <div className="toolbar" role="toolbar" aria-label="Tools">

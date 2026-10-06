@@ -1,0 +1,30 @@
+/* Footage whose file has not been located: italic, like After Effects' missing footage. */
+.proj-row.missing .cell-text {
+  font-style: italic;
+}
+
+.proj-row .missing-mark {
+  flex: none;
+  color: #e8b94a;
+}
+
+button.foot-btn {
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+}
+
+button.foot-btn:hover {
+  color: var(--text-hi);
+}
+
+.render-notes .locate-link {
+  margin-left: 6px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  text-decoration: underline;
+  cursor: pointer;
+}

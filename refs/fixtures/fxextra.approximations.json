@@ -1,0 +1,42 @@
+{
+ "project": "fxextra.aep",
+ "comps": [
+  {
+   "comp": "fxextra_soundkeys",
+   "frames": [
+    0,
+    12
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "fxextra_particular_real",
+   "frames": [
+    24,
+    96
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "fxextra_particular_white",
+   "frames": [
+    24,
+    96
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "fxextra_particular_blob",
+   "frames": [
+    12
+   ],
+   "fps": 24.0
+  }
+ ],
+ "reasons": {
+  "fxextra_soundkeys": "Sound Keys draws its own spectrum/output display over the layer; only its grid and bars are imitated",
+  "fxextra_particular_real": "Particular's particle positions come from its own random generator; ours are a seeded look-alike",
+  "fxextra_particular_white": "Particular's particle positions come from its own random generator; ours are a seeded look-alike",
+  "fxextra_particular_blob": "Particular's glow-sphere particle profile is only imitated"
+ }
+}

@@ -1,17 +1,24 @@
 import {
   memo,
   useCallback,
+  useContext,
   useDeferredValue,
   useEffect,
   useMemo,
   useRef,
   useState,
   type CSSProperties,
+  type DragEvent,
   type KeyboardEvent,
   type PointerEvent as ReactPointerEvent,
 } from "react";
 import type { CompItem, Layer, Project, Property } from "../aep/model.ts";
+import { addLayer } from "../edit/layers.ts";
+import { isTransformValue, resetTransform, toggleTransformStopwatch, transformProp } from "../edit/transform-ops.ts";
 import { keyframeAt, valueAt } from "./animate.ts";
+import { openContextMenu } from "./ContextMenu.tsx";
+import { AppActionsContext, layerMenu } from "./contextMenus.ts";
+import { attempt, ITEM_MIME, LAYER_MIME, useEditing } from "./editing.tsx";
 import {
   blendingModeName,
   colorCss,
@@ -37,6 +44,7 @@ import {
   sourceItem,
   type DisplayNode,
 } from "./properties.ts";
+import { TransformValue } from "./TransformValue.tsx";
 import { Checkbox, Dropdown, PropertyValueView } from "./values.tsx";
 
 const NO_MATTE = 5012;
@@ -160,9 +168,56 @@ interface LayerRowProps {
   view: View;
   onToggle: (key: string) => void;
   onSelect: (id: number) => void;
+  /** The layer name is an input (Enter in the Timeline); `onRename` gets the new name, or undefined to cancel. */
+  renaming?: boolean;
+  onRename?: (id: number, name: string | undefined) => void;
+  /** Rows can be dragged to reorder the stack. */
+  reorderable?: boolean;
+  /** Where a dragged layer or item would land: above or below this row. */
+  dropMark?: "before" | "after";
 }
 
-const LayerRow = memo(function LayerRow({ layer, project, comp, open, selected, sourceMode, view, onToggle, onSelect }: LayerRowProps) {
+function RenameField({ initial, onDone }: { initial: string; onDone: (name: string | undefined) => void }) {
+  const done = useRef(false);
+  const finish = (name: string | undefined) => {
+    if (done.current) return;
+    done.current = true;
+    onDone(name);
+  };
+  return (
+    <input
+      className="tl-rename"
+      aria-label="Layer name"
+      autoFocus
+      defaultValue={initial}
+      onFocus={(e) => e.currentTarget.select()}
+      onClick={(e) => e.stopPropagation()}
+      onBlur={(e) => finish(e.currentTarget.value)}
+      onKeyDown={(e) => {
+        e.stopPropagation();
+        if (e.key === "Enter") finish(e.currentTarget.value);
+        else if (e.key === "Escape") finish(undefined);
+      }}
+    />
+  );
+}
+
+const LayerRow = memo(function LayerRow({
+  layer,
+  project,
+  comp,
+  open,
+  selected,
+  sourceMode,
+  view,
+  onToggle,
+  onSelect,
+  renaming,
+  onRename,
+  reorderable,
+  dropMark,
+}: LayerRowProps) {
+  const actions = useContext(AppActionsContext);
   const name = displayName(layer, project);
   const hasVideo = layerHasVideo(layer, project);
   const hasAudio = layerHasAudio(layer, project);
@@ -186,8 +241,24 @@ const LayerRow = memo(function LayerRow({ layer, project, comp, open, selected, 
       aria-label={shown}
       aria-expanded={open}
       aria-selected={selected}
-      className={`tl-row tl-layer ${selected ? "selected" : ""} ${layer.enabled ? "" : "video-off"}`}
+      className={`tl-row tl-layer ${selected ? "selected" : ""} ${layer.enabled ? "" : "video-off"} ${dropMark ? `drop-${dropMark}` : ""}`}
+      data-layer-id={layer.id}
+      draggable={reorderable && !renaming ? true : undefined}
+      onDragStart={
+        reorderable
+          ? (e) => {
+              e.dataTransfer.setData(LAYER_MIME, String(layer.id));
+              e.dataTransfer.effectAllowed = "move";
+              onSelect(layer.id);
+            }
+          : undefined
+      }
       onClick={() => onSelect(layer.id)}
+      onContextMenu={(e) => {
+        if (!actions) return;
+        onSelect(layer.id);
+        openContextMenu(e, layerMenu(project, comp, layer, actions));
+      }}
     >
       <div className="tl-outline">
         <span className="c-av">
@@ -215,7 +286,9 @@ const LayerRow = memo(function LayerRow({ layer, project, comp, open, selected, 
         <span className="c-num">{layer.index}</span>
         <span className="c-name" title={layer.comment || (sourceMode ? name.text : name.source)}>
           <LayerIcon layer={layer} project={project} />
-          {sourceMode ? (
+          {renaming && onRename ? (
+            <RenameField initial={name.text} onDone={(next) => onRename(layer.id, next)} />
+          ) : sourceMode ? (
             <span className="cell-text">{name.source}</span>
           ) : (
             <span className={`cell-text ${name.bracketed ? "bracketed" : ""}`}>{name.text}</span>
@@ -294,11 +367,24 @@ function KeyframeNav({ prop, time, comp, onTime }: { prop: Property; time: numbe
   );
 }
 
-function GroupExtras({ node }: { node: DisplayNode }) {
+function GroupExtras({ node, onReset }: { node: DisplayNode; onReset?: () => void }) {
   if (node.kind !== "group") return null;
   switch (node.role) {
     case "transform":
-      return <span className="hot-link">Reset</span>;
+      return onReset ? (
+        <button
+          type="button"
+          className="hot-link"
+          onClick={(e) => {
+            e.stopPropagation();
+            onReset();
+          }}
+        >
+          Reset
+        </button>
+      ) : (
+        <span className="hot-link">Reset</span>
+      );
     case "effect":
       return <span className="hot-link">Reset</span>;
     case "contents":
@@ -337,6 +423,11 @@ function NodeRow({ row, project, comp, open, time, view, selectedKeys, onToggle,
   const animated = !!prop && isAnimated(prop);
   const value = prop ? valueAt(prop, time, layer) : null;
   const indent = { paddingLeft: depth * 14 - 8 };
+  const editing = useEditing();
+  const editor = editing.editor;
+  const transformValue = !!editor && !!prop && isTransformValue(prop.matchName) && transformProp(layer, prop.matchName) === prop;
+  const onReset =
+    editor && node.kind === "group" && node.role === "transform" ? () => attempt(editing, () => resetTransform(editor, comp, [layer], time)) : undefined;
   return (
     <div
       role="treeitem"
@@ -344,6 +435,7 @@ function NodeRow({ row, project, comp, open, time, view, selectedKeys, onToggle,
       aria-label={node.name}
       aria-expanded={isProp ? undefined : open}
       className={`tl-row tl-prop ${node.kind === "group" ? `role-${node.role}` : ""} ${node.kind === "group" && !node.group.enabled ? "disabled" : ""}`}
+      data-owner-id={layer.id}
       onClick={() => onSelect(layer.id)}
     >
       <div className="tl-outline">
@@ -373,7 +465,21 @@ function NodeRow({ row, project, comp, open, time, view, selectedKeys, onToggle,
             <span className="mask-chip" style={{ background: colorCss(node.group.mask.color) }} />
           )}
           {prop &&
-            (prop.canVaryOverTime ? (
+            (prop.canVaryOverTime && transformValue && editor ? (
+              <button
+                type="button"
+                className={`stopwatch ${animated ? "on" : ""}`}
+                title="Time-Vary Stopwatch"
+                aria-label={animated ? "Stopwatch on (animated)" : "Stopwatch off"}
+                aria-pressed={animated}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  attempt(editing, () => toggleTransformStopwatch(editor, comp, layer, prop.matchName, time));
+                }}
+              >
+                <Icon name="stopwatch" size={13} />
+              </button>
+            ) : prop.canVaryOverTime ? (
               <span
                 className={`stopwatch ${animated ? "on" : ""}`}
                 role="img"
@@ -388,7 +494,13 @@ function NodeRow({ row, project, comp, open, time, view, selectedKeys, onToggle,
           <span className="cell-text">{node.name}</span>
         </span>
         <span className="c-prop-value">
-          {prop ? <PropertyValueView prop={prop} value={value} ctx={ctx} place="timeline" /> : <GroupExtras node={node} />}
+          {prop && transformValue ? (
+            <TransformValue comp={comp} layer={layer} prop={prop} value={value} time={time} />
+          ) : prop ? (
+            <PropertyValueView prop={prop} value={value} ctx={ctx} place="timeline" />
+          ) : (
+            <GroupExtras node={node} onReset={onReset} />
+          )}
         </span>
       </div>
       <div className="tl-track">
@@ -499,6 +611,10 @@ export const TimelinePanel = memo(function TimelinePanel({
   const [rulerWidth, setRulerWidth] = useState(600);
   const rulerRef = useRef<HTMLDivElement>(null);
   const rootRef = useRef<HTMLDivElement>(null);
+  const editing = useEditing();
+  const { editor, revision } = editing;
+  const [renaming, setRenaming] = useState<number>();
+  const [dropSlot, setDropSlot] = useState<number>();
 
   const duration = Math.max(comp.duration, comp.frameDuration || 1 / 24);
   const minSpan = Math.min(duration, (comp.frameDuration || 1 / 24) * 10);
@@ -544,7 +660,7 @@ export const TimelinePanel = memo(function TimelinePanel({
       if (reveal || nameHit) layers.set(layer.id, reveal ?? new Set());
     }
     return layers;
-  }, [deferredQuery, comp, project]);
+  }, [deferredQuery, comp, project, revision]);
 
   const rows = useMemo(() => {
     const out: Row[] = [];
@@ -571,7 +687,8 @@ export const TimelinePanel = memo(function TimelinePanel({
       walk(layerOutline(ctx), 1, layerKey);
     }
     return out;
-  }, [comp, project, expanded, hideShy, search]);
+    // `revision`: edits rebuild the layers inside the same comp object.
+  }, [comp, project, expanded, hideShy, search, revision]);
 
   const openKeys = useMemo(() => {
     const keys = new Set(expanded);
@@ -615,7 +732,77 @@ export const TimelinePanel = memo(function TimelinePanel({
     }
   };
 
+  const rename = useCallback(
+    (id: number, name: string | undefined) => {
+      setRenaming(undefined);
+      rootRef.current?.querySelector<HTMLElement>(".tl-body")?.focus();
+      const layer = comp.layers.find((l) => l.id === id);
+      if (!editor || !layer || name === undefined || name === layer.name) return;
+      attempt(editing, () => editor.renameLayer(comp, layer, name.trim()));
+    },
+    [comp, editor, editing],
+  );
+
+  /** The 1-based stack position a drop at this row lands on: above the row's layer or, in its lower half or its properties, below. */
+  const slotAt = (e: DragEvent<HTMLDivElement>): number | undefined => {
+    const target = e.target instanceof Element ? e.target : null;
+    const row = target?.closest<HTMLElement>("[data-layer-id], [data-owner-id]");
+    if (!row) return comp.layers.length + 1;
+    const owner = Number(row.dataset.layerId ?? row.dataset.ownerId);
+    const index = comp.layers.findIndex((l) => l.id === owner) + 1;
+    if (!index) return undefined;
+    if (row.dataset.ownerId) return index + 1;
+    const rect = row.getBoundingClientRect();
+    return e.clientY < rect.top + rect.height / 2 ? index : index + 1;
+  };
+  const dragKind = (e: DragEvent) => {
+    const types = Array.from(e.dataTransfer?.types ?? []);
+    return !editor ? undefined : types.includes(LAYER_MIME) ? "layer" : types.includes(ITEM_MIME) ? "item" : undefined;
+  };
+  const onBodyDragOver = (e: DragEvent<HTMLDivElement>) => {
+    const kind = dragKind(e);
+    if (!kind) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = kind === "layer" ? "move" : "copy";
+    setDropSlot(slotAt(e));
+  };
+  const onBodyDrop = (e: DragEvent<HTMLDivElement>) => {
+    const kind = dragKind(e);
+    const slot = slotAt(e);
+    setDropSlot(undefined);
+    if (!kind || !editor || slot === undefined) return;
+    e.preventDefault();
+    e.stopPropagation();
+    if (kind === "layer") {
+      const layer = comp.layers.find((l) => l.id === Number(e.dataTransfer.getData(LAYER_MIME)));
+      if (!layer) return;
+      const to = slot > layer.index ? slot - 1 : slot;
+      if (to !== layer.index) attempt(editing, () => editor.moveLayer(comp, layer, to));
+      return;
+    }
+    const itemId = Number(e.dataTransfer.getData(ITEM_MIME));
+    const track = e.target instanceof Element ? e.target.closest(".tl-track")?.getBoundingClientRect() : undefined;
+    const startTime =
+      track && track.width > 0
+        ? Math.max(0, Math.round((view.start + ((e.clientX - track.left) / track.width) * view.span) / frame) * frame)
+        : undefined;
+    attempt(editing, () => {
+      let id = 0;
+      editor.perform("Add Layer", [comp], () => {
+        id = addLayer(editor, comp, { kind: "item", itemId }, { above: comp.layers[slot - 1], startTime });
+        const added = comp.layers.find((l) => l.id === id);
+        if (added && slot > comp.layers.length - 1) editor.moveLayer(comp, added, comp.layers.length);
+      });
+      select(id);
+    });
+  };
+
   const onTreeKey = (e: KeyboardEvent<HTMLDivElement>) => {
+    if (e.key === "Enter" && editor && selectedLayerId !== undefined && comp.layers.some((l) => l.id === selectedLayerId)) {
+      e.preventDefault();
+      setRenaming(selectedLayerId);
+      return;
+    }
     if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
     e.preventDefault();
     const visible = comp.layers.filter((l) => !(hideShy && l.shy) && (!search || search.has(l.id)));
@@ -754,7 +941,19 @@ export const TimelinePanel = memo(function TimelinePanel({
         </div>
       </div>
       <div className="tl-body-wrap">
-        <div className="tl-body" role="tree" aria-label="Timeline layers" tabIndex={0} onKeyDown={onTreeKey}>
+        <div
+          className="tl-body"
+          role="tree"
+          aria-label="Timeline layers"
+          tabIndex={0}
+          onKeyDown={onTreeKey}
+          onDragOver={onBodyDragOver}
+          onDragLeave={(e) => {
+            if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setDropSlot(undefined);
+          }}
+          onDrop={onBodyDrop}
+          onDragEnd={() => setDropSlot(undefined)}
+        >
           {comp.layers.length === 0 && <p className="panel-empty">This composition has no layers.</p>}
           {rows.map((row) =>
             row.kind === "layer" ? (
@@ -769,6 +968,16 @@ export const TimelinePanel = memo(function TimelinePanel({
                 view={view}
                 onToggle={toggle}
                 onSelect={select}
+                renaming={renaming === row.layer.id}
+                onRename={rename}
+                reorderable={!!editor}
+                dropMark={
+                  dropSlot === row.layer.index
+                    ? "before"
+                    : dropSlot === row.layer.index + 1 && row.layer.index === comp.layers.length
+                      ? "after"
+                      : undefined
+                }
               />
             ) : row.kind === "node" ? (
               <NodeRow

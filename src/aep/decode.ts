@@ -463,9 +463,13 @@ export interface Sspc {
   footageMissingAtSave: boolean;
   loop: number;
   pixelAspect: number;
+  /** 0 = off, 1-10 = the pulldown phase. */
+  removePulldownRaw: number;
   conformFrameRate: number;
   displayFrameRate: number;
   highQualityFieldSeparation: boolean;
+  /** Hz; 0 without audio. */
+  audioSampleRate: number;
   /** Image-sequence frame range; 0xFFFFFFFF when undefined. */
   startFrame: number;
   endFrame: number;
@@ -489,9 +493,11 @@ export function decodeSspc(chunk: Chunk): Sspc {
     footageMissingAtSave: b.u8(115) !== 0,
     loop: b.u32(126),
     pixelAspect: ratio(b.u32(136), b.u32(140)) || 1,
+    removePulldownRaw: b.u8(147),
     conformFrameRate: b.u16(148) + b.u16(150) / 65536,
     displayFrameRate: b.u16(152) + b.u16(154) / 65536,
-    highQualityFieldSeparation: b.u8(159) !== 0,
+    highQualityFieldSeparation: (b.u8(159) & 1) !== 0,
+    audioSampleRate: chunk.data.length >= 168 ? b.f64(160) : 0,
     startFrame: b.u32(172),
     endFrame: b.u32(176),
     framePadding: b.u32(180),
