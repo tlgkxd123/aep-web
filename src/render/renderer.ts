@@ -51,6 +51,7 @@ export class Renderer {
   private project!: Project;
   private warnings = new Set<string>();
   private readonly passPrograms = new Map<string, WebGLProgram>();
+  private readonly layersInProgress = new Set<Layer>();
 
   constructor(canvas: HTMLCanvasElement | OffscreenCanvas) {
     const gl = canvas.getContext("webgl2", { premultipliedAlpha: true, alpha: true, antialias: false, preserveDrawingBuffer: true });
@@ -302,6 +303,17 @@ export class Renderer {
       warn: (message) => this.warnings.add(message),
       upload: (source, width, height, origin = [0, 0]) => this.upload(source, width, height, origin),
       renderComp: (comp, time) => this.renderComp(comp, time, depth + 1),
+      layerImage: (layer, time, withMasksAndEffects) => {
+        if (this.layersInProgress.has(layer)) return null;
+        this.layersInProgress.add(layer);
+        try {
+          const content = this.layerContent(layer, time, depth);
+          if (!content || !withMasksAndEffects) return content;
+          return this.applyEffects(layer, time, this.applyMasks(layer, time, content), depth);
+        } finally {
+          this.layersInProgress.delete(layer);
+        }
+      },
       program: (fragment) => {
         let program = this.passPrograms.get(fragment);
         if (!program) this.passPrograms.set(fragment, (program = compile(gl, FULLSCREEN_VS, fragment)));
@@ -393,14 +405,19 @@ export class Renderer {
     const parade = layer.properties.find((n): n is PropertyGroup => n.kind === "group" && n.matchName === "ADBE Effect Parade");
     if (!parade) return image;
     let ctx: RenderContext | undefined;
-    for (const effect of parade.children) {
-      if (effect.kind !== "group" || !effect.enabled) continue;
-      const render = effectRenderer(effect.matchName);
-      if (!render) {
-        this.warnings.add(`effect "${effect.effectName ?? effect.name}" (${effect.matchName}) is not rendered yet`);
-        continue;
+    this.layersInProgress.add(layer);
+    try {
+      for (const effect of parade.children) {
+        if (effect.kind !== "group" || !effect.enabled) continue;
+        const render = effectRenderer(effect.matchName);
+        if (!render) {
+          this.warnings.add(`effect "${effect.effectName ?? effect.name}" (${effect.matchName}) is not rendered yet`);
+          continue;
+        }
+        image = render(image, effect, layer, time, (ctx ??= this.context(depth)));
       }
-      image = render(image, effect, layer, time, (ctx ??= this.context(depth)));
+    } finally {
+      this.layersInProgress.delete(layer);
     }
     return image;
   }

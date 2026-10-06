@@ -29,6 +29,12 @@ export interface RenderContext {
   upload(source: TexImageSource, width: number, height: number, origin?: [number, number]): LayerImage;
   /** Renders a composition at its own time, one nesting level deeper. Returns a comp-sized padded target. */
   renderComp(comp: CompItem, time: number): Target;
+  /**
+   * Another layer's image in its own layer space (for layer parameters such as
+   * Set Matte or Displacement Map): its source only, or after its masks and
+   * effects. Null when it draws nothing or would reference itself. Caller releases.
+   */
+  layerImage(layer: Layer, time: number, withMasksAndEffects: boolean): LayerImage | null;
   /** Compiles (once, cached) a fragment shader for `pass`; it receives `v_uv` over the full target. */
   program(fragmentSource: string): WebGLProgram;
   /** Draws `program` over all of `out`, with `inputs` bound to texture units 0..n-1. */
