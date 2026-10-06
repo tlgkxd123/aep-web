@@ -46,7 +46,30 @@ export interface Shape {
   outTangents: number[][];
 }
 
-export type PropertyValue = number | number[] | Shape | null;
+export interface GradientColorStop {
+  /** Position along the ramp, 0-1. */
+  offset: number;
+  /** Where between this stop and the next the blend reaches 50%, 0-1. */
+  midpoint: number;
+  color: [number, number, number];
+}
+
+export interface GradientAlphaStop {
+  offset: number;
+  midpoint: number;
+  alpha: number;
+}
+
+/** A shape-layer gradient ramp ("Colors" of a gradient fill or stroke). */
+export interface Gradient {
+  colorStops: GradientColorStop[];
+  alphaStops: GradientAlphaStop[];
+}
+
+export type PropertyValue = number | number[] | Shape | Gradient | null;
+
+export const isShapeValue = (v: PropertyValue | undefined): v is Shape => !!v && typeof v === "object" && "vertices" in v;
+export const isGradientValue = (v: PropertyValue | undefined): v is Gradient => !!v && typeof v === "object" && "colorStops" in v;
 
 export interface TemporalEase {
   speed: number;

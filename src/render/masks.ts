@@ -1,6 +1,6 @@
 // Rasterizes a layer's masks into one coverage image in layer space.
 import { valueAtTime } from "../aep/evaluate.ts";
-import type { Layer, Property, PropertyGroup, Shape } from "../aep/model.ts";
+import { isShapeValue, type Layer, type Property, type PropertyGroup, type Shape } from "../aep/model.ts";
 
 const MaskMode = { NONE: 6812, ADD: 6813, SUBTRACT: 6814, INTERSECT: 6815, LIGHTEN: 6816, DARKEN: 6817, DIFFERENCE: 6818 } as const;
 
@@ -68,7 +68,14 @@ function tracePath(ctx: Canvas2D, shape: Shape): void {
  * RGBA buffer of `(width + 2*pad) x (height + 2*pad)`, rows top to bottom.
  * Returns null when the layer has no active mask.
  */
-export function maskCoverage(layer: Layer, time: number, width: number, height: number, pad: number): Uint8ClampedArray | null {
+export function maskCoverage(
+  layer: Layer,
+  time: number,
+  width: number,
+  height: number,
+  pad: number,
+  origin: [number, number] = [0, 0],
+): Uint8ClampedArray | null {
   const parade = layer.properties.find((n): n is PropertyGroup => n.kind === "group" && n.matchName === "ADBE Mask Parade");
   const masks = (parade?.children ?? []).filter(
     (n): n is PropertyGroup => n.kind === "group" && !!n.mask && n.enabled && n.mask.maskMode !== MaskMode.NONE,
@@ -91,10 +98,10 @@ export function maskCoverage(layer: Layer, time: number, width: number, height: 
 
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.clearRect(0, 0, w, h);
-    ctx.translate(pad, pad);
+    ctx.translate(pad - origin[0], pad - origin[1]);
     ctx.fillStyle = "#fff";
     ctx.strokeStyle = "#fff";
-    if (shape && typeof shape === "object" && !Array.isArray(shape)) {
+    if (isShapeValue(shape)) {
       ctx.beginPath();
       tracePath(ctx, shape);
       ctx.fill("nonzero");

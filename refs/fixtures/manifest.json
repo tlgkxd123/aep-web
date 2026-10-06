@@ -273,6 +273,98 @@
    "frames": [
     0
    ]
+  },
+  {
+   "comp": "shape_rect",
+   "frames": [
+    0
+   ]
+  },
+  {
+   "comp": "shape_rect_round_stroke",
+   "frames": [
+    0
+   ]
+  },
+  {
+   "comp": "shape_ellipse_stroke",
+   "frames": [
+    0
+   ]
+  },
+  {
+   "comp": "shape_star",
+   "frames": [
+    0
+   ]
+  },
+  {
+   "comp": "shape_polygon_round",
+   "frames": [
+    0
+   ]
+  },
+  {
+   "comp": "shape_path_open",
+   "frames": [
+    0
+   ]
+  },
+  {
+   "comp": "shape_group_transform",
+   "frames": [
+    0
+   ]
+  },
+  {
+   "comp": "shape_trim",
+   "frames": [
+    0
+   ]
+  },
+  {
+   "comp": "shape_repeater",
+   "frames": [
+    0
+   ]
+  },
+  {
+   "comp": "shape_gradient_linear",
+   "frames": [
+    0
+   ]
+  },
+  {
+   "comp": "shape_gradient_radial",
+   "frames": [
+    0
+   ]
+  },
+  {
+   "comp": "shape_fill_evenodd",
+   "frames": [
+    0
+   ]
+  },
+  {
+   "comp": "shape_stacking",
+   "frames": [
+    0
+   ]
+  },
+  {
+   "comp": "shape_layer_transform_mask",
+   "frames": [
+    0
+   ]
+  },
+  {
+   "comp": "shape_animated_trim",
+   "frames": [
+    0,
+    8,
+    16
+   ]
   }
  ]
 }

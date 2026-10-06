@@ -1,0 +1,9 @@
+El registro de procesamiento de Adobe After Effects v25.0 Windows 64 para el procesamiento del proyecto "fixtures.aep"
+
+ se inició en 10/6/2026 a las 10:02:48 AM
+
+  10/6/2026 10:02:48 AM: Iniciando composición "shape_stacking".
+
+  Configuración de procesamiento: Configuración óptima
+Registro cerrado en 10/6/2026 a las 10:02:48 AM
+

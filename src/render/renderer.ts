@@ -8,6 +8,7 @@ import type { CompItem, Layer, Project, Property, PropertyNode } from "../aep/mo
 import { cameraAt, localTransform, Mat4, worldMatrix, type Camera } from "../aep/transform.ts";
 import { bindTarget, compile, TargetPool, unitQuad, type GL, type Target } from "./gl.ts";
 import { maskCoverage } from "./masks.ts";
+import { rasterizeShapeLayer } from "./shapes.ts";
 import { COMPOSITE_FS, FILL_FS, FULLSCREEN_VS, LAYER_FS, LAYER_VS, MASK_FS, MatteMode } from "./shaders.ts";
 
 const PAD = 1;
@@ -32,6 +33,8 @@ interface LayerImage {
   target: Target;
   width: number;
   height: number;
+  /** Layer-space position of the first content pixel (shape layers draw anywhere around their origin). */
+  origin: [number, number];
 }
 
 function findProperty(nodes: PropertyNode[], path: string[]): Property | undefined {
@@ -263,7 +266,8 @@ export class Renderer {
       toView = toTarget.mul(world);
     }
     this.gl.disable(this.gl.BLEND);
-    this.drawLayerQuad(masked.target, masked.width + 2 * PAD, masked.height + 2 * PAD, [-PAD, -PAD], toView, perspective, width, height);
+    const origin: [number, number] = [masked.origin[0] - PAD, masked.origin[1] - PAD];
+    this.drawLayerQuad(masked.target, masked.width + 2 * PAD, masked.height + 2 * PAD, origin, toView, perspective, width, height);
     this.pool.release(masked.target);
     return out;
   }
@@ -296,8 +300,9 @@ export class Renderer {
 
   private layerContent(layer: Layer, time: number, depth: number): LayerImage | null {
     const source = layer.sourceId ? this.project.items.get(layer.sourceId) : undefined;
+    if (layer.layerType === "ShapeLayer") return this.shapeContent(layer, time);
     if (layer.layerType !== "AVLayer") {
-      this.warnings.add(`${layer.layerType === "ShapeLayer" ? "shape" : "text"} layers are not rendered yet ("${layer.name}")`);
+      this.warnings.add(`text layers are not rendered yet ("${layer.name}")`);
       return null;
     }
     if (source?.kind === "footage" && source.mainSource.sourceType === "SolidSource") {
@@ -309,7 +314,7 @@ export class Renderer {
       gl.clearColor(r, g, b, 1);
       gl.clear(gl.COLOR_BUFFER_BIT);
       gl.disable(gl.SCISSOR_TEST);
-      return { target, width: source.width, height: source.height };
+      return { target, width: source.width, height: source.height, origin: [0, 0] };
     }
     if (source?.kind === "comp") {
       let sourceTime = layerTimeAt(layer, time);
@@ -318,7 +323,7 @@ export class Renderer {
         const value = remap ? valueAtTime(remap, time, layer) : null;
         if (typeof value === "number") sourceTime = value;
       }
-      return { target: this.renderComp(source, sourceTime, depth + 1), width: source.width, height: source.height };
+      return { target: this.renderComp(source, sourceTime, depth + 1), width: source.width, height: source.height, origin: [0, 0] };
     }
     if (source?.kind === "footage") {
       this.warnings.add(`footage is not loaded yet ("${source.name}")`);
@@ -327,8 +332,22 @@ export class Renderer {
     return null;
   }
 
+  private shapeContent(layer: Layer, time: number): LayerImage | null {
+    const raster = rasterizeShapeLayer(layer, time, PAD);
+    if (!raster) return null;
+    const gl = this.gl;
+    const target = this.pool.acquire(raster.width + 2 * PAD, raster.height + 2 * PAD);
+    gl.bindTexture(gl.TEXTURE_2D, target.texture);
+    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
+    gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, true);
+    gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, gl.RGBA, gl.UNSIGNED_BYTE, raster.canvas);
+    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
+    gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
+    return { target, width: raster.width, height: raster.height, origin: raster.origin };
+  }
+
   private applyMasks(layer: Layer, time: number, content: LayerImage): LayerImage {
-    const coverage = maskCoverage(layer, time, content.width, content.height, PAD);
+    const coverage = maskCoverage(layer, time, content.width, content.height, PAD, content.origin);
     if (!coverage) return content;
     const gl = this.gl;
     const w = content.width + 2 * PAD;
@@ -350,7 +369,7 @@ export class Renderer {
     this.draw();
     gl.deleteTexture(maskTexture);
     this.pool.release(content.target);
-    return { target: out, width: content.width, height: content.height };
+    return { target: out, width: content.width, height: content.height, origin: content.origin };
   }
 
   private composite(

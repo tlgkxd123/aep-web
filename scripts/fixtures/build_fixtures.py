@@ -241,6 +241,223 @@ def _(comp):
     tr(camera, "ADBE Position").value = [140.0, 20.0, -220.0]
 
 
+# --- Shape layers ----------------------------------------------------------
+
+
+def shape_group(layer_or_group, name=None):
+    contents = (
+        layer_or_group["ADBE Root Vectors Group"]
+        if hasattr(layer_or_group, "containing_comp")
+        else layer_or_group["ADBE Vectors Group"]
+    )
+    group = contents.add_property("ADBE Vector Group")
+    if name:
+        group.name = name
+    return group
+
+
+def add(group, match_name, **values):
+    item = group["ADBE Vectors Group"].add_property(match_name)
+    for key, value in values.items():
+        item[key].value = value
+    return item
+
+
+def fill(group, color, **values):
+    return add(group, "ADBE Vector Graphic - Fill", **{"ADBE Vector Fill Color": color + [1.0]}, **values)
+
+
+def stroke(group, color, width, **values):
+    return add(
+        group,
+        "ADBE Vector Graphic - Stroke",
+        **{"ADBE Vector Stroke Color": color + [1.0], "ADBE Vector Stroke Width": width},
+        **values,
+    )
+
+
+def gtr(group, match_name, value):
+    group["ADBE Vector Transform Group"][match_name].value = value
+
+
+def shape_comp(comp):
+    comp.add_solid(BG, "bg")
+    return comp.add_shape()
+
+
+@case("shape_rect")
+def _(comp):
+    g = shape_group(shape_comp(comp))
+    add(g, "ADBE Vector Shape - Rect", **{"ADBE Vector Rect Size": [80.0, 50.0]})
+    fill(g, ORANGE)
+
+
+@case("shape_rect_round_stroke")
+def _(comp):
+    g = shape_group(shape_comp(comp))
+    add(g, "ADBE Vector Shape - Rect", **{"ADBE Vector Rect Size": [90.0, 60.0], "ADBE Vector Rect Roundness": 14.0})
+    stroke(g, TEAL, 6.0)
+    fill(g, ORANGE)
+
+
+@case("shape_ellipse_stroke")
+def _(comp):
+    g = shape_group(shape_comp(comp))
+    add(g, "ADBE Vector Shape - Ellipse", **{"ADBE Vector Ellipse Size": [100.0, 64.0]})
+    stroke(g, TEAL, 8.0)
+    fill(g, ORANGE)
+
+
+@case("shape_star")
+def _(comp):
+    g = shape_group(shape_comp(comp))
+    add(
+        g,
+        "ADBE Vector Shape - Star",
+        **{"ADBE Vector Star Points": 5.0, "ADBE Vector Star Outer Radius": 50.0, "ADBE Vector Star Inner Radius": 22.0},
+    )
+    stroke(g, TEAL, 3.0)
+    fill(g, ORANGE)
+
+
+@case("shape_polygon_round")
+def _(comp):
+    g = shape_group(shape_comp(comp))
+    add(
+        g,
+        "ADBE Vector Shape - Star",
+        **{
+            "ADBE Vector Star Type": 2.0,
+            "ADBE Vector Star Points": 6.0,
+            "ADBE Vector Star Outer Radius": 48.0,
+            "ADBE Vector Star Rotation": 15.0,
+            "ADBE Vector Star Outer Roundess": 40.0,
+        },
+    )
+    fill(g, ORANGE)
+
+
+@case("shape_path_open")
+def _(comp):
+    g = shape_group(shape_comp(comp))
+    add(
+        g,
+        "ADBE Vector Shape - Group",
+        **{
+            "ADBE Vector Shape": Shape(
+                [[-60, 20], [-10, -35], [55, 25]], [[0, 0], [-30, 0], [0, -40]], [[20, -40], [30, 0], [0, 0]], closed=False
+            )
+        },
+    )
+    stroke(g, ORANGE, 7.0, **{"ADBE Vector Stroke Line Cap": 2.0, "ADBE Vector Stroke Line Join": 2.0})
+
+
+@case("shape_group_transform")
+def _(comp):
+    layer = shape_comp(comp)
+    outer = shape_group(layer)
+    gtr(outer, "ADBE Vector Position", [-20.0, 5.0])
+    gtr(outer, "ADBE Vector Rotation", 20.0)
+    inner = shape_group(outer)
+    add(inner, "ADBE Vector Shape - Rect", **{"ADBE Vector Rect Size": [60.0, 40.0]})
+    fill(inner, ORANGE)
+    gtr(inner, "ADBE Vector Scale", [120.0, 70.0])
+    gtr(inner, "ADBE Vector Skew", 20.0)
+    gtr(inner, "ADBE Vector Skew Axis", 30.0)
+    gtr(inner, "ADBE Vector Group Opacity", 80.0)
+    # AE ignores static shape-item positions py-aep writes, so items are placed with group transforms.
+    dot = shape_group(outer)
+    gtr(dot, "ADBE Vector Position", [45.0, 0.0])
+    add(dot, "ADBE Vector Shape - Ellipse", **{"ADBE Vector Ellipse Size": [40.0, 40.0]})
+    fill(outer, TEAL)
+
+
+@case("shape_trim")
+def _(comp):
+    g = shape_group(shape_comp(comp))
+    add(g, "ADBE Vector Shape - Ellipse", **{"ADBE Vector Ellipse Size": [90.0, 90.0]})
+    stroke(g, ORANGE, 10.0)
+    add(g, "ADBE Vector Filter - Trim", **{"ADBE Vector Trim Start": 10.0, "ADBE Vector Trim End": 70.0, "ADBE Vector Trim Offset": 30.0})
+
+
+@case("shape_repeater")
+def _(comp):
+    g = shape_group(shape_comp(comp))
+    arm = shape_group(g)
+    gtr(arm, "ADBE Vector Position", [32.0, 0.0])
+    add(arm, "ADBE Vector Shape - Rect", **{"ADBE Vector Rect Size": [30.0, 14.0]})
+    fill(g, ORANGE)
+    rep = add(g, "ADBE Vector Filter - Repeater", **{"ADBE Vector Repeater Copies": 6.0})
+    t = rep["ADBE Vector Repeater Transform"]
+    t["ADBE Vector Repeater Rotation"].value = 40.0
+    t["ADBE Vector Repeater Scale"].value = [88.0, 88.0]
+    t["ADBE Vector Repeater Opacity 2"].value = 30.0
+
+
+@case("shape_gradient_linear")
+def _(comp):
+    g = shape_group(shape_comp(comp))
+    add(g, "ADBE Vector Shape - Rect", **{"ADBE Vector Rect Size": [120.0, 80.0]})
+    add(g, "ADBE Vector Graphic - G-Fill", **{"ADBE Vector Grad Start Pt": [-60.0, 0.0], "ADBE Vector Grad End Pt": [60.0, 20.0]})
+
+
+@case("shape_gradient_radial")
+def _(comp):
+    g = shape_group(shape_comp(comp))
+    add(g, "ADBE Vector Shape - Ellipse", **{"ADBE Vector Ellipse Size": [110.0, 90.0]})
+    add(
+        g,
+        "ADBE Vector Graphic - G-Fill",
+        **{"ADBE Vector Grad Type": 2.0, "ADBE Vector Grad Start Pt": [0.0, 0.0], "ADBE Vector Grad End Pt": [50.0, 0.0]},
+    )
+
+
+@case("shape_fill_evenodd")
+def _(comp):
+    g = shape_group(shape_comp(comp))
+    add(g, "ADBE Vector Shape - Star", **{"ADBE Vector Star Points": 5.0, "ADBE Vector Star Outer Radius": 52.0, "ADBE Vector Star Inner Radius": 45.0})
+    add(g, "ADBE Vector Shape - Ellipse", **{"ADBE Vector Ellipse Size": [60.0, 60.0]})
+    fill(g, ORANGE, **{"ADBE Vector Fill Rule": 2.0})
+
+
+@case("shape_stacking")
+def _(comp):
+    layer = shape_comp(comp)
+    front = shape_group(layer)
+    gtr(front, "ADBE Vector Position", [-15.0, -10.0])
+    add(front, "ADBE Vector Shape - Rect", **{"ADBE Vector Rect Size": [70.0, 50.0]})
+    fill(front, ORANGE)
+    back = shape_group(layer)
+    gtr(back, "ADBE Vector Position", [15.0, 10.0])
+    add(back, "ADBE Vector Shape - Rect", **{"ADBE Vector Rect Size": [70.0, 50.0]})
+    stroke(back, [1.0, 1.0, 1.0], 6.0)
+    fill(back, TEAL)
+
+
+@case("shape_layer_transform_mask")
+def _(comp):
+    layer = shape_comp(comp)
+    g = shape_group(layer)
+    add(g, "ADBE Vector Shape - Rect", **{"ADBE Vector Rect Size": [100.0, 60.0]})
+    fill(g, ORANGE)
+    tr(layer, "ADBE Rotate Z").value = 25.0
+    tr(layer, "ADBE Scale").value = [110.0, 90.0, 100.0]
+    # py-aep divides mask points by the layer size, but AE reads a shape layer's
+    # mask points as layer pixels, so pre-scale to land on (-20,-35)..(60,25).
+    add_mask(layer, rect(-20 * W, -35 * H, 60 * W, 25 * H))
+
+
+@case("shape_animated_trim", frames=(0, 8, 16))
+def _(comp):
+    g = shape_group(shape_comp(comp))
+    add(g, "ADBE Vector Shape - Star", **{"ADBE Vector Star Points": 6.0, "ADBE Vector Star Outer Radius": 50.0, "ADBE Vector Star Inner Radius": 30.0})
+    stroke(g, ORANGE, 6.0)
+    trim = add(g, "ADBE Vector Filter - Trim")
+    end = trim["ADBE Vector Trim End"]
+    end.set_value_at_time(0.0, 0.0)
+    end.set_value_at_time(0.75, 100.0)
+
+
 OUT.mkdir(parents=True, exist_ok=True)
 (OUT / "fixtures.aep").unlink(missing_ok=True)
 project.save(OUT / "fixtures.aep")

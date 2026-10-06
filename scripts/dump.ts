@@ -26,6 +26,22 @@ function printNode(node: PropertyNode, depth: number): void {
   }
 }
 
+const utf8Arg = process.argv.indexOf("--utf8-in");
+if (utf8Arg >= 0) {
+  const listType = process.argv[utf8Arg + 1];
+  const find = (chunk: Chunk): Chunk | undefined => {
+    if (chunk.type === "LIST" && chunk.listType === listType) return chunk.children?.find((c) => c.type === "Utf8");
+    for (const child of chunk.children ?? []) {
+      const hit = find(child);
+      if (hit) return hit;
+    }
+    return undefined;
+  };
+  const hit = find(project.file.root);
+  console.log(hit ? new TextDecoder().decode(hit.data) : `no Utf8 under LIST:${listType}`);
+  process.exit(0);
+}
+
 const pardArg = process.argv.indexOf("--pard");
 if (pardArg >= 0) {
   const wanted = process.argv[pardArg + 1];

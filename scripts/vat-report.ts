@@ -24,8 +24,9 @@ function flatten(v: PropertyValue | Json | null | undefined): number[] | null {
   if (v === null || v === undefined) return null;
   if (typeof v === "number") return [v];
   if (Array.isArray(v)) return v.flat(2) as number[];
-  if (typeof v === "object" && Array.isArray(v.vertices)) {
-    return [Number(!!v.closed), ...v.vertices.flat(), ...v.inTangents.flat(), ...v.outTangents.flat()];
+  const shape = v as Json;
+  if (typeof v === "object" && Array.isArray(shape.vertices)) {
+    return [Number(!!shape.closed), ...shape.vertices.flat(), ...shape.inTangents.flat(), ...shape.outTangents.flat()];
   }
   return null;
 }

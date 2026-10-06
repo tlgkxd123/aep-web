@@ -37,6 +37,7 @@ import {
   type FolderItem,
   type FootageItem,
   type FootageSource,
+  type Gradient,
   type Item,
   type Keyframe,
   type Layer,
@@ -577,9 +578,9 @@ class Parser {
       case "btds":
         nodes.push(this.parseWrapped(first, run.matchName, ctx, PropertyValueType.TEXT_DOCUMENT));
         break;
-      case "GCst":
-        nodes.push(this.parseWrapped(first, run.matchName, ctx, PropertyValueType.CUSTOM_VALUE));
-        break;
+        case "GCst":
+          nodes.push(this.parseGradient(first, run.matchName, ctx));
+          break;
       case "mrst":
         nodes.push(this.parseWrapped(first, run.matchName, ctx, PropertyValueType.MARKER, false));
         break;
@@ -797,12 +798,24 @@ class Parser {
     if (!tdbs) throw new Error(`shape ${matchName} has no tdbs`);
     const prop = this.parseLeaf(tdbs, matchName, ctx, {});
     prop.propertyValueType = PropertyValueType.SHAPE;
-    const shapes = filterLists(findList(oms, "omks"), "shap").map((shap) =>
-      decodeShape(shap, isMask ? [ctx.width, ctx.height] : undefined),
-    );
+    // Masks on layers with a source are stored as fractions of the source size;
+    // on sourceless layers (shape layers) AE reads them as layer pixels.
+    const maskScale: [number, number] | undefined = isMask ? (ctx.hasSource ? [ctx.width, ctx.height] : [1, 1]) : undefined;
+    const shapes = filterLists(findList(oms, "omks"), "shap").map((shap) => decodeShape(shap, maskScale));
     prop.value = shapes[0] ?? null;
     prop.keyframes.forEach((kf, i) => {
       kf.value = shapes[i] ?? null;
+    });
+    return prop;
+  }
+
+  /** Gradient ramps: `GCst` holds the tdbs plus one XML document per keyframe (or one static) in `GCky`. */
+  parseGradient(gcst: Chunk, matchName: string, ctx: LayerContext): Property {
+    const prop = this.parseWrapped(gcst, matchName, ctx, PropertyValueType.CUSTOM_VALUE);
+    const ramps = (findList(gcst, "GCky")?.children ?? []).filter((c) => c.type === "Utf8").map((c) => parseGradientXml(utf8Of(c)));
+    prop.value = ramps[0] ?? null;
+    prop.keyframes.forEach((kf, i) => {
+      kf.value = ramps[i] ?? null;
     });
     return prop;
   }
@@ -817,6 +830,33 @@ class Parser {
     else for (const kf of prop.keyframes) kf.value = null;
     return prop;
   }
+}
+
+/** Reads AE's gradient `prop.map` XML: an alpha-stop list and a color-stop list, each sized by "Stops Size". */
+function parseGradientXml(xml: string): Gradient | null {
+  const section = (key: string): string => {
+    const start = xml.indexOf(`<key>${key}</key>`);
+    if (start < 0) return "";
+    const nextKey = key === "Alpha Stops" ? "<key>Color Stops</key>" : "<key>Alpha Stops</key>";
+    const end = xml.indexOf(nextKey, start);
+    return xml.slice(start, end > start ? end : undefined);
+  };
+  const stops = (text: string, kind: "Alpha" | "Color"): number[][] => {
+    const size = Number(/<key>Stops Size<\/key>\s*<int[^>]*>(\d+)<\/int>/.exec(text)?.[1] ?? Infinity);
+    const found: [number, number[]][] = [];
+    const re = new RegExp(`<key>Stop-(\\d+)</key>\\s*<prop\\.list>\\s*<prop\\.pair>\\s*<key>Stops ${kind}</key>\\s*<array>([\\s\\S]*?)</array>`, "g");
+    for (const m of text.matchAll(re)) {
+      found.push([Number(m[1]), [...m[2].matchAll(/<float>([^<]*)<\/float>/g)].map((f) => Number(f[1]))]);
+    }
+    return found.sort((a, b) => a[0] - b[0]).slice(0, size).map((f) => f[1]);
+  };
+  const colorStops = stops(section("Color Stops"), "Color")
+    .filter((f) => f.length >= 5)
+    .map((f) => ({ offset: f[0], midpoint: f[1], color: [f[2], f[3], f[4]] as [number, number, number] }));
+  const alphaStops = stops(section("Alpha Stops"), "Alpha")
+    .filter((f) => f.length >= 3)
+    .map((f) => ({ offset: f[0], midpoint: f[1], alpha: f[2] }));
+  return colorStops.length ? { colorStops, alphaStops } : null;
 }
 
 const UNDEFINED_FRAME = 0xffffffff;

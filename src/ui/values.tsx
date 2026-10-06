@@ -1,4 +1,4 @@
-import { EffectControlType, PropertyValueType, type CompItem, type Layer, type Property, type PropertyValue } from "../aep/model.ts";
+import { EffectControlType, isGradientValue, PropertyValueType, type CompItem, type Layer, type Property, type PropertyValue } from "../aep/model.ts";
 import { colorCss, fixed, isShape, rotationLabel, timecode } from "./format.ts";
 import { Icon } from "./icons.tsx";
 import { findGroup, is3D } from "./properties.ts";
@@ -45,6 +45,7 @@ export function valueText(prop: Property, value: PropertyValue, ctx: ValueContex
   const type = prop.controlType;
   if (value === null || prop.propertyValueType === PropertyValueType.NO_VALUE) return "";
   if (isShape(value)) return "Shape...";
+  if (isGradientValue(value)) return "Edit Gradient...";
   if (prop.propertyValueType === PropertyValueType.LAYER_INDEX && typeof value === "number") return layerOption(ctx.comp, value);
   if (prop.propertyValueType === PropertyValueType.MASK_INDEX && typeof value === "number") return maskOption(ctx.layer, value);
   if (prop.options && typeof value === "number") return prop.options[value - 1] ?? String(value);

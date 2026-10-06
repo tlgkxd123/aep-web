@@ -4,8 +4,11 @@
 // https://github.com/forticheprod/py-aep), which follows lottie-web's structure
 // with numerics matched to AE's own valueAtTime output.
 import {
+  isGradientValue,
+  isShapeValue,
   KeyframeInterpolationType,
   PropertyValueType,
+  type Gradient,
   type Keyframe,
   type Layer,
   type Property,
@@ -33,7 +36,23 @@ interface Ease {
   influence: number;
 }
 
-type ValueKind = "shape" | "orientation" | null;
+type ValueKind = "shape" | "orientation" | "gradient" | null;
+
+/** Blends two gradient ramps stop by stop; differing stop counts hold the left ramp. */
+function interpolateGradients(a: Gradient, b: Gradient, t: number): Gradient {
+  if (a.colorStops.length !== b.colorStops.length || a.alphaStops.length !== b.alphaStops.length) return a;
+  const lerp = (x: number, y: number) => x + (y - x) * t;
+  return {
+    colorStops: a.colorStops.map((s, i) => {
+      const o = b.colorStops[i];
+      return { offset: lerp(s.offset, o.offset), midpoint: lerp(s.midpoint, o.midpoint), color: s.color.map((c, k) => lerp(c, o.color[k])) as [number, number, number] };
+    }),
+    alphaStops: a.alphaStops.map((s, i) => {
+      const o = b.alphaStops[i];
+      return { offset: lerp(s.offset, o.offset), midpoint: lerp(s.midpoint, o.midpoint), alpha: lerp(s.alpha, o.alpha) };
+    }),
+  };
+}
 
 // ---------------------------------------------------------------------------
 // Unit-square bezier easing, solved in closed form the way AE does.
@@ -456,7 +475,13 @@ function prepare(prop: Property, layer: Layer): Prepared {
   if (cached) return cached;
   const keys = prop.keyframes;
   const kind: ValueKind =
-    prop.propertyValueType === PropertyValueType.SHAPE ? "shape" : prop.matchName === "ADBE Orientation" ? "orientation" : null;
+    prop.propertyValueType === PropertyValueType.SHAPE
+      ? "shape"
+      : prop.matchName === "ADBE Orientation"
+        ? "orientation"
+        : isGradientValue(keys[0]?.value)
+          ? "gradient"
+          : null;
   const color = prop.propertyValueType === PropertyValueType.COLOR;
   const motionPath = !color && (prop.isSpatial || prop.propertyValueType === PropertyValueType.ThreeD_SPATIAL || prop.propertyValueType === PropertyValueType.TwoD_SPATIAL) && kind === null;
   const result: Prepared = {
@@ -566,10 +591,11 @@ function interpolate(p: Prepared, t: number): PropertyValue {
     const easing = spatialProgressEasing(1, 1, p.outEase[i0][0], p.inEase[i1][0], outType === LINEAR, inType === LINEAR);
     const x = (t - t0) / (t1 - t0);
     const progress = easing ? easing.get(x) : x;
-    if (p.kind === "shape" && v0 && v1 && !Array.isArray(v0) && !Array.isArray(v1) && typeof v0 === "object" && typeof v1 === "object") {
+    if (p.kind === "shape" && isShapeValue(v0) && isShapeValue(v1)) {
       return interpolateShapes(v0, v1, progress) ?? v0;
     }
     if (p.kind === "orientation" && Array.isArray(v0) && Array.isArray(v1)) return slerpOrientation(v0, v1, progress);
+    if (p.kind === "gradient" && isGradientValue(v0) && isGradientValue(v1)) return interpolateGradients(v0, v1, progress);
   }
 
   if (p.motionPath && Array.isArray(v0) && Array.isArray(v1)) return interpolateSpatial(p, t, i0, i1);

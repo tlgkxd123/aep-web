@@ -5,7 +5,7 @@
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative, resolve } from "node:path";
 import { parseProject } from "../src/aep/parse.ts";
-import { PropertyValueType, type Item, type Layer, type Property, type PropertyNode, type Shape } from "../src/aep/model.ts";
+import { isShapeValue, PropertyValueType, type Item, type Layer, type Property, type PropertyNode, type Shape } from "../src/aep/model.ts";
 
 type Json = Record<string, any>;
 
@@ -208,7 +208,7 @@ function compareLeaf(prop: Property, j: Json, path: string): void {
   const animated = (j.numKeys ?? 0) > 0 || j.expressionEnabled;
   if (!animated && "value" in j) {
     if (prop.propertyValueType === PropertyValueType.SHAPE) {
-      if (prop.value && typeof prop.value === "object" && !Array.isArray(prop.value) && j.value) {
+      if (isShapeValue(prop.value) && j.value) {
         compareShape("property.shapeValue", prop.value, j.value, path);
       } else t.check("property.shapeValue", prop.value, j.value, path);
     } else {
@@ -229,7 +229,7 @@ function compareLeaf(prop: Property, j: Json, path: string): void {
     kt.check("keyframe.inInterpolationType", kf.inInterpolationType, k.inInterpolationType, kpath);
     kt.check("keyframe.outInterpolationType", kf.outInterpolationType, k.outInterpolationType, kpath);
     if (prop.propertyValueType === PropertyValueType.SHAPE) {
-      if (kf.value && typeof kf.value === "object" && !Array.isArray(kf.value) && k.value) {
+      if (isShapeValue(kf.value) && k.value) {
         compareShape("keyframe.shapeValue", kf.value, k.value, kpath);
       }
     } else if ("value" in k) {

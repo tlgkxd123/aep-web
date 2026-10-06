@@ -1,4 +1,4 @@
-import type { PropertyValue, Shape } from "../aep/model.ts";
+import { isGradientValue, isShapeValue, type PropertyValue, type Shape } from "../aep/model.ts";
 
 const BLENDING_MODE_NAMES: Record<number, string> = {
   5212: "Normal", 5213: "Dissolve", 5214: "Dancing Dissolve", 5215: "Darken", 5216: "Multiply",
@@ -79,7 +79,7 @@ export const fpsLabel = (frameRate: number) => frameRate.toFixed(2);
 export const fpsShort = (frameRate: number) => (frameRate ? String(Number(frameRate.toFixed(2))) : "");
 
 export function isShape(value: PropertyValue): value is Shape {
-  return !!value && typeof value === "object" && !Array.isArray(value);
+  return isShapeValue(value);
 }
 
 export function formatValue(value: PropertyValue): string {
@@ -87,6 +87,7 @@ export function formatValue(value: PropertyValue): string {
   if (typeof value === "number") return num(value);
   if (Array.isArray(value)) return value.map(num).join(", ");
   if (isShape(value)) return `${value.closed ? "closed" : "open"} path, ${value.vertices.length} vertices`;
+  if (isGradientValue(value)) return `gradient, ${value.colorStops.length} color stops`;
   return "";
 }
 

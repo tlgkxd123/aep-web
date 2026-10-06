@@ -39,7 +39,7 @@ Scope: a TypeScript .aep parser plus a browser inspector that shows project item
   EXPECT: GEOMETRY-PASSED
   EVIDENCE: automatic-evidence=v1; definition-sha256=4b34e82f300d4693cb9e63e518082c36fcd0029e340123f8634aa7b7f07c8010; exit=0; EXPECT=matched; output-sha256=959aeba9a49b2640ae544008b93c275d8c8bedb45c7ad4564aef7491a50290e3; output-bytes=71; shell=C:\WINDOWS\system32\cmd.exe; cwd=C:\Users\schxm\projects\aep-web; path=a39720789bd5/52 entries
 
-- [x] G8: the WebGL renderer reproduces After Effects' own renders of the fixture comps (solids, transforms, parenting, animation, blend modes, track mattes, masks, precomps, 3D, cameras): every frame within 3/255 on 99 percent of pixels, except listed known approximations which stay within a mean error of 1/255
+- [ ] G8: the WebGL renderer reproduces After Effects' own renders of the fixture comps (solids, transforms, parenting, animation, blend modes, track mattes, masks, precomps, 3D, cameras, shape layers): in every frame at most 0.1 percent of pixels away from hard edges differ by more than 3/255 and the mean error is at most 1/255, except listed known approximations which stay within a mean error of 1/255
   CHECK: node scripts/pixel-report.ts --require
   EXPECT: PIXELS-PASSED
   EVIDENCE: automatic-evidence=v1; definition-sha256=d39fdd94aaf37d79878057159acf5f38c2f641713e9825c851973de9114d8a3b; exit=0; EXPECT=matched; output-sha256=360d53a444f1a1822366dd09ed57a7ac5d2d7248757719e6f74d48b9d34080f2; output-bytes=4418; shell=C:\WINDOWS\system32\cmd.exe; cwd=C:\Users\schxm\projects\aep-web; path=a39720789bd5/52 entries
