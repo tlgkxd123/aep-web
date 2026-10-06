@@ -462,7 +462,8 @@ export function replaceFootage(editor: Editor, item: FootageItem, file: FootageF
   const oldPin = findList(item.chunk, "Pin ");
   editor.runProjectCommand("Replace Footage", (tx) => {
     const pin = buildPin(file);
-    if (oldPin) carryInterpretation(oldPin, pin, file.info.duration === 0);
+    // Stills and audio have no frame rate to conform.
+    if (oldPin) carryInterpretation(oldPin, pin, file.info.duration === 0 || !!file.info.audio);
     setFootageSource(tx, item.chunk!, pin, file.info);
   });
   return created<FootageItem>(editor, item.id, "footage");

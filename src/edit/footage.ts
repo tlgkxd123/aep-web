@@ -34,12 +34,15 @@ const SSPC = {
   conformFrameRate: 148,
   displayFrameRate: 152,
   highQualityFields: 0x9f,
+  /** float64 Hz; 0 without audio. */
+  audioSampleRate: 160,
 } as const;
 
 /** The template family AE's importer for the format matches (opti and linear-light defaults). */
 function templateFor(info: MediaInfo): TemplateBlock {
   if (info.kind === "png" || info.kind === "tiff") return "PNG";
-  if (info.kind === "video") return "MP4";
+  // Audio files share the movie source layout (sspc, Als2, opti, pgui, CLRS, mnfo).
+  if (info.kind === "video" || info.kind === "audio") return "MP4";
   return "JPEG";
 }
 
@@ -89,10 +92,10 @@ const alas = (path: string) =>
 const isStill = (info: MediaInfo) => info.duration === 0;
 
 /** `idta` footage-kind flags: video, single still, audio. */
-export const footageFlags = (info: MediaInfo) => (info.width > 0 ? 0x20 : 0) | (isStill(info) ? 0x10 : 0);
+export const footageFlags = (info: MediaInfo) => (info.width > 0 ? 0x20 : 0) | (isStill(info) ? 0x10 : 0) | (info.audio ? 0x04 : 0);
 
-/** The label AE gives new footage: Still (5) or Video (3). */
-export const footageLabel = (info: MediaInfo) => (isStill(info) ? 5 : 3);
+/** The label AE gives new footage: Audio (7), Still (5) or Video (3). */
+export const footageLabel = (info: MediaInfo) => (info.audio ? 7 : isStill(info) ? 5 : 3);
 
 function randomBytes(n: number): Uint8Array {
   const out = new Uint8Array(n);
@@ -117,8 +120,13 @@ export function buildPin(file: FootageFile): Chunk {
   for (let i = 0; i < 4; i++) sspc.data[SSPC.format + i] = info.format.charCodeAt(i) || 0x20;
   view.setUint16(SSPC.width, info.width);
   view.setUint16(SSPC.height, info.height);
-  if (isStill(info)) view.setUint32(SSPC.duration, 0), view.setUint32(SSPC.duration + 4, 1);
+  if (info.audio) {
+    // Audio files record their length exactly, in samples over the sample rate.
+    view.setUint32(SSPC.duration, info.audio.samples);
+    view.setUint32(SSPC.duration + 4, info.audio.sampleRate);
+  } else if (isStill(info)) view.setUint32(SSPC.duration, 0), view.setUint32(SSPC.duration + 4, 1);
   else setRatio(view, SSPC.duration, info.duration, false);
+  if (sspc.data.length >= SSPC.audioSampleRate + 8) view.setFloat64(SSPC.audioSampleRate, info.audio?.sampleRate ?? 0);
   const whole = Math.trunc(info.frameRate);
   view.setUint32(SSPC.nativeFrameRate, whole);
   view.setUint16(SSPC.nativeFrameRate + 4, Math.round((info.frameRate - whole) * 65536));

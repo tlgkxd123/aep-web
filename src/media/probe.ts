@@ -2,9 +2,10 @@
 // header: the importer's format code, frame size, duration, native frame rate
 // and whether it has alpha (the rules AE's importers apply: PNG by color type
 // or tRNS, TIFF/BMP/GIF always, JPEG never).
+import { decodeAudio, decodeWav } from "./audio.ts";
 import { demuxVideo } from "./mp4.ts";
 
-export type MediaKind = "png" | "jpeg" | "gif" | "bmp" | "tiff" | "video";
+export type MediaKind = "png" | "jpeg" | "gif" | "bmp" | "tiff" | "video" | "audio";
 
 export interface MediaInfo {
   kind: MediaKind;
@@ -17,9 +18,14 @@ export interface MediaInfo {
   /** Native frame rate; 0 for a still. */
   frameRate: number;
   hasAlpha: boolean;
+  /** Audio-only files: the native sample rate (Hz) and the duration in samples. */
+  audio?: { sampleRate: number; samples: number };
 }
 
 const EXTENSIONS: Record<string, MediaKind> = {
+  mp3: "audio",
+  wav: "audio",
+  wave: "audio",
   png: "png",
   jpg: "jpeg",
   jpeg: "jpeg",
@@ -100,10 +106,46 @@ function tiffSize(b: Uint8Array, v: DataView): { width: number; height: number }
   return { width, height };
 }
 
-/** Probes a footage file AE would import as a single still or movie. */
+const MP3_RATES: Record<number, number[]> = { 3: [44100, 48000, 32000], 2: [22050, 24000, 16000], 0: [11025, 12000, 8000] };
+
+/** The sample rate in the first MPEG audio frame header, after any ID3v2 tag. */
+function mp3SampleRate(b: Uint8Array): number | undefined {
+  let at = 0;
+  if (b[0] === 0x49 && b[1] === 0x44 && b[2] === 0x33) at = 10 + ((b[6] << 21) | (b[7] << 14) | (b[8] << 7) | b[9]);
+  for (; at + 4 < b.length; at++) {
+    if (b[at] !== 0xff || (b[at + 1] & 0xe0) !== 0xe0) continue;
+    const version = (b[at + 1] >> 3) & 3;
+    const rate = MP3_RATES[version]?.[(b[at + 2] >> 2) & 3];
+    if (rate) return rate;
+  }
+  return undefined;
+}
+
+/** An audio-only file as AE's importers record it: format code, native rate and length in samples. */
+async function audioInfo(blob: Blob, name: string): Promise<MediaInfo> {
+  const bytes = new Uint8Array(await blob.arrayBuffer());
+  const wav = decodeWav(bytes);
+  const ext = extensionOf(name);
+  let sampleRate: number;
+  let samples: number;
+  if (wav) {
+    sampleRate = wav.sampleRate;
+    samples = wav.length;
+  } else {
+    sampleRate = (ext === "mp3" ? mp3SampleRate(bytes) : undefined) ?? 48000;
+    // The browser decodes at its own rate; the length in seconds converts back to native samples.
+    const decoded = await decodeAudio(bytes, sampleRate);
+    samples = Math.round((decoded.length / decoded.sampleRate) * sampleRate);
+  }
+  const format = wav ? "WAVE" : "MP3A";
+  return { kind: "audio", format, width: 0, height: 0, duration: samples / sampleRate, frameRate: 0, hasAlpha: false, audio: { sampleRate, samples } };
+}
+
+/** Probes a footage file AE would import as a single still, movie or audio file. */
 export async function probeMedia(blob: Blob, name: string): Promise<MediaInfo> {
   const kind = EXTENSIONS[extensionOf(name)];
   if (!kind) throw new Error(`"${name}" is not a footage format this importer reads (${IMPORTABLE_EXTENSIONS.join(", ")})`);
+  if (kind === "audio") return audioInfo(blob, name);
   if (kind === "video") {
     const track = await demuxVideo(blob);
     const times = track.samples.map((s) => s.time).sort((a, b) => a - b);
