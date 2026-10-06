@@ -14,20 +14,20 @@ Scope: the app creates, edits, organizes, imports into and saves projects the wa
   EXPECT: TYPECHECK-CLEAN
   EVIDENCE: automatic-evidence=v1; definition-sha256=57dc83bb9816e14468e084c3ab9458f41fc7eafc53dc20cf5ca0402ff1ad7978; exit=0; EXPECT=matched; output-sha256=76d5b239b071ba8554562df3eb886f8aa0f98c7a2286fa89e34313077236fe4e; output-bytes=17; shell=C:\WINDOWS\system32\cmd.exe; cwd=C:\Users\schxm\projects\aep-wt\project-ops; path=a39720789bd5/52 entries
 
-- [x] G2: the editor operations and the UI flows (menus, shortcuts, dialogs, Project panel rename/drag/delete/import/replace, save, undo/redo of each) pass their tests
+- [x] G2: the editor operations and the UI flows (menus, shortcuts, context menus, dialogs, Project panel rename/drag/delete/import/replace, save, undo/redo of each) pass their tests
   CHECK: npx vitest run tests/project-ops.test.ts tests/project-ops-ui.test.tsx
   EXPECT: /Test Files\s+2 passed \(2\)/
-  EVIDENCE: automatic-evidence=v1; definition-sha256=ce71cf24648b6553db11aeecb5a19926399d312d6b8c87a567780647425d12d5; exit=0; EXPECT=matched; output-sha256=02c2110b4b59d99ea10f84f5968b27ed0b9ced1729d4ca1932a6a6c78dbd7249; output-bytes=1192; shell=C:\WINDOWS\system32\cmd.exe; cwd=C:\Users\schxm\projects\aep-wt\project-ops; path=a39720789bd5/52 entries
+  EVIDENCE: automatic-evidence=v1; definition-sha256=ce71cf24648b6553db11aeecb5a19926399d312d6b8c87a567780647425d12d5; exit=0; EXPECT=matched; output-sha256=0f8145b6f9919616ffcd70dbed7243f067f8e38a8b604f835bab472d504966bf; output-bytes=1763; shell=C:\WINDOWS\system32\cmd.exe; cwd=C:\Users\schxm\projects\aep-wt\project-ops; path=a39720789bd5/52 entries
 
-- [ ] G3: every test in the repository passes
+- [x] G3: every test in the repository passes
   CHECK: npx vitest run
   EXPECT: /Test Files\s+\d+ passed \(\d+\)\s*\r?\n\s*Tests\s+\d+ passed/
-  EVIDENCE: pending
+  EVIDENCE: automatic-evidence=v1; definition-sha256=a8990f94d379d33d1e4eb762d6c979e8e95360b274a0cc88931086fa69f76c14; exit=0; EXPECT=matched; output-sha256=2ee1fcb09066d24b40635d02dae762ce400d68d569ea7fadbe123f0febe3fc56; output-bytes=3679; shell=C:\WINDOWS\system32\cmd.exe; cwd=C:\Users\schxm\projects\aep-wt\project-ops; path=a39720789bd5/52 entries
 
-- [ ] G4: in the real app in headless Edge, a project made through the UI (New Project, New Composition, local-file import with absolute paths, folder, drag, Replace Footage, Duplicate + undo, Save As) is saved, re-parsed, and rendered by aerender at the comp's size
+- [x] G4: in the real app in headless Edge, a project made through the UI (New Project, New Composition, local-file import with absolute paths, folder, drag, Replace Footage, Duplicate + undo, Save As) is saved, re-parsed, and rendered by aerender at the comp's size
   CHECK: node scripts/check-project-ops-app.ts --aerender
   EXPECT: PROJECT-OPS-APP-PASSED
-  EVIDENCE: pending
+  EVIDENCE: automatic-evidence=v1; definition-sha256=a925c0213f3a3a67661a989e648f38d8d5ce2b417773c778136c892446e192c6; exit=0; EXPECT=matched; output-sha256=84d3e7cddf2738faefb352268c4e42ceb96ac2664413d7c91b98477632a24a5d; output-bytes=1036; shell=C:\WINDOWS\system32\cmd.exe; cwd=C:\Users\schxm\projects\aep-wt\project-ops; path=a39720789bd5/52 entries
 
 - [x] G5: py-aep reads the editor-built fixture and the UI-saved project with the same items and layers as aep-web, and both write back byte-identically
   CHECK: node scripts/projectops-check.ts refs/fixtures/projectops.aep refs/probe-projectops-ui.aep
@@ -42,12 +42,12 @@ Scope: the app creates, edits, organizes, imports into and saves projects the wa
 - [x] G7: the production bundle builds
   CHECK: npx vite build
   EXPECT: /built in/
-  EVIDENCE: automatic-evidence=v1; definition-sha256=202b6423274a1e776d6ddcc8d133917c5c706a45d1cd69c285f24b4a854abbd3; exit=0; EXPECT=matched; output-sha256=262992eb1b1fd47399986bb556da36a03f6e5f9e4cfcd9f18c505b5eba1b8986; output-bytes=684; shell=C:\WINDOWS\system32\cmd.exe; cwd=C:\Users\schxm\projects\aep-wt\project-ops; path=a39720789bd5/52 entries
+  EVIDENCE: automatic-evidence=v1; definition-sha256=202b6423274a1e776d6ddcc8d133917c5c706a45d1cd69c285f24b4a854abbd3; exit=0; EXPECT=matched; output-sha256=6dfa6cbdd9d7d063c4eea722a4cf11b2aedfff0fea4a406f090983366908f0dc; output-bytes=684; shell=C:\WINDOWS\system32\cmd.exe; cwd=C:\Users\schxm\projects\aep-wt\project-ops; path=a39720789bd5/52 entries
 
 - [x] G8: every frame of the full pixel regression that passes on master still passes on this branch
   CHECK: node scripts/pixel-vs-master.ts master
   EXPECT: NO-PIXEL-REGRESSION-VS-MASTER
-  EVIDENCE: automatic-evidence=v1; definition-sha256=a9f7ebda697e7281107e993b719b7d7c695ff4a0ca200324a7fd35ffe3a51785; exit=0; EXPECT=matched; output-sha256=44f03b9be36ef3e5171783a1edc9deec429b7b408d07da721b1b2071c718ef0f; output-bytes=114; shell=C:\WINDOWS\system32\cmd.exe; cwd=C:\Users\schxm\projects\aep-wt\project-ops; path=a39720789bd5/52 entries
+  EVIDENCE: automatic-evidence=v1; definition-sha256=a9f7ebda697e7281107e993b719b7d7c695ff4a0ca200324a7fd35ffe3a51785; exit=0; EXPECT=matched; output-sha256=5b17beca331de40e5db92950dc9c96528b4ad725edeb2db30ed4df4f49ee87c2; output-bytes=114; shell=C:\WINDOWS\system32\cmd.exe; cwd=C:\Users\schxm\projects\aep-wt\project-ops; path=a39720789bd5/52 entries
 
 - [x] G9: the impeccable detector finds no anti-patterns in the new and changed UI
   CHECK: C:/Users/schxm/.claude/skills/impeccable/scripts/impeccable.cmd detect --json src/ui/CompSettingsDialog.tsx src/ui/Dialog.tsx src/ui/ImportDialog.tsx src/ui/projectOps.css src/ui/ProjectPanel.tsx src/ui/MenuBar.tsx src/ui/Panel.tsx
