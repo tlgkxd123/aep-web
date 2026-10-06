@@ -57,6 +57,8 @@ export interface TemporalEase {
 export interface Keyframe {
   /** Composition time in seconds. */
   time: number;
+  /** Time in the owning layer's own seconds (before start offset and stretch); eases are defined on this axis. */
+  layerTime: number;
   value: PropertyValue;
   inInterpolationType: number;
   outInterpolationType: number;

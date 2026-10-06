@@ -120,9 +120,20 @@ interface LayerContext {
 
 interface LeafOptions {
   inEffect?: boolean;
+  /** The enclosing effect's parameter definitions, by match name (nested parameters included). */
+  paramDefs?: ReadonlyMap<string, ParamDef>;
+}
+
+interface ResolvedOptions {
+  inEffect?: boolean;
   controlType?: number;
   /** Name to use when the file stores none (an effect parameter's definition name). */
   fallbackName?: string;
+}
+
+function resolveOptions(options: LeafOptions, matchName: string): ResolvedOptions {
+  const def = options.paramDefs?.get(matchName);
+  return { inEffect: options.inEffect, controlType: def?.pard.controlType, fallbackName: def?.name || undefined };
 }
 
 type Run = { matchName: string; chunks: Chunk[] };
@@ -147,8 +158,17 @@ function matchNameRuns(group: Chunk | undefined): Run[] {
   return runs;
 }
 
+/** Names AE reports for Puppet tool groups that neither the file nor the py-aep tables carry. */
+const EXTRA_NAMES: Record<string, string> = {
+  "ADBE FreePin3 Mesh Group": "Mesh",
+  "ADBE FreePin3 PosPins": "Deform",
+  "ADBE FreePin3 PosPin Position": "Position",
+  "ADBE FreePin3 PosPin Scale": "Scale",
+  "ADBE FreePin3 PosPin Rotation": "Rotation",
+};
+
 function autoName(matchName: string): string | undefined {
-  return AUTO_NAMES[matchName] ?? SPEC_NAMES.get(matchName);
+  return AUTO_NAMES[matchName] ?? SPEC_NAMES.get(matchName) ?? EXTRA_NAMES[matchName];
 }
 
 function displayName(tdsn: Chunk | undefined, matchName: string, fallback?: string): string {
@@ -186,21 +206,25 @@ class ValueResolver {
   readonly dimensions: number;
   readonly scale: number[] | undefined;
   readonly flattenScaleZ: boolean;
+  /** Ease speeds of effect points are stored against the layer height. */
+  speedFactor = 1;
 
-  constructor(matchName: string, tdb4: Tdb4 | undefined, ctx: LayerContext, options: LeafOptions) {
+  constructor(matchName: string, tdb4: Tdb4 | undefined, ctx: LayerContext, options: ResolvedOptions) {
     this.percent = PERCENT_MATCH_NAMES.has(matchName);
     this.color = options.controlType === EffectControlType.COLOR || (tdb4?.color ?? false);
     this.dimensions = tdb4?.dimensions ?? 1;
     this.flattenScaleZ = matchName === "ADBE Scale" && !ctx.is3D;
+    // Values an effect creates without declaring them (a puppet pin) count as points by their flags.
+    const flaggedPoint =
+      options.controlType === undefined && !!tdb4 && tdb4.vector && (tdb4.dimensions === 2 || tdb4.dimensions === 3);
+    const point =
+      options.controlType === EffectControlType.POINT || options.controlType === EffectControlType.POINT_3D || flaggedPoint;
     if (matchName === "ADBE Anchor Point" && ctx.hasSource) {
       if (ctx.width && ctx.height) this.scale = [ctx.width, ctx.height, 1];
-    } else if (
-      options.inEffect &&
-      ctx.width &&
-      ctx.height &&
-      (options.controlType === EffectControlType.POINT || options.controlType === EffectControlType.POINT_3D)
-    ) {
+    } else if (options.inEffect && ctx.width && ctx.height && point) {
+      // Effect points are stored as fractions of the layer; Z shares the height divisor.
       this.scale = [ctx.width, ctx.height, ctx.height];
+      this.speedFactor = ctx.height;
     }
   }
 
@@ -223,7 +247,7 @@ class ValueResolver {
   }
 
   speed(raw: number): number {
-    return this.percent ? raw * 100 : raw;
+    return (this.percent ? raw * 100 : raw) * this.speedFactor;
   }
 }
 
@@ -621,11 +645,7 @@ class Parser {
     for (const run of matchNameRuns(tdgp)) {
       if (run.matchName.endsWith("-0000")) continue;
       const def = defsByName.get(run.matchName);
-      const nodes = this.parseRuns([run], ctx, {
-        inEffect: true,
-        controlType: def?.pard.controlType,
-        fallbackName: def?.name || undefined,
-      });
+      const nodes = this.parseRuns([run], ctx, { inEffect: true, paramDefs: defsByName });
       for (const node of nodes) {
         if (def && node.kind === "property") applyParamDef(node, def);
         parsed.push(node);
@@ -661,7 +681,8 @@ class Parser {
     };
   }
 
-  parseLeaf(tdbs: Chunk, matchName: string, ctx: LayerContext, options: LeafOptions, littleEndianValue = false): Property {
+  parseLeaf(tdbs: Chunk, matchName: string, ctx: LayerContext, leafOptions: LeafOptions, littleEndianValue = false): Property {
+    const options = resolveOptions(leafOptions, matchName);
     const tdsbChunk = findChild(tdbs, "tdsb");
     const tdb4Chunk = findChild(tdbs, "tdb4");
     const tdsb = tdsbChunk ? decodeTdsb(tdsbChunk) : undefined;
@@ -673,6 +694,9 @@ class Parser {
     let propertyValueType = tdb4 ? valueTypeFromFlags(tdb4) : PropertyValueType.NO_VALUE;
     if (options.controlType !== undefined) {
       propertyValueType = EFFECT_VALUE_TYPES[options.controlType] ?? propertyValueType;
+    } else if (options.inEffect && tdb4?.noValue) {
+      // An undeclared effect-internal slot flagged value-less holds scratch bytes, not a number.
+      propertyValueType = PropertyValueType.NO_VALUE;
     }
 
     let value: PropertyValue = null;
@@ -686,7 +710,7 @@ class Parser {
     } else if (tdli) {
       value = decodeS32(tdli);
       propertyValueType = PropertyValueType.MASK_INDEX;
-    } else if (cdat) {
+    } else if (cdat && propertyValueType !== PropertyValueType.NO_VALUE) {
       value = resolver.value(decodeCdat(cdat, littleEndianValue));
     }
 
@@ -730,6 +754,7 @@ class Parser {
       });
       return {
         time: (raw.timeUnits / base) * ctx.stretchFactor + offset,
+        layerTime: raw.timeUnits / base,
         value: resolver.value(raw.value),
         inInterpolationType: interpolationType(raw.inInterpolation),
         outInterpolationType: interpolationType(raw.outInterpolation),

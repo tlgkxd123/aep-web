@@ -33,3 +33,13 @@ Scope: a TypeScript .aep parser plus a browser inspector that shows project item
   CHECK: npx vite build
   EXPECT: /built in/
   EVIDENCE: pending
+
+- [ ] G7: layer world matrices, parenting and camera rays reproduce After Effects' sourcePointToComp and compPointToSource results within 0.005 px (2D, parented, 3D, keyframed layers; one-node, two-node, keyed-zoom and default cameras)
+  CHECK: node scripts/geometry-report.ts --require
+  EXPECT: GEOMETRY-PASSED
+  EVIDENCE: pending
+
+- [ ] G6: valueAtTime reproduces After Effects' per-frame values for every animated property in the value_at_time exports (0.001 tolerance, 0.015 px on motion paths, every property found)
+  CHECK: node scripts/vat-report.ts --require
+  EXPECT: VALUE-AT-TIME-PASSED
+  EVIDENCE: pending
