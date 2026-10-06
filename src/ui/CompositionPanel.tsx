@@ -1,10 +1,13 @@
-import { useContext, useEffect, useMemo, useRef, useState, type MouseEvent, type PointerEvent } from "react";
+import { useContext, useEffect, useMemo, useRef, useState, type DragEvent, type MouseEvent, type PointerEvent } from "react";
 import type { CompItem, Layer, Project } from "../aep/model.ts";
+import { addLayer } from "../edit/layers.ts";
+import { anchorInComp, moveLayers, panBehind, rotateByDrag, scaleByHandle, type Handle } from "../edit/transform-ops.ts";
 import type { Target } from "../render/gl.ts";
 import { Renderer } from "../render/renderer.ts";
 import { apply, invert, layerAffine, type Matrix } from "./animate.ts";
 import { openContextMenu } from "./ContextMenu.tsx";
 import { AppActionsContext, layerMenu, viewerMenu } from "./contextMenus.ts";
+import { attempt, ITEM_MIME, nextDragKey, useEditing } from "./editing.tsx";
 import { colorCss, labelColor, timecode } from "./format.ts";
 import { setHover } from "./hover.ts";
 import { Icon, type IconName } from "./icons.tsx";
@@ -34,6 +37,22 @@ function pickableLayers(project: Project, comp: CompItem, t: number): Pickable[]
   return out;
 }
 
+function safeAnchor(comp: CompItem, layer: Layer, time: number): [number, number] | undefined {
+  try {
+    return anchorInComp(comp, layer, time);
+  } catch {
+    return undefined;
+  }
+}
+
+const RESIZE_CURSORS = ["ew-resize", "nwse-resize", "ns-resize", "nesw-resize"];
+
+/** The resize cursor for a handle pointing along (dx, dy) on screen, so rotated layers get turned arrows. */
+function resizeCursor(dx: number, dy: number): string {
+  const angle = ((Math.atan2(dy, dx) * 180) / Math.PI + 360 + 22.5) % 180;
+  return RESIZE_CURSORS[Math.floor(angle / 45) % 4] ?? "move";
+}
+
 interface RenderState {
   renderer: Renderer;
   target?: Target;
@@ -44,7 +63,7 @@ interface RenderState {
  * render per animation frame however fast `time` changes. Returns the
  * renderer state (for pixel readback) and what the renderer skipped.
  */
-function useCompRender(canvas: HTMLCanvasElement | null, project: Project, comp: CompItem, time: number) {
+function useCompRender(canvas: HTMLCanvasElement | null, project: Project, comp: CompItem, time: number, revision = 0) {
   const state = useRef<RenderState | null>(null);
   const [notes, setNotes] = useState<string[]>([]);
   const [error, setError] = useState<string>();
@@ -72,7 +91,7 @@ function useCompRender(canvas: HTMLCanvasElement | null, project: Project, comp:
       }
     });
     return () => cancelAnimationFrame(frame);
-  }, [canvas, project, comp, time, footageVersion]);
+  }, [canvas, project, comp, time, footageVersion, revision]);
   return { state, notes, error };
 }
 
@@ -113,8 +132,12 @@ export function CompositionPanel({
   const [zoom, setZoom] = useState<"fit" | number>("fit");
   const [grid, setGrid] = useState(false);
   const [canvas, setCanvas] = useState<HTMLCanvasElement | null>(null);
-  const render = useCompRender(canvas, project, comp, time);
+  const editing = useEditing();
+  const { editor, revision, tool } = editing;
+  const render = useCompRender(canvas, project, comp, time, revision);
   const missing = missingFootage(project, comp).length;
+  const svgRef = useRef<SVGSVGElement>(null);
+  const [itemOver, setItemOver] = useState(false);
 
   useEffect(() => {
     const el = viewerRef.current;
@@ -130,23 +153,104 @@ export function CompositionPanel({
   const fit =
     viewer.width && viewer.height ? Math.min(1, (viewer.width - 40) / frameW, (viewer.height - 40) / comp.height) : 0.33;
   const scale = zoom === "fit" ? Math.max(0.01, fit) : zoom;
-  const pickable = useMemo(() => pickableLayers(project, comp, time), [project, comp, time]);
+  // `revision` changes after every edit; the layer objects behind `comp` are rebuilt then.
+  const pickable = useMemo(() => pickableLayers(project, comp, time), [project, comp, time, revision]);
   const selected = comp.layers.find((l) => l.id === selectedLayerId);
   const selectedMatrix = selected && !selected.threeDLayer && selected.width > 0 ? layerAffine(selected, comp, time) : undefined;
+  const selectedAnchor = selected && selectedMatrix ? safeAnchor(comp, selected, time) : undefined;
 
   const hit = (x: number, y: number): Pickable | undefined => {
     for (let i = pickable.length - 1; i >= 0; i--) {
       const d = pickable[i];
       const inv = d ? invert(d.matrix) : undefined;
-      if (!d || !inv) continue;
+      if (!d || !inv || d.layer.locked) continue;
       const [lx, ly] = apply(inv, x, y);
       if (lx >= 0 && ly >= 0 && lx <= d.layer.width && ly <= d.layer.height) return d;
     }
     return undefined;
   };
-  const toComp = (e: MouseEvent<SVGSVGElement>): [number, number] => {
+  const clientToComp = (clientX: number, clientY: number, rect: DOMRect): [number, number] => [
+    ((clientX - rect.left) / (rect.width || 1)) * comp.width,
+    ((clientY - rect.top) / (rect.height || 1)) * comp.height,
+  ];
+  const toComp = (e: MouseEvent<SVGSVGElement>): [number, number] => clientToComp(e.clientX, e.clientY, e.currentTarget.getBoundingClientRect());
+
+  /**
+   * Selection tool: a handle scales the selected layer, a layer is selected
+   * and moved. Rotation and Pan Behind tools: the layer under the pointer, or
+   * else the selected one, is rotated or has its anchor point moved. Every
+   * pointer move re-applies the whole drag from its start under one coalesce
+   * key, so the drag previews live and undoes in one step.
+   */
+  const onPointerDown = (e: PointerEvent<SVGSVGElement>) => {
+    if (e.button !== undefined && e.button !== 0) return;
     const rect = e.currentTarget.getBoundingClientRect();
-    return [((e.clientX - rect.left) / (rect.width || 1)) * comp.width, ((e.clientY - rect.top) / (rect.height || 1)) * comp.height];
+    const start = clientToComp(e.clientX, e.clientY, rect);
+    const grip = (e.target as Element).closest?.("[data-handle]")?.getAttribute("data-handle");
+    const picked = hit(...start)?.layer;
+    let kind: "move" | "scale" | "rotation" | "anchor" | undefined;
+    let layer: Layer | undefined;
+    if (tool === "selection" && grip && selected && !selected.locked) {
+      kind = "scale";
+      layer = selected;
+    } else if (tool === "rotation" || tool === "anchor") {
+      layer = picked ?? (selected && !selected.locked ? selected : undefined);
+      if (picked && picked.id !== selectedLayerId) onSelectLayer(picked.id);
+      kind = layer ? (tool === "rotation" ? "rotation" : "anchor") : undefined;
+    } else {
+      onSelectLayer(picked?.id);
+      if (tool === "selection" && picked) {
+        kind = "move";
+        layer = picked;
+      }
+    }
+    if (!editor || !kind || !layer) return;
+    e.preventDefault();
+    const handle = grip ? (grip.split(",").map(Number) as Handle) : ([0, 0] as Handle);
+    const key = nextDragKey(kind);
+    const id = layer.id;
+    const drag = kind;
+    const move = (ev: globalThis.PointerEvent | globalThis.MouseEvent) => {
+      const at = clientToComp(ev.clientX, ev.clientY, rect);
+      const target = comp.layers.find((l) => l.id === id);
+      if (!target || !at.every(Number.isFinite)) return;
+      const delta: [number, number] = [at[0] - start[0], at[1] - start[1]];
+      attempt(editing, () => {
+        if (drag === "move") moveLayers(editor, comp, [target], delta, time, { coalesce: key, constrain: ev.shiftKey });
+        else if (drag === "scale") scaleByHandle(editor, comp, target, handle, start, at, time, { coalesce: key, proportional: ev.shiftKey });
+        else if (drag === "rotation") rotateByDrag(editor, comp, target, start, at, time, { coalesce: key, snap: ev.shiftKey });
+        else panBehind(editor, comp, target, delta, time, { coalesce: key, anchorOnly: ev.altKey });
+      });
+    };
+    const up = () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+      editor.commit();
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+  };
+
+  const dragsItem = (e: DragEvent) => !!editor && Array.from(e.dataTransfer?.types ?? []).includes(ITEM_MIME);
+  const itemDrop = {
+    onDragOver: (e: DragEvent<HTMLDivElement>) => {
+      if (!dragsItem(e)) return;
+      e.preventDefault();
+      e.dataTransfer.dropEffect = "copy";
+      setItemOver(true);
+    },
+    onDragLeave: () => setItemOver(false),
+    onDrop: (e: DragEvent<HTMLDivElement>) => {
+      setItemOver(false);
+      if (!dragsItem(e) || !editor) return;
+      e.preventDefault();
+      e.stopPropagation();
+      const itemId = Number(e.dataTransfer.getData(ITEM_MIME));
+      const rect = svgRef.current?.getBoundingClientRect();
+      const at = rect ? clientToComp(e.clientX, e.clientY, rect) : undefined;
+      const position = at?.every(Number.isFinite) ? at : undefined;
+      attempt(editing, () => onSelectLayer(addLayer(editor, comp, { kind: "item", itemId }, { position })));
+    },
   };
   const onMove = (e: PointerEvent<SVGSVGElement>) => {
     const [x, y] = toComp(e);
@@ -157,10 +261,17 @@ export function CompositionPanel({
     setHover({ x: Math.round(x), y: Math.round(y), rgba });
   };
 
-  const handle = (x: number, y: number, key: string) => {
+  const handle = (x: number, y: number, key: string, grip?: { handle: string; cursor: string }) => {
     const w = 5 / (scale * comp.pixelAspect);
     const h = 5 / scale;
-    return <rect key={key} x={x - w / 2} y={y - h / 2} width={w} height={h} className="sel-handle" />;
+    const box = <rect key={key} x={x - w / 2} y={y - h / 2} width={w} height={h} className="sel-handle" />;
+    if (!grip || !editor || tool !== "selection") return box;
+    return (
+      <g key={key} data-handle={grip.handle} style={{ cursor: grip.cursor }}>
+        {box}
+        <rect x={x - w * 1.3} y={y - h * 1.3} width={w * 2.6} height={h * 2.6} className="sel-grip" />
+      </g>
+    );
   };
 
   const resolution = RESOLUTIONS[comp.resolutionFactor[0]] ?? "Custom";
@@ -172,7 +283,7 @@ export function CompositionPanel({
         <Icon name="lock" size={12} className="dim" />
         <span className="crumb">{comp.name}</span>
       </div>
-      <div className="viewer" ref={viewerRef}>
+      <div className={`viewer ${itemOver ? "item-over" : ""}`} ref={viewerRef} {...itemDrop}>
         <div className="pasteboard">
           <div
             className={`comp-frame ${grid ? "transparency" : ""}`}
@@ -180,14 +291,15 @@ export function CompositionPanel({
           >
             <canvas ref={setCanvas} className={`comp-canvas ${scale > 1 ? "pixelated" : ""}`} aria-hidden="true" />
             <svg
-              className="comp-svg"
+              ref={svgRef}
+              className={`comp-svg ${editor ? `tool-${tool}` : ""}`}
               viewBox={`0 0 ${comp.width} ${comp.height}`}
               preserveAspectRatio="none"
               role="img"
               aria-label={`${comp.name}, ${comp.width} x ${comp.height}, at ${timecode(time + comp.displayStartTime, comp.frameRate)}`}
               onPointerMove={onMove}
               onPointerLeave={() => setHover(undefined)}
-              onClick={(e) => onSelectLayer(hit(...toComp(e))?.layer.id)}
+              onPointerDown={onPointerDown}
               onContextMenu={(e) => {
                 if (!actions) return;
                 // Like AE: right-clicking a layer selects it and shows the layer menu; elsewhere the comp menu.
@@ -213,8 +325,20 @@ export function CompositionPanel({
                       .filter((fy) => fx !== 0.5 || fy !== 0.5)
                       .map((fy) => {
                         const [x, y] = apply(selectedMatrix, selected.width * fx, selected.height * fy);
-                        return handle(x, y, `${fx}-${fy}`);
+                        const [cx, cy] = apply(selectedMatrix, selected.width / 2, selected.height / 2);
+                        const cursor = resizeCursor((x - cx) * comp.pixelAspect, y - cy);
+                        return handle(x, y, `${fx}-${fy}`, { handle: `${fx * 2 - 1},${fy * 2 - 1}`, cursor });
                       }),
+                  )}
+                  {editor && selectedAnchor && (
+                    <g
+                      className="sel-anchor"
+                      transform={`translate(${selectedAnchor[0]} ${selectedAnchor[1]}) scale(${1 / (scale * comp.pixelAspect)} ${1 / scale})`}
+                      aria-hidden="true"
+                    >
+                      <circle r={4.5} />
+                      <path d="M-9 0h4.5M4.5 0H9M0-9v4.5M0 4.5V9" />
+                    </g>
                   )}
                 </g>
               )}

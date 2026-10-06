@@ -1,20 +1,26 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type DragEvent, type PointerEvent as ReactPointerEvent } from "react";
 import type { CompItem, Project } from "../aep/model.ts";
 import { parseProject } from "../aep/parse.ts";
+import { Editor } from "../edit/editor.ts";
+import { addLayer } from "../edit/layers.ts";
+import { nudgeLayers } from "../edit/transform-ops.ts";
 import { audioPreview } from "../media/audioPreview.ts";
 import { loadLocalFootage, localFootageAvailable } from "../media/localFootage.ts";
 import { ContextMenuHost } from "./ContextMenu.tsx";
 import { AppActionsContext, type AppActions } from "./contextMenus.ts";
 import { ChunkPanel } from "./ChunkPanel.tsx";
 import { CompositionPanel } from "./CompositionPanel.tsx";
+import { EditingContext, type Editing, type ToolId } from "./editing.tsx";
 import { EffectControlsPanel } from "./EffectControlsPanel.tsx";
 import { HomeScreen } from "./HomeScreen.tsx";
 import { Icon } from "./icons.tsx";
+import { canRunLayerCommand, isLayerCommand, layerShortcut, runLayerCommand, type LayerCommand, type LayerTarget } from "./layerCommands.ts";
 import { addDroppedFootage, locateFootageFolder, useFootageVersion } from "./LocateFootage.tsx";
 import { MenuBar, type MenuCommand } from "./MenuBar.tsx";
 import { PanelFrame, type PanelTab } from "./Panel.tsx";
 import { ProjectPanel } from "./ProjectPanel.tsx";
 import { RightPanels, type FileInfo } from "./RightPanels.tsx";
+import { SolidSettings } from "./SolidSettings.tsx";
 import { TimelinePanel } from "./TimelinePanel.tsx";
 import { Toolbar } from "./Toolbar.tsx";
 
@@ -23,7 +29,11 @@ type Frame = "left" | "center" | "right" | "bottom";
 interface Loaded {
   project: Project;
   file: FileInfo;
+  editor: Editor;
 }
+
+const TOOL_KEYS: Record<string, ToolId> = { v: "selection", w: "rotation", y: "anchor" };
+const NUDGES: Record<string, [number, number]> = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] };
 
 interface CompView {
   time: number;
@@ -106,12 +116,23 @@ export function App() {
   const [focused, setFocused] = useState<Frame>("bottom");
   const [playing, setPlaying] = useState(false);
   const [layout, setLayout] = useState({ left: 0.24, right: 300, bottom: 0.42 });
+  const [tool, setTool] = useState<ToolId>("selection");
+  const [revision, setRevision] = useState(0);
+  const [editError, setEditError] = useState<string>();
+  const [solidFor, setSolidFor] = useState<number>();
 
   const project = loaded?.project;
+  const editor = loaded?.editor;
   const comp = activeCompId !== undefined ? project?.items.get(activeCompId) : undefined;
   const activeComp = comp?.kind === "comp" ? comp : undefined;
   const view = activeComp ? (views[activeComp.id] ?? { time: 0 }) : undefined;
   const selectedLayer = activeComp?.layers.find((l) => l.id === view?.layerId);
+
+  useEffect(() => editor?.subscribe(() => setRevision(editor.revision)), [editor]);
+  const editing: Editing = useMemo(
+    () => ({ editor, revision, tool, setTool, report: setEditError }),
+    [editor, revision, tool],
+  );
 
   const open = useCallback(async (file: File) => {
     setBusy(true);
@@ -123,7 +144,7 @@ export function App() {
       const parsed = parseProject(bytes);
       const parseMs = performance.now() - started;
       const initial = initialComp(parsed);
-      setLoaded({ project: parsed, file: { name: file.name, size: bytes.length, parseMs } });
+      setLoaded({ project: parsed, file: { name: file.name, size: bytes.length, parseMs }, editor: new Editor(parsed.file, parsed) });
       setOpenComps(initial ? [initial.id] : []);
       setActiveCompId(initial?.id);
       setSelectedItemId(initial?.id);
@@ -235,6 +256,23 @@ export function App() {
     if (project && activeComp && typeof AudioContext !== "undefined") audioPreview.prepare(project, activeComp);
   }, [project, activeComp, footageVersion]);
 
+  const layerTarget: LayerTarget = { editor, comp: activeComp, layers: selectedLayer ? [selectedLayer] : [] };
+  const runLayer = (cmd: LayerCommand) => {
+    if (cmd === "new-solid") {
+      if (editor && activeComp) setSolidFor(activeComp.id);
+      return;
+    }
+    if (!canRunLayerCommand(cmd, layerTarget)) return;
+    try {
+      const id = runLayerCommand(cmd, layerTarget, view?.time ?? 0);
+      if (activeComp && cmd !== "undo" && cmd !== "redo") selectLayer(activeComp.id, cmd === "delete-layer" ? undefined : id);
+    } catch (e) {
+      setEditError((e as Error).message);
+    }
+  };
+  const runLayerRef = useRef(runLayer);
+  runLayerRef.current = runLayer;
+
   const command = useCallback(
     (cmd: MenuCommand) => {
       switch (cmd) {
@@ -270,6 +308,8 @@ export function App() {
           setCenterTab("composition");
           setFocused("center");
           break;
+        default:
+          if (isLayerCommand(cmd)) runLayerRef.current(cmd);
       }
     },
     [pickFile],
@@ -283,7 +323,31 @@ export function App() {
         pickFile();
         return;
       }
+      const layerCmd = editor ? layerShortcut(e) : undefined;
+      // Delete and Ctrl+D in the Project panel act on project items, not layers.
+      if (layerCmd && !((layerCmd === "delete-layer" || layerCmd === "duplicate-layer") && focused === "left")) {
+        e.preventDefault();
+        runLayerRef.current(layerCmd);
+        return;
+      }
       if (!activeComp || e.ctrlKey || e.metaKey || e.altKey) return;
+      const toolKey = editor && !e.shiftKey ? TOOL_KEYS[e.key.toLowerCase()] : undefined;
+      if (toolKey) {
+        e.preventDefault();
+        setTool(toolKey);
+        return;
+      }
+      const nudge = NUDGES[e.key];
+      if (nudge && editor && focused === "center" && selectedLayer) {
+        e.preventDefault();
+        const n = e.shiftKey ? 10 : 1;
+        try {
+          nudgeLayers(editor, activeComp, [selectedLayer], [nudge[0] * n, nudge[1] * n], views[activeComp.id]?.time ?? 0);
+        } catch (err) {
+          setEditError((err as Error).message);
+        }
+        return;
+      }
       if (e.key === " ") {
         e.preventDefault();
         togglePlay();
@@ -297,7 +361,7 @@ export function App() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [activeComp, pickFile, togglePlay, step, edge]);
+  }, [activeComp, pickFile, togglePlay, step, edge, editor, focused, selectedLayer, views]);
 
   const hasFiles = (e: DragEvent) => Array.from(e.dataTransfer?.types ?? []).includes("Files");
   const dropHandlers = {
@@ -480,9 +544,14 @@ export function App() {
     </AppActionsContext.Provider>
   );
 
-  return (
+  const menuEnabled = (cmd: MenuCommand) => !isLayerCommand(cmd) || canRunLayerCommand(cmd, layerTarget);
+  const menuLabel = (cmd: MenuCommand) =>
+    cmd === "undo" && editor?.undoLabel ? `Undo ${editor.undoLabel}` : cmd === "redo" && editor?.redoLabel ? `Redo ${editor.redoLabel}` : undefined;
+  const solidComp = solidFor !== undefined ? project?.items.get(solidFor) : undefined;
+
+  const app = (
     <div className={`app ${dragging ? "dragging" : ""}`} {...dropHandlers}>
-      <MenuBar hasProject={!!loaded} onCommand={command} />
+      <MenuBar hasProject={!!loaded} onCommand={command} enabled={menuEnabled} label={menuLabel} />
       <Toolbar onHome={() => setShowHome(true)} />
       {workspace || <HomeScreen onOpen={pickFile} onDismiss={loaded ? () => setShowHome(false) : undefined} />}
       <ContextMenuHost />
@@ -533,6 +602,46 @@ export function App() {
           </div>
         </div>
       )}
+      {solidComp?.kind === "comp" && project && editor && (
+        <SolidSettings
+          project={project}
+          comp={solidComp}
+          onCancel={() => setSolidFor(undefined)}
+          onOk={(solid) => {
+            setSolidFor(undefined);
+            try {
+              const above = views[solidComp.id]?.layerId;
+              const id = addLayer(editor, solidComp, { kind: "solid", ...solid }, { above: solidComp.layers.find((l) => l.id === above) });
+              selectLayer(solidComp.id, id);
+            } catch (e) {
+              setEditError((e as Error).message);
+            }
+          }}
+        />
+      )}
+      {editError && (
+        <div className="modal-backdrop">
+          <div
+            className="dialog"
+            role="alertdialog"
+            aria-modal="true"
+            aria-labelledby="edit-error-title"
+            aria-describedby="edit-error-text"
+            onKeyDown={(e) => e.key === "Escape" && setEditError(undefined)}
+          >
+            <h2 id="edit-error-title">
+              <Icon name="warning" size={16} /> After Effects warning
+            </h2>
+            <p id="edit-error-text">{editError}</p>
+            <div className="dialog-actions">
+              <button type="button" className="ae-primary" autoFocus onClick={() => setEditError(undefined)}>
+                OK
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
+  return <EditingContext.Provider value={editing}>{app}</EditingContext.Provider>;
 }
