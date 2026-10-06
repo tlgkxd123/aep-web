@@ -10,6 +10,10 @@ export interface Chunk {
   children?: Chunk[];
   /** Set when the declared size overruns the parent; the tree below is partial. */
   error?: string;
+  /** Non-zero value of the pad byte that follows an odd-sized body. */
+  pad?: number;
+  /** Bytes after the last whole child chunk of a container body. */
+  tail?: Uint8Array;
 }
 
 /** Chunks whose body is a run of child chunks without a list-type prefix. */
@@ -23,7 +27,7 @@ function fourCC(bytes: Uint8Array, at: number): string {
   return ascii.decode(bytes.subarray(at, at + 4));
 }
 
-function readChildren(file: Uint8Array, view: DataView, start: number, end: number): Chunk[] {
+function readChildren(file: Uint8Array, view: DataView, start: number, end: number): { chunks: Chunk[]; tail?: Uint8Array } {
   const chunks: Chunk[] = [];
   let pos = start;
   while (pos + 8 <= end) {
@@ -36,11 +40,13 @@ function readChildren(file: Uint8Array, view: DataView, start: number, end: numb
       error = `chunk ${type} at ${pos} declares ${size} bytes but only ${end - bodyStart} remain`;
       bodyEnd = end;
     }
-    chunks.push(buildChunk(file, view, type, pos, bodyStart, bodyEnd, error));
-    if (error) break;
+    const chunk = buildChunk(file, view, type, pos, bodyStart, bodyEnd, error);
+    if (size & 1 && bodyEnd < end && file[bodyEnd] !== 0) chunk.pad = file[bodyEnd];
+    chunks.push(chunk);
+    if (error) return { chunks };
     pos = bodyEnd + (size & 1);
   }
-  return chunks;
+  return pos < end ? { chunks, tail: file.subarray(pos, end) } : { chunks };
 }
 
 function buildChunk(
@@ -56,18 +62,13 @@ function buildChunk(
     const listType = fourCC(file, bodyStart);
     const data = file.subarray(bodyStart + 4, bodyEnd);
     if (OPAQUE_LIST_TYPES.has(listType)) return { type, offset, data, listType, error };
-    return {
-      type,
-      offset,
-      data,
-      listType,
-      children: readChildren(file, view, bodyStart + 4, bodyEnd),
-      error,
-    };
+    const { chunks, tail } = readChildren(file, view, bodyStart + 4, bodyEnd);
+    return { type, offset, data, listType, children: chunks, error, ...(tail && { tail }) };
   }
   const data = file.subarray(bodyStart, bodyEnd);
   if (CONTAINER_TYPES.has(type)) {
-    return { type, offset, data, children: readChildren(file, view, bodyStart, bodyEnd), error };
+    const { chunks, tail } = readChildren(file, view, bodyStart, bodyEnd);
+    return { type, offset, data, children: chunks, error, ...(tail && { tail }) };
   }
   return { type, offset, data, error };
 }
@@ -76,6 +77,8 @@ export interface RifxFile {
   root: Chunk;
   /** XMP metadata packet appended after the RIFX chunk. */
   xmp: string;
+  /** The raw bytes after the RIFX chunk (the XMP packet as stored). */
+  trailer: Uint8Array;
 }
 
 export function readRifx(bytes: Uint8Array): RifxFile {
@@ -87,8 +90,9 @@ export function readRifx(bytes: Uint8Array): RifxFile {
   const end = Math.min(8 + size, bytes.length);
   const error = 8 + size > bytes.length ? "RIFX size exceeds file length" : undefined;
   const root = buildChunk(bytes, view, "RIFX", 0, 8, end, error);
-  const xmp = new TextDecoder("utf-8").decode(bytes.subarray(end + (size & 1)));
-  return { root, xmp };
+  if (size & 1 && end < bytes.length && bytes[end] !== 0) root.pad = bytes[end];
+  const trailer = bytes.subarray(Math.min(bytes.length, end + (size & 1)));
+  return { root, xmp: new TextDecoder("utf-8").decode(trailer), trailer };
 }
 
 export function findChild(parent: Chunk | undefined, type: string): Chunk | undefined {
