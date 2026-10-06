@@ -14,6 +14,15 @@ export interface AerenderResult {
   timedOut: boolean;
 }
 
+/** Kills a process and its children (aerender runs the engine as a child AfterFX.com), waiting until done. */
+function killTree(pid: number): Promise<void> {
+  return new Promise((resolve) => {
+    const killer = spawn("taskkill", ["/PID", String(pid), "/T", "/F"], { windowsHide: true });
+    killer.on("close", () => resolve());
+    killer.on("error", () => resolve());
+  });
+}
+
 export function aerender(args: string[], timeoutMs = 300_000): Promise<AerenderResult> {
   return withAfterEffects(
     () =>
@@ -22,9 +31,9 @@ export function aerender(args: string[], timeoutMs = 300_000): Promise<AerenderR
         let output = "";
         child.stdout.on("data", (d) => (output += d));
         child.stderr.on("data", (d) => (output += d));
-        const timer = setTimeout(() => {
-          child.kill();
-          spawn("taskkill", ["/IM", "AfterFX.exe", "/F"], { windowsHide: true });
+        // Only this run's process tree is killed: the user's own After Effects must never be touched.
+        const timer = setTimeout(async () => {
+          if (child.pid) await killTree(child.pid);
           resolve({ code: null, output, timedOut: true });
         }, timeoutMs);
         child.on("error", reject);

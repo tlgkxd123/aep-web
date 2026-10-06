@@ -19,6 +19,7 @@ import {
 } from "../aep/model.ts";
 import { activeCameraLayer, cameraAt, compPointToSource, projectThroughCamera, projectToComp, worldMatrix } from "../aep/transform.ts";
 import matchNames from "../aep/data/match-names.json" with { type: "json" };
+import { compMarkers, layerMarkers, type Marker } from "./markers.ts";
 import type { ProjectIndex } from "./projectIndex.ts";
 import { hashWords, RandomStream, wiggleOffset } from "./random.ts";
 import { add, apiNodeOf, apiObject, div, mul, sub, unwrap, type ApiNode } from "./sandbox.ts";
@@ -277,8 +278,8 @@ export class Api {
     if (typeof v === "number") return v;
     if (Array.isArray(v)) return expressionDimensions(prop, layer, v) === 2 && v.length === 3 ? v.slice(0, 2) : [...v];
     if (isShapeValue(v)) return this.path(v);
+    if (prop.propertyValueType === PropertyValueType.TEXT_DOCUMENT) return textDocumentOf(v)?.text ?? textOf(prop);
     if (v && typeof v === "object") return JSON.parse(JSON.stringify(v));
-    if (prop.propertyValueType === PropertyValueType.TEXT_DOCUMENT) return textOf(prop);
     return v;
   }
 
@@ -388,7 +389,7 @@ export class Api {
               return this.layer(cam, comp);
             }
             case "marker":
-              return this.emptyMarkers();
+              return this.markers(comp, () => compMarkers(comp));
             case "layer":
               return (a: unknown, b?: unknown) => {
                 const first = unwrap(a);
@@ -551,15 +552,15 @@ export class Api {
               return listed("ADBE Mask Parade", "mask");
             case "content":
               return listed("ADBE Root Vectors Group", "content");
-            case "text":
             case "marker":
+              return this.markers(layer, () => layerMarkers(layer, comp));
+            case "text":
             case "timeRemap":
             case "cameraOption":
             case "lightOption":
             case "materialOption": {
               const matchName = {
                 text: "ADBE Text Properties",
-                marker: "ADBE Marker",
                 timeRemap: "ADBE Time Remapping",
                 cameraOption: "ADBE Camera Options Group",
                 lightOption: "ADBE Light Options Group",
@@ -567,7 +568,6 @@ export class Api {
               }[key];
               const found = top(matchName);
               if (found) return this.node(found, layer, comp);
-              if (key === "marker") return this.emptyMarkers();
               return missing("Layer", key);
             }
             case "audioLevels": {
@@ -647,19 +647,68 @@ export class Api {
     });
   }
 
-  private emptyMarkers(): unknown {
-    return apiObject(
-      {
+  /** A layer's or comp's Marker property: numKeys, key(index or comment), nearestKey(t). */
+  private markers(owner: object, list: () => Marker[]): unknown {
+    return this.cached(owner, "marker", () => {
+      const markerKey = (m: Marker, index: number) =>
+        apiObject(
+          {
+            get: (key) => {
+              switch (key) {
+                case "time":
+                  return m.time;
+                case "index":
+                  return index;
+                case "duration":
+                case "comment":
+                case "chapter":
+                case "url":
+                case "frameTarget":
+                case "eventCuePoint":
+                case "cuePointName":
+                case "protectedRegion":
+                case "label":
+                  return m[key];
+                case "parameters":
+                  return { ...m.parameters };
+              }
+              return missing("MarkerKey", key);
+            },
+          },
+          "MarkerKey",
+        );
+      const node: ApiNode = {
         get: (key) => {
-          if (key === "numKeys") return 0;
-          if (key === "key" || key === "nearestKey") return () => {
-            throw new RangeError("there are no markers");
-          };
+          switch (key) {
+            case "numKeys":
+              return list().length;
+            case "key":
+              return (k: unknown) => {
+                const markers = list();
+                const u = unwrap(k);
+                const i = typeof u === "number" ? Math.round(u) - 1 : markers.findIndex((m) => m.comment === String(u));
+                if (!markers[i]) throw new RangeError(typeof u === "number" ? `marker index ${u} out of range (there are ${markers.length} markers)` : `no marker has the comment '${String(u)}'`);
+                return markerKey(markers[i], i + 1);
+              };
+            case "nearestKey":
+              return (t: unknown) => {
+                const markers = list();
+                if (!markers.length) throw new RangeError("there are no markers");
+                const time = t === undefined ? this.time : scalar(t);
+                let best = 0;
+                markers.forEach((m, i) => {
+                  if (Math.abs(m.time - time) < Math.abs(markers[best].time - time)) best = i;
+                });
+                return markerKey(markers[best], best + 1);
+              };
+            case "name":
+              return "Marker";
+          }
           return missing("Property", key);
         },
-      },
-      "Property",
-    );
+      };
+      return apiObject(node, "Property");
+    });
   }
 
   /** sourceRectAtTime(): the layer's source bounds; shape layers measure their paths. */
@@ -951,7 +1000,8 @@ export class Api {
 
   // --- motion -----------------------------------------------------------------------
 
-  private readonly H = 1e-4;
+  /** Finite-difference step (seconds) for velocities. */
+  private readonly H = 1e-6;
 
   velocity(p: Property, layer: Layer, t: number): unknown {
     const onKey = p.keyframes.some((k) => Math.abs(k.time - t) < 1e-9);
@@ -1023,9 +1073,11 @@ export class Api {
     const span = end - start;
     if (span <= 0) return value(t);
     if (type === "continue") {
+      // The slope with which the animation leaves its first or reaches its last key.
       const edge = before ? first : last;
-      const v = num(this.velocity(p, layer, before ? edge : edge - this.H / 2));
-      return add(num(value(edge)), mul(v, t - edge));
+      const inner = before ? edge + this.H : edge - this.H;
+      const slope = div(sub(num(value(edge)), num(value(inner))), edge - inner);
+      return add(num(value(edge)), mul(slope, t - edge));
     }
     const offsetFromStart = t - start;
     const cycles = Math.floor(offsetFromStart / span);
@@ -1041,10 +1093,11 @@ export class Api {
   }
 }
 
-/** The text of a Source Text property, when the parser provides it. */
+/** A Source Text value (a text document with its `text`), when the parser provides one. */
+export function textDocumentOf(v: unknown): { text: string } | undefined {
+  return v && typeof v === "object" && typeof (v as { text?: unknown }).text === "string" ? (v as { text: string }) : undefined;
+}
+
 function textOf(p: Property): string {
-  const v = p.value as unknown;
-  if (typeof v === "string") return v;
-  if (v && typeof v === "object" && typeof (v as { text?: unknown }).text === "string") return (v as { text: string }).text;
-  return "";
+  return typeof p.value === "string" ? p.value : (textDocumentOf(p.value)?.text ?? "");
 }

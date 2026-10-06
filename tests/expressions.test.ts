@@ -1,8 +1,13 @@
+import { readdirSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 import { afterEach, describe, expect, test } from "vitest";
 import { currentValue, setExpressionScope } from "../src/aep/evaluate.ts";
 import { PropertyValueType, type CompItem, type Keyframe, type Layer, type Project, type Property, type PropertyGroup, type PropertyNode, type PropertyValue } from "../src/aep/model.ts";
+import { parseProject } from "../src/aep/parse.ts";
 import { compileExpression, ExpressionSecurityError, verifyOutput } from "../src/expressions/compile.ts";
 import "../src/expressions/install.ts";
+import { compMarkers, layerMarkers, type Marker } from "../src/expressions/markers.ts";
+import { SAMPLES } from "../scripts/lib/paths.ts";
 
 // --- a small synthetic project ------------------------------------------------------
 
@@ -367,6 +372,31 @@ describe("API", () => {
 
   test("posterizeTime quantizes time and value", () => {
     expect(value("posterizeTime(4); time", { time: 0.6 })).toBe(0.5);
+  });
+
+  test("markers decode as After Effects reports them (py-aep ExtendScript exports)", () => {
+    const dir = join(SAMPLES, "models/marker");
+    const pick = (m: Marker | Record<string, unknown>) => {
+      const { time, duration, comment, chapter, url, frameTarget, cuePointName, label, protectedRegion } = m as Record<string, unknown>;
+      return { time, duration, comment, chapter, url, frameTarget, cuePointName, label, protectedRegion };
+    };
+    let checked = 0;
+    for (const file of readdirSync(dir).filter((f) => f.endsWith(".json"))) {
+      const json = JSON.parse(readFileSync(join(dir, file), "utf8"));
+      const p = parseProject(new Uint8Array(readFileSync(join(dir, file.replace(/\.json$/, ".aep")))));
+      for (const jComp of json.items.filter((i: { layers?: unknown }) => Array.isArray(i.layers))) {
+        const comp = p.items.get(jComp.id) as CompItem;
+        expect(compMarkers(comp).map(pick), `${file} ${jComp.name}`).toEqual((jComp.markers ?? []).map(pick));
+        checked += (jComp.markers ?? []).length;
+        for (const jLayer of jComp.layers) {
+          const jMarker = jLayer.properties.find((n: { matchName: string }) => n.matchName === "ADBE Marker");
+          const expected = (jMarker?.keyframes ?? []).map((k: { time: number; value: Record<string, unknown> }) => pick({ ...k.value, time: k.time }));
+          expect(layerMarkers(comp.layers[jLayer.index - 1], comp).map(pick), `${file} ${jComp.name} ${jLayer.name}`).toEqual(expected);
+          checked += expected.length;
+        }
+      }
+    }
+    expect(checked).toBeGreaterThan(5);
   });
 
   test("random is deterministic per layer, property, seed and time", () => {

@@ -11,15 +11,19 @@
 // Samples that depend on AE's random generators (wiggle, random, noise...) are
 // reported separately as a known gap and never counted as passing.
 //
-//   node scripts/expr-report.ts [--require] [--verbose]
-import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
+//   node scripts/expr-report.ts [--render] [--require] [--verbose]
+//
+// --render renders missing frames of probe comps no pixel suite lists (the
+// random-generator probes) with aerender, under the machine-wide AE lock.
+import { existsSync, mkdirSync, readdirSync, readFileSync, renameSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { currentValue, setExpressionScope } from "../src/aep/evaluate.ts";
 import type { CompItem, Layer, Project, Property, PropertyNode, PropertyValue } from "../src/aep/model.ts";
 import { parseProject } from "../src/aep/parse.ts";
 import "../src/expressions/install.ts";
+import { aerender } from "./aerender.ts";
 import { SAMPLES } from "./lib/paths.ts";
-import { framePath, ROOT } from "./lib/suites.ts";
+import { framePath, loadSuites, ROOT } from "./lib/suites.ts";
 import { readTiff } from "./lib/tiff.ts";
 
 type Json = Record<string, any>;
@@ -36,7 +40,8 @@ interface Sample {
   ours: number[] | null;
   ae: number[] | null;
   warnings: string[];
-  aeError?: string;
+  /** Corpus samples: our engine must fail exactly when AE reported an expression error. */
+  errorMustMatch?: { ae: boolean };
   tolerance: number;
 }
 
@@ -95,7 +100,7 @@ function corpusSamples(): Sample[] {
               ours: flatten(value),
               ae: flatten(jNode.value),
               warnings,
-              aeError: jNode.expressionError || undefined,
+              errorMustMatch: { ae: !!jNode.expressionError },
               tolerance: TOLERANCE,
             });
           }
@@ -171,7 +176,7 @@ function probeSamples(): { exact: Sample[]; random: Sample[] } {
           if (comp && layer && target) {
             const { value, warnings } = evaluateAt(project, layer, target.prop, target.siblings, frame * comp.frameDuration);
             sample.warnings = warnings;
-            if (Array.isArray(value)) sample.ours = [decode(value.slice(0, 3).map((c) => Math.round(c * 255 - 0.5)), manifest)];
+            if (Array.isArray(value)) sample.ours = [decode(value.slice(0, 3).map((c) => Math.round(c * 255)), manifest)];
           }
           if (ref) {
             const i = (cell.y * ref.width + cell.x) * 4;
@@ -185,10 +190,56 @@ function probeSamples(): { exact: Sample[]; random: Sample[] } {
   return { exact, random };
 }
 
+/**
+ * Renders missing reference frames of probe comps that no pixel suite lists (the
+ * random-generator probes), with the same aerender settings as render-refs.ts.
+ */
+async function renderUnlisted(): Promise<void> {
+  const listed = new Set(loadSuites().flatMap((s) => s.comps.map((c) => c.comp)));
+  const dir = join(ROOT, "fixtures");
+  for (const file of readdirSync(dir).filter((f) => f.endsWith(".probes.json"))) {
+    const manifest = JSON.parse(readFileSync(join(dir, file), "utf8")) as ProbeManifest;
+    for (const { comp, frames } of manifest.comps) {
+      if (listed.has(comp) || frames.every((f) => existsSync(framePath(comp, f)))) continue;
+      mkdirSync(join(ROOT, "frames", comp), { recursive: true });
+      const step = frames.length > 1 ? frames[1] - frames[0] : 1;
+      const result = await aerender(
+        [
+          "-project", join(dir, manifest.project),
+          "-comp", comp,
+          "-s", String(frames[0]),
+          "-e", String(frames[frames.length - 1]),
+          "-i", String(step),
+          "-OMtemplate", process.env.AE_TIFF_TEMPLATE ?? "Secuencia TIFF con alfa",
+          "-output", join(ROOT, "frames", comp, "frame_[#####].tif"),
+          "-sound", "OFF",
+        ],
+        300_000,
+      );
+      if (step > 1) {
+        for (let k = frames.length - 1; k > 0; k--) {
+          const written = framePath(comp, k);
+          if (existsSync(written)) renameSync(written, framePath(comp, frames[k]));
+        }
+      }
+      const missing = frames.filter((f) => !existsSync(framePath(comp, f)));
+      console.log(`rendered ${comp}: ${missing.length ? `missing frames ${missing.join(", ")}` : "ok"}${result.timedOut ? " (timed out)" : ""}`);
+    }
+  }
+}
+
 // --- report -------------------------------------------------------------------------
 
+if (args.includes("--render")) await renderUnlisted();
+
+// Probe cells compare values only: a probe that reads a deliberately failing
+// property must see the same fallback value AE does.
 const matches = (s: Sample) =>
-  !!s.ours && !!s.ae && s.ours.length === s.ae.length && s.ours.every((v, i) => Math.abs(v - s.ae![i]) <= s.tolerance) && !s.warnings.length;
+  !!s.ours &&
+  !!s.ae &&
+  s.ours.length === s.ae.length &&
+  s.ours.every((v, i) => Math.abs(v - s.ae![i]) <= s.tolerance) &&
+  (!s.errorMustMatch || s.errorMustMatch.ae === s.warnings.length > 0);
 
 const corpus = corpusSamples();
 const probes = probeSamples();

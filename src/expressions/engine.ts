@@ -12,15 +12,15 @@ import {
   type Property,
   type PropertyValue,
 } from "../aep/model.ts";
-import { Api, expressionDimensions, shapeOf, type EvalFrame, type Host } from "./api.ts";
+import { Api, expressionDimensions, shapeOf, textDocumentOf, type EvalFrame, type Host } from "./api.ts";
 import { compileExpression, type CompiledExpression } from "./compile.ts";
 import { ProjectIndex } from "./projectIndex.ts";
 import { hashWords, noise, RandomStream, timeWords } from "./random.ts";
 import { helpers, jsGlobals, unwrap } from "./sandbox.ts";
 import * as V from "./vector.ts";
 
-/** Properties whose values expressions cannot produce yet (text documents, markers, gradients). */
-const SKIPPED_TYPES = new Set<number>([PropertyValueType.TEXT_DOCUMENT, PropertyValueType.MARKER, PropertyValueType.NO_VALUE]);
+/** Properties whose values expressions cannot produce (markers, no-value groups; gradients are checked by value). */
+const SKIPPED_TYPES = new Set<number>([PropertyValueType.MARKER, PropertyValueType.NO_VALUE]);
 
 /** Values AE limits to 0..100 whatever the expression returns. */
 const PERCENT = new Set(["ADBE Opacity", "ADBE Vector Group Opacity", "ADBE Vector Fill Opacity", "ADBE Vector Stroke Opacity", "ADBE Mask Opacity"]);
@@ -87,6 +87,7 @@ export class ExpressionEngine implements Host {
   readonly evaluate = (prop: Property, compTime: number, layer: Layer, pre: PropertyValue): PropertyValue => {
     const scope = getExpressionScope();
     if (!scope || !prop.expression || SKIPPED_TYPES.has(prop.propertyValueType) || isGradientValue(pre)) return pre;
+    if (prop.propertyValueType === PropertyValueType.TEXT_DOCUMENT && !textDocumentOf(pre)) return pre;
     if (scope !== this.scope) {
       this.scope = scope;
       this.results = new WeakMap();
@@ -174,6 +175,11 @@ export class ExpressionEngine implements Host {
       return structuredCloneShape(shape);
     }
     const r = unwrap(result);
+    const doc = textDocumentOf(pre);
+    if (prop.propertyValueType === PropertyValueType.TEXT_DOCUMENT && doc) {
+      // Paragraphs are CR-separated in text documents.
+      return { ...doc, text: String(r ?? "").replace(/\r\n|\n/g, "\r") } as unknown as PropertyValue;
+    }
     const dims = expressionDimensions(prop, layer, pre);
     if (dims === 0) throw new TypeError("the property's value cannot be set by an expression");
     const finite = (x: unknown) => {
@@ -262,14 +268,12 @@ export class ExpressionEngine implements Host {
         return l + (h - l) * sample();
       });
     };
-    const timecode = (t: number, base: number, isDuration: boolean) => {
+    const timecode = (t: number, base: number) => {
       const frames = Math.floor(t * base + 1e-6);
-      const sign = frames < 0 ? "-" : "";
       const f = Math.abs(frames);
       const b = Math.round(base);
       const pad = (n: number) => String(n).padStart(2, "0");
-      const out = `${Math.floor(f / (b * 3600))}:${pad(Math.floor(f / (b * 60)) % 60)}:${pad(Math.floor(f / b) % 60)}:${pad(f % b)}`;
-      return isDuration ? `${sign}${out}` : `${sign}${out}`;
+      return `${frames < 0 ? "-" : ""}${Math.floor(f / (b * 3600))}:${pad(Math.floor(f / (b * 60)) % 60)}:${pad(Math.floor(f / b) % 60)}:${pad(f % b)}`;
     };
     const ae: Record<string, unknown> = {
       comp: (name: unknown) => {
@@ -309,10 +313,9 @@ export class ExpressionEngine implements Host {
         return unwrap(isDuration) ? Math.round(frames) : Math.floor(frames + 1e-6);
       },
       framesToTime: (frames: unknown, rate?: unknown) => V.scalar(frames) / (rate === undefined ? fps() : V.scalar(rate)),
-      timeToTimecode: (t?: unknown, base: unknown = 30, isDuration: unknown = false) => timecode(displayTime(t), V.scalar(base), !!unwrap(isDuration)),
-      timeToNTSCTimecode: (t?: unknown, _dropFrame?: unknown, isDuration: unknown = false) => timecode(displayTime(t), 30, !!unwrap(isDuration)),
-      timeToCurrentFormat: (t?: unknown, rate?: unknown, isDuration: unknown = false) =>
-        timecode(displayTime(t), rate === undefined ? fps() : V.scalar(rate), !!unwrap(isDuration)),
+      timeToTimecode: (t?: unknown, base: unknown = 30) => timecode(displayTime(t), V.scalar(base)),
+      timeToNTSCTimecode: (t?: unknown) => timecode(displayTime(t), 30),
+      timeToCurrentFormat: (t?: unknown, rate?: unknown) => timecode(displayTime(t), rate === undefined ? fps() : V.scalar(rate)),
       timeToFeetAndFrames: (t?: unknown, rate?: unknown, framesPerFoot: unknown = 16) => {
         const frames = Math.floor(displayTime(t) * (rate === undefined ? fps() : V.scalar(rate)) + 1e-6);
         const per = V.scalar(framesPerFoot);

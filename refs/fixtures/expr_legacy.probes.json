@@ -1,0 +1,82 @@
+{
+ "project": "expr_legacy.aep",
+ "scale": 1024,
+ "offset": 8388608,
+ "comps": [
+  {
+   "comp": "expr_legacy_probe",
+   "frames": [
+    0,
+    12
+   ],
+   "cells": [
+    {
+     "layer": "p0",
+     "label": "time",
+     "x": 5,
+     "y": 5
+    },
+    {
+     "layer": "p1",
+     "label": "this_comp",
+     "x": 15,
+     "y": 5
+    },
+    {
+     "layer": "p2",
+     "label": "this_layer.index",
+     "x": 25,
+     "y": 5
+    },
+    {
+     "layer": "p3",
+     "label": "this.index",
+     "x": 35,
+     "y": 5
+    },
+    {
+     "layer": "p4",
+     "label": "thisComp.layer",
+     "x": 45,
+     "y": 5
+    },
+    {
+     "layer": "p5",
+     "label": "[1,2]+5",
+     "x": 55,
+     "y": 5
+    },
+    {
+     "layer": "p6",
+     "label": "value * 2",
+     "x": 65,
+     "y": 5
+    },
+    {
+     "layer": "p7",
+     "label": "ease",
+     "x": 75,
+     "y": 5
+    },
+    {
+     "layer": "p8",
+     "label": "linear",
+     "x": 85,
+     "y": 5
+    },
+    {
+     "layer": "p9",
+     "label": "velocity",
+     "x": 95,
+     "y": 5
+    },
+    {
+     "layer": "p10",
+     "label": "toComp",
+     "x": 105,
+     "y": 5
+    }
+   ]
+  }
+ ]
+}
