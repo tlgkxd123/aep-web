@@ -1,4 +1,6 @@
-import { useState } from "react";
+import { useState, type CSSProperties } from "react";
+import { applySoundKeys } from "../media/soundKeysApply.ts";
+import { SOUND_KEYS, SOUND_KEYS_COMMANDS } from "../media/soundKeys.ts";
 import { EffectControlType, type CompItem, type Layer, type Project, type Property, type PropertyGroup } from "../aep/model.ts";
 import { valueAt } from "./animate.ts";
 import { fixed } from "./format.ts";
@@ -92,6 +94,9 @@ function ParamRow({ node, depth, effect, ctx, time, expanded, toggle, path }: Ro
     );
   }
   const { prop } = node;
+  if (effect.matchName === SOUND_KEYS && prop.matchName === SOUND_KEYS_COMMANDS) {
+    return <SoundKeysCommands effect={effect} ctx={ctx} indent={indent} depth={depth} />;
+  }
   const value = valueAt(prop, time, ctx.layer);
   const range = typeof value === "number" ? sliderRange(prop, effect, ctx) : undefined;
   const angle = prop.controlType === EffectControlType.ANGLE && typeof value === "number";
@@ -151,6 +156,48 @@ function ParamRow({ node, depth, effect, ctx, time, expanded, toggle, path }: Ro
           <AngleDial degrees={value} />
         </div>
       )}
+    </div>
+  );
+}
+
+/** Sound Keys' Commands row: Apply analyses the Audio Layer over the work area into Output keyframes. */
+function SoundKeysCommands({ effect, ctx, indent, depth }: { effect: PropertyGroup; ctx: RowProps["ctx"]; indent: CSSProperties; depth: number }) {
+  const editing = useEditing();
+  const { editor } = editing;
+  const [status, setStatus] = useState<{ busy?: boolean; text?: string; error?: boolean }>({});
+  const apply = async () => {
+    if (!editor || status.busy) return;
+    setStatus({ busy: true, text: "Analysing audio..." });
+    try {
+      const summary = await applySoundKeys(editor, ctx.project, ctx.comp, ctx.layer, effect, (done) =>
+        setStatus({ busy: true, text: `Analysing audio... ${Math.round(done * 100)}%` }),
+      );
+      setStatus({ text: summary });
+    } catch (error) {
+      setStatus({ text: error instanceof Error ? error.message : String(error), error: true });
+    }
+  };
+  return (
+    <div role="treeitem" aria-level={depth + 2} className="ec-item">
+      <div className="ec-row">
+        <span className="ec-name" style={indent}>
+          <span className="twirl-space" />
+          <span className="stopwatch-space" />
+          <span className="cell-text">Commands</span>
+        </span>
+        <span className="ec-value" onClick={(e) => e.stopPropagation()}>
+          <button
+            type="button"
+            className="ae-button"
+            disabled={!editor || status.busy}
+            title={editor ? "Generate the Output keyframes from the whole Audio Layer" : "Open the project for editing to apply"}
+            onClick={apply}
+          >
+            Apply
+          </button>
+          {status.text && <span className={`ec-status ${status.error ? "error" : ""}`} role="status">{status.text}</span>}
+        </span>
+      </div>
     </div>
   );
 }

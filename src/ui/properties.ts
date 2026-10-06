@@ -8,6 +8,7 @@ import {
   type PropertyGroup,
   type PropertyNode,
 } from "../aep/model.ts";
+import { SOUND_KEYS_COMMANDS } from "../media/soundKeys.ts";
 
 export type GroupRole = "effect" | "mask" | "transform" | "contents" | "text" | "plain";
 
@@ -200,7 +201,8 @@ function effectParams(effect: PropertyGroup, ctx: OutlineContext, mode: OutlineM
       if (stack.length > 1) stack.pop();
       return;
     }
-    if (type === EffectControlType.NO_DATA || defs.get(node.matchName)?.invisible) return;
+    const command = mode === "effect-controls" && node.matchName === SOUND_KEYS_COMMANDS;
+    if ((type === EffectControlType.NO_DATA && !command) || defs.get(node.matchName)?.invisible) return;
     if (mode === "timeline") {
       if (!node.name || type === EffectControlType.BUTTON || type === EffectControlType.ARBITRARY) return;
       if (!node.canVaryOverTime && !node.keyframes.length) return;

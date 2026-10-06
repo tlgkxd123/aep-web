@@ -75,14 +75,17 @@ export function layerAudio(project: Project, layer: Layer, time: number): LayerA
 
 /**
  * `length` samples of the mono mix starting at sample `first` of the layer's
- * timeline, which has rate · timeScale samples per layer second.
+ * timeline, which has rate · timeScale samples per layer second. `channel`
+ * (0 left, 1 right) picks one channel of stereo sources instead of their mean.
  */
-export function mixWindow(audio: LayerAudio, first: number, length: number): Float32Array {
+export function mixWindow(audio: LayerAudio, first: number, length: number, channel?: number): Float32Array {
   const out = new Float32Array(length);
   const perSecond = audio.rate * audio.timeScale;
   for (const c of audio.contributions) {
     const rate = c.audio.sampleRate;
-    const channels = Array.from({ length: c.audio.numberOfChannels }, (_, i) => c.audio.getChannelData(i));
+    const count = c.audio.numberOfChannels;
+    const picked = channel !== undefined && count > 1 ? [Math.min(channel, count - 1)] : Array.from({ length: count }, (_, i) => i);
+    const channels = picked.map((i) => c.audio.getChannelData(i));
     const gain = 1 / channels.length;
     const end = c.audio.length;
     // Source sample position of window sample i: p0 + i · step.

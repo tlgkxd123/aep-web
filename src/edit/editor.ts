@@ -560,6 +560,46 @@ export class Editor {
     });
   }
 
+  /**
+   * Replaces the keyframes of each property from `from` to `to` (comp seconds,
+   * inclusive) with linear keys, keeping the keys outside that span, as one
+   * undoable step (Sound Keys' Apply).
+   */
+  replaceKeyframes(
+    comp: CompItem,
+    layer: Layer,
+    entries: { prop: Property; keys: { time: number; value: PropertyValue }[] }[],
+    from: number,
+    to: number,
+    label = "Replace keyframes",
+  ): void {
+    const work = entries.filter((e) => e.keys.length);
+    work.forEach((e) => assertNotSeparated(e.prop));
+    if (!work.length) return;
+    this.run(label, [comp], {}, (tx) => {
+      for (const { prop, keys } of work) this.replaceKeysOf(tx, comp, layer, prop, keys, from, to);
+    });
+  }
+
+  private replaceKeysOf(tx: Transaction, comp: CompItem, layer: Layer, prop: Property, keys: { time: number; value: PropertyValue }[], from: number, to: number): void {
+    const t = this.target(comp, layer, prop);
+    if (!this.keyItems(t)) this.animate(tx, t, this.unitsAt(t, keys[0].time), keys[0].value);
+    const list = this.keyItems(t)!;
+    const layout = this.layout(t);
+    const lo = this.unitsAt(t, from);
+    const hi = this.unitsAt(t, to);
+    const kept = list.items.filter((item) => item.timeUnits < lo || item.timeUnits > hi);
+    const template = kept[0]?.value ?? list.items[0]?.value ?? [];
+    const byTime = new Map<number, KeyItem>(kept.map((item) => [item.timeUnits, item]));
+    for (const { time, value } of keys) {
+      const item = KeyItem.create(layout, this.unitsAt(t, time));
+      item.value = this.rawValue(t, value, template);
+      byTime.set(item.timeUnits, item);
+    }
+    list.items = [...byTime.values()].sort((a, b) => a.timeUnits - b.timeUnits);
+    this.writeItems(tx, list);
+  }
+
   /** The stopwatch: animate at `time`, or drop every keyframe keeping the value at `time`. */
   toggleStopwatch(comp: CompItem, layer: Layer, prop: Property, time: number): void {
     if (prop.keyframes.length) {

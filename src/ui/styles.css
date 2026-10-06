@@ -294,6 +294,34 @@ button.twirl:hover {
   white-space: nowrap;
 }
 
+button.ae-button {
+  background: transparent;
+  cursor: pointer;
+}
+
+button.ae-button:hover:not(:disabled) {
+  border-color: #888;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+button.ae-button:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.ec-status {
+  margin-left: 8px;
+  color: var(--text-dim, #999);
+  font-size: 11px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ec-status.error {
+  color: #e8806f;
+}
+
 .ae-primary,
 .ae-secondary {
   display: inline-flex;
