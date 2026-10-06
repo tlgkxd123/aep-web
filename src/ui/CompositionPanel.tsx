@@ -6,6 +6,7 @@ import { apply, invert, layerAffine, type Matrix } from "./animate.ts";
 import { colorCss, labelColor, timecode } from "./format.ts";
 import { setHover } from "./hover.ts";
 import { Icon, type IconName } from "./icons.tsx";
+import { locateFootageFolder, missingFootage, useFootageVersion } from "./LocateFootage.tsx";
 import { layerHasVideo } from "./properties.ts";
 import { Dropdown } from "./values.tsx";
 
@@ -45,6 +46,8 @@ function useCompRender(canvas: HTMLCanvasElement | null, project: Project, comp:
   const state = useRef<RenderState | null>(null);
   const [notes, setNotes] = useState<string[]>([]);
   const [error, setError] = useState<string>();
+  // Footage decodes asynchronously; render again when its frames arrive.
+  const footageVersion = useFootageVersion();
   useEffect(() => {
     // jsdom and browsers without WebGL2 keep the plain comp frame.
     if (!canvas || typeof WebGL2RenderingContext === "undefined") return;
@@ -67,7 +70,7 @@ function useCompRender(canvas: HTMLCanvasElement | null, project: Project, comp:
       }
     });
     return () => cancelAnimationFrame(frame);
-  }, [canvas, project, comp, time]);
+  }, [canvas, project, comp, time, footageVersion]);
   return { state, notes, error };
 }
 
@@ -108,6 +111,7 @@ export function CompositionPanel({
   const [grid, setGrid] = useState(false);
   const [canvas, setCanvas] = useState<HTMLCanvasElement | null>(null);
   const render = useCompRender(canvas, project, comp, time);
+  const missing = missingFootage(project, comp).length;
 
   useEffect(() => {
     const el = viewerRef.current;
@@ -207,9 +211,17 @@ export function CompositionPanel({
             </svg>
           </div>
         </div>
-        {(render.error || render.notes.length > 0) && (
+        {(render.error || render.notes.length > 0 || missing > 0) && (
           <div className="render-notes" role="status">
-            {render.error ? `Render failed: ${render.error}` : `Renderer: ${render.notes.join("; ")}`}
+            {missing > 0 && (
+              <div>
+                {`${missing} footage ${missing === 1 ? "item is" : "items are"} missing.`}
+                <button type="button" className="locate-link" onClick={() => void locateFootageFolder()}>
+                  Locate Footage…
+                </button>
+              </div>
+            )}
+            {render.error ? `Render failed: ${render.error}` : render.notes.length > 0 && `Renderer: ${render.notes.join("; ")}`}
           </div>
         )}
       </div>

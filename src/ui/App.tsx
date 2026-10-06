@@ -6,6 +6,7 @@ import { CompositionPanel } from "./CompositionPanel.tsx";
 import { EffectControlsPanel } from "./EffectControlsPanel.tsx";
 import { HomeScreen } from "./HomeScreen.tsx";
 import { Icon } from "./icons.tsx";
+import { addDroppedFootage } from "./LocateFootage.tsx";
 import { MenuBar, type MenuCommand } from "./MenuBar.tsx";
 import { PanelFrame, type PanelTab } from "./Panel.tsx";
 import { ProjectPanel } from "./ProjectPanel.tsx";
@@ -293,8 +294,10 @@ export function App() {
       e.preventDefault();
       dragDepth.current = 0;
       setDragging(false);
-      const file = e.dataTransfer.files[0];
-      if (file) void open(file);
+      const files = Array.from(e.dataTransfer.files);
+      const projectFile = files.find((f) => /\.aep$/i.test(f.name));
+      if (loaded && !projectFile) void addDroppedFootage(e.dataTransfer);
+      else if (projectFile ?? files[0]) void open(projectFile ?? files[0]);
     },
   };
 

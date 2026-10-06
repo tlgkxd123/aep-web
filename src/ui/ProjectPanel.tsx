@@ -1,8 +1,12 @@
 import { memo, useEffect, useMemo, useState, type KeyboardEvent } from "react";
 import type { Item, Project } from "../aep/model.ts";
+import { footageStore } from "../media/store.ts";
 import { bitsPerChannel, colorCss, fpsLabel, fpsShort, labelColor, labelName, timecode } from "./format.ts";
 import { Icon } from "./icons.tsx";
 import { ItemIcon } from "./itemIcons.tsx";
+import { LocateFootageButtons, useFootageVersion } from "./LocateFootage.tsx";
+
+const isMissing = (item: Item) => item.kind === "footage" && !footageStore.isLocated(item);
 
 type SortKey = "name" | "label" | "type" | "size" | "fps" | "path";
 
@@ -93,6 +97,7 @@ function ItemInfo({ item, uses }: { item: Item | undefined; uses: number }) {
   if (isFootage && item.mainSource.sourceType === "FileSource" && item.width === 0) lines.push("Audio only");
   if (solid) lines.push("Solid");
   if (isFootage && item.mainSource.sourceType === "PlaceholderSource") lines.push("Placeholder");
+  else if (isMissing(item)) lines.push("Missing: use Locate Footage below");
   return (
     <div className="proj-info">
       <div className="proj-thumb-box">
@@ -133,6 +138,7 @@ export const ProjectPanel = memo(function ProjectPanel({
   const [expanded, setExpanded] = useState<Set<number>>(() => new Set(ancestors(project, selectedId)));
   const [query, setQuery] = useState("");
   const [sort, setSort] = useState<{ key: SortKey; dir: 1 | -1 }>({ key: "name", dir: 1 });
+  useFootageVersion();
 
   useEffect(() => {
     setExpanded(new Set(ancestors(project, selectedId)));
@@ -225,6 +231,7 @@ export const ProjectPanel = memo(function ProjectPanel({
             {rows.map(({ item, depth }) => {
               const isFolder = item.kind === "folder";
               const open = isFolder && (expanded.has(item.id) || !!query.trim());
+              const missing = isMissing(item);
               return (
                 <div
                   key={item.id}
@@ -232,7 +239,7 @@ export const ProjectPanel = memo(function ProjectPanel({
                   aria-level={depth + 1}
                   aria-selected={item.id === selectedId}
                   aria-expanded={isFolder ? open : undefined}
-                  className={`proj-row ${item.id === selectedId ? "selected" : ""}`}
+                  className={`proj-row ${item.id === selectedId ? "selected" : ""} ${missing ? "missing" : ""}`}
                   onClick={() => onSelect(item.id)}
                   onDoubleClick={() => (isFolder ? toggle(item.id) : onOpenItem(item.id))}
                   title={pathText(item) || undefined}
@@ -254,6 +261,11 @@ export const ProjectPanel = memo(function ProjectPanel({
                     )}
                     <ItemIcon item={item} />
                     <span className="cell-text">{item.name || "(unnamed)"}</span>
+                    {missing && (
+                      <span className="missing-mark" title="Missing footage" aria-label="missing">
+                        <Icon name="warning" size={10} />
+                      </span>
+                    )}
                   </span>
                   <span className="pc-label">
                     <span className="label-chip" style={{ background: labelColor(item.label) }} title={labelName(item.label)} />
@@ -281,6 +293,7 @@ export const ProjectPanel = memo(function ProjectPanel({
         <span className="foot-btn" title="Composition Flowchart" aria-hidden="true">
           <Icon name="flowchart" size={14} />
         </span>
+        <LocateFootageButtons />
         <span className="foot-bpc" title="Project color depth">
           {bitsPerChannel(project.bitsPerChannel)} bpc
         </span>

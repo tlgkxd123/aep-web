@@ -92,7 +92,11 @@ const COMP_FIELDS = [
   "workAreaStart", "workAreaDuration", "shutterAngle", "shutterPhase", "motionBlur",
   "frameBlending", "hideShyLayers", "draft3d", "resolutionFactor",
 ];
-const FOOTAGE_FIELDS = ["width", "height", "duration", "frameRate", "pixelAspect"];
+const FOOTAGE_FIELDS = ["width", "height", "duration", "frameRate", "frameDuration", "pixelAspect", "footageMissing", "hasVideo", "hasAudio"];
+const SOURCE_FIELDS = [
+  "alphaMode", "conformFrameRate", "displayFrameRate", "fieldSeparationType", "hasAlpha", "highQualityFieldSeparation",
+  "invertAlpha", "isStill", "loop", "missingFootagePath", "nativeFrameRate", "premulColor", "removePulldown",
+];
 const LAYER_FIELDS: (keyof Layer)[] = [
   "id", "name", "matchName", "comment", "inPoint", "outPoint", "startTime", "stretch",
   "enabled", "solo", "shy", "locked", "threeDLayer", "threeDPerChar", "adjustmentLayer", "nullLayer",
@@ -108,9 +112,16 @@ function compareItem(item: Item, json: Json, where: string): void {
   const fields = item.kind === "comp" ? COMP_FIELDS : item.kind === "footage" ? FOOTAGE_FIELDS : [];
   for (const f of fields) if (f in json) t.check(`${item.kind}.${f}`, (item as Json)[f], json[f], where);
   if (item.kind === "footage" && json.mainSource) {
-    t.check("footage.sourceType", item.mainSource.sourceType, json.mainSource.sourceType, where);
-    if (item.mainSource.sourceType === "SolidSource" && json.mainSource.color) {
-      t.check("footage.solidColor", item.mainSource.color, json.mainSource.color, where);
+    const source = item.mainSource;
+    t.check("footage.sourceType", source.sourceType, json.mainSource.sourceType, where);
+    if (source.sourceType === "SolidSource" && json.mainSource.color) {
+      t.check("footage.solidColor", source.color, json.mainSource.color, where);
+    }
+    for (const f of SOURCE_FIELDS) if (f in json.mainSource) t.check(`source.${f}`, (source as Json)[f], json.mainSource[f], where);
+    if (source.sourceType === "FileSource") {
+      if ("filePath" in json.mainSource) t.check("source.filePath", source.file, json.mainSource.filePath, where);
+      if ("fileName" in json.mainSource) t.check("source.fileName", source.fileName, json.mainSource.fileName, where);
+      if ("filePath" in json) t.check("footage.filePath", source.file, json.filePath, where);
     }
   }
   if (item.kind === "comp" && "numLayers" in json) t.check("comp.numLayers", item.layers.length, json.numLayers, where);
