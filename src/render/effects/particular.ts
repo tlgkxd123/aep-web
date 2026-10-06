@@ -10,7 +10,7 @@
 import type { CompItem, Layer, Project, PropertyGroup } from "../../aep/model.ts";
 import type { Chunk } from "../../aep/riff.ts";
 import { cameraAt, Mat4 } from "../../aep/transform.ts";
-import { effectNumber, effectVector } from "../effectParams.ts";
+import { effectNumber, effectProperty, effectVector } from "../effectParams.ts";
 import { compile, type GL } from "../gl.ts";
 import { registerEffect } from "../registry.ts";
 
@@ -171,6 +171,68 @@ function uniformDirection(rand: () => number): [number, number, number] {
   return [r * Math.cos(a), r * Math.sin(a), z];
 }
 
+/**
+ * Particles emitted since time 0 (real seconds), ∫ rate dt, for an emission rate
+ * that may be animated: emission accumulates, so changing the rate changes only
+ * the particles born afterwards. Built in steps of `step` seconds and extended
+ * as later times are asked for; one table per rate property, reused across frames.
+ */
+class Emission {
+  private cumulative = new Float64Array(1024);
+  private filled = 1;
+  private readonly rateAt: (t: number) => number;
+  readonly step: number;
+
+  constructor(rateAt: (t: number) => number, step: number) {
+    this.rateAt = rateAt;
+    this.step = step;
+  }
+
+  private extend(index: number): void {
+    if (index < this.filled) return;
+    if (index >= this.cumulative.length) {
+      const grown = new Float64Array(Math.max(index + 1, this.cumulative.length * 2));
+      grown.set(this.cumulative);
+      this.cumulative = grown;
+    }
+    let previous = this.rateAt((this.filled - 1) * this.step);
+    for (let k = this.filled; k <= index; k++) {
+      const rate = this.rateAt(k * this.step);
+      this.cumulative[k] = this.cumulative[k - 1] + ((previous + rate) / 2) * this.step;
+      previous = rate;
+    }
+    this.filled = index + 1;
+  }
+
+  /** Particles emitted from 0 to `t`. */
+  at(t: number): number {
+    if (t <= 0) return 0;
+    const k = Math.floor(t / this.step);
+    this.extend(k + 1);
+    const c = this.cumulative;
+    return c[k] + (c[k + 1] - c[k]) * (t / this.step - k);
+  }
+
+  /** The time by which `count` particles have been emitted (Infinity when never). */
+  timeOf(count: number, limit: number): number {
+    if (count <= 0) return 0;
+    let lo = 0;
+    let hi = Math.max(1, Math.ceil(limit / this.step) + 1);
+    this.extend(hi);
+    if (this.cumulative[hi] < count) return Infinity;
+    while (hi - lo > 1) {
+      const mid = (lo + hi) >> 1;
+      if (this.cumulative[mid] < count) lo = mid;
+      else hi = mid;
+    }
+    const a = this.cumulative[lo];
+    const b = this.cumulative[hi];
+    return (lo + (b > a ? (count - a) / (b - a) : 0)) * this.step;
+  }
+}
+
+const emissions = new WeakMap<object, Emission>();
+
 const EMITTER_POINT = 1;
 const EMITTER_BOX = 2;
 const EMITTER_SPHERE = 3;
@@ -239,17 +301,38 @@ registerEffect("tc Particular", (input, effect, layer, time, ctx) => {
     return p;
   };
 
-  // Physics Time Factor runs the whole simulation (emission, ageing, motion) slower or faster:
-  // birth times and ages are in simulation seconds.
+  // Physics Time Factor runs the whole simulation (emission, ageing, motion) slower or
+  // faster: Particles/sec counts per simulation second, and ages are simulation seconds.
+  // Pre Run emits for `preRun · life` simulation seconds before time 0 at the rate of time 0.
   const simFactor = Math.max(timeFactor, 1e-3);
-  const now = (time + preRun * life) * simFactor;
+  const rateProp = effectProperty(effect, 146);
+  const animatedRate = !!rateProp && (rateProp.keyframes.length > 0 || rateProp.expressionEnabled);
+  let emission: Emission | undefined;
+  if (animatedRate && rateProp) {
+    emission = emissions.get(rateProp);
+    if (!emission || emission.step !== 1 / fps) {
+      emission = new Emission((t) => Math.max(0, effectNumber(effect, 146, layer, t, 0)), 1 / fps);
+      emissions.set(rateProp, emission);
+    }
+  }
+  const startRate = animatedRate ? Math.max(0, effectNumber(effect, 146, layer, 0, 0)) : rate;
+  const preRunSeconds = preRun * life / simFactor;
+  /** Particles emitted by real time t (pre run included), in simulation units. */
+  const emitted = (t: number) => simFactor * (preRunSeconds * startRate + (emission ? emission.at(t) : rate * Math.max(0, t)));
+  /** Real birth time of particle i. */
+  const birthOf = (i: number) => {
+    const preRunCount = simFactor * preRunSeconds * startRate;
+    if (i < preRunCount) return i / (simFactor * startRate) - preRunSeconds;
+    const remaining = i / simFactor - preRunSeconds * startRate;
+    return emission ? emission.timeOf(remaining, time) : remaining / Math.max(rate, 1e-9);
+  };
   const splats: number[] = [];
-  const period = 1 / Math.max(rate, 1e-6);
-  const first = Math.max(0, Math.floor((now - life) * rate) - 1);
-  const last = Math.floor(now * rate + 1e-6);
-  for (let i = first; i <= last && rate > 0; i++) {
-    const birth = i * period;
-    const age = now - birth;
+  const first = Math.max(0, Math.floor(emitted(time - life / simFactor)) - 1);
+  const last = Math.floor(emitted(time) + 1e-6);
+  for (let i = first; i <= last && (rate > 0 || animatedRate); i++) {
+    const birthReal = birthOf(i);
+    if (!Number.isFinite(birthReal)) break;
+    const age = (time - birthReal) * simFactor;
     const rand = random(Math.imul(seed | 0, 2654435761) ^ Math.imul(i + 1, 0x9e3779b1));
     const lifeSpan = life * (1 - lifeRandom * 0.5 * rand());
     if (age < 0 || age > lifeSpan) continue;
@@ -278,7 +361,7 @@ registerEffect("tc Particular", (input, effect, layer, time, ctx) => {
     const pOpacity = opacity * (1 - opacityRandom * rand()) * sampleCurve(opacityOverLife, lifeShare);
     const norm = Math.hypot(dir[0], dir[1], dir[2]) || 1;
     const t = age;
-    const origin = emitterPosition(Math.max(0, birth / simFactor - preRun * life));
+    const origin = emitterPosition(Math.max(0, birthReal));
     const box = emitterRotation.transformVector(offset);
     const local = [0, 1, 2].map((c) => origin[c] + box[c] + (dir[c] / norm) * speed * t + wind[c] * t + (c === 1 ? 0.5 * gravity * t * t : 0));
     const p = world.transformPoint(local);
