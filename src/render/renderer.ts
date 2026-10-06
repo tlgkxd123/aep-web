@@ -154,6 +154,27 @@ export class Renderer {
   }
 
   /** Draws a rendered comp onto the canvas, scaled to fit, over the given background. */
+  /**
+   * Draws a rendered comp 1:1 into the canvas, resized to `width` x `height` (the
+   * top-left of the image; extra rows and columns are cropped), over an opaque
+   * background: the frame an encoder can take straight from the GPU.
+   */
+  presentFrame(target: Target, width: number, height: number, background: readonly number[]): void {
+    const gl = this.gl;
+    const canvas = gl.canvas;
+    if (canvas.width !== width || canvas.height !== height) {
+      canvas.width = width;
+      canvas.height = height;
+    }
+    bindTarget(gl, null, width, height);
+    gl.clearColor(background[0] ?? 0, background[1] ?? 0, background[2] ?? 0, 1);
+    gl.clear(gl.COLOR_BUFFER_BIT);
+    gl.enable(gl.BLEND);
+    gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+    this.drawLayerQuad(target, target.width, target.height, [0, 0], Mat4.translation(-PAD, -PAD, 0), null, width, height);
+    gl.disable(gl.BLEND);
+  }
+
   present(target: Target, comp: CompItem, background: [number, number, number, number] = [0, 0, 0, 0]): void {
     const gl = this.gl;
     const canvas = gl.canvas;

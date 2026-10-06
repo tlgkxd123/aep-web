@@ -59,6 +59,18 @@ export class StreamEncoder {
     }
   }
 
+  /** Encodes a frame the caller made (e.g. straight from a canvas); the frame is closed here. */
+  async encodeFrame(frame: VideoFrame, key: boolean): Promise<void> {
+    try {
+      this.check();
+      while (this.encoder.encodeQueueSize > 3 && !this.failure) await new Promise<void>((resolve) => this.waiters.push(resolve));
+      this.check();
+      this.encoder.encode(frame, { keyFrame: key });
+    } finally {
+      frame.close();
+    }
+  }
+
   async flush(): Promise<void> {
     this.check();
     await this.encoder.flush();

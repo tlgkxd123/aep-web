@@ -2,7 +2,7 @@ import type { CompItem, Project } from "../aep/model.ts";
 import { Renderer } from "../render/renderer.ts";
 import { EXPORT_CHANNELS, EXPORT_SAMPLE_RATE, mixCompAudio, type MixedAudio } from "./audio.ts";
 import { downloadSink, fileSink } from "./output.ts";
-import { rendererSource, renderToSink, type Sink } from "./pipeline.ts";
+import { rendererFrames, rendererSource, renderToSink, type Sink } from "./pipeline.ts";
 import {
   defaultFileName,
   defaultOutputModule,
@@ -98,6 +98,20 @@ export class RenderQueue {
     this.project = project;
     this.renderer = null;
     this.set({ items: [], current: null });
+  }
+
+  /**
+   * Follows edits to the same project (a new model after each change): items keep
+   * their settings and drop when their comp is gone. A running render keeps the
+   * project it started with.
+   */
+  update(project: Project | null): void {
+    if (project === this.project || this.rendering) return;
+    if (!project || !this.project) return this.attach(project);
+    this.project = project;
+    this.renderer?.clearCaches();
+    const items = this.snapshot.items.filter((item) => project.items.get(item.compId)?.kind === "comp");
+    this.set({ items: items.map((item) => ({ ...item, compName: (project.items.get(item.compId) as CompItem).name })) });
   }
 
   get rendering(): boolean {
@@ -213,6 +227,7 @@ export class RenderQueue {
         {
           signal,
           resume: () => this.waitWhilePaused(),
+          gpuFrames: rendererFrames(this.renderer, project, comp, plan, warnings),
           onFrame: (frame, frames) => {
             const ms = elapsed();
             this.patch(item.id, { frame });

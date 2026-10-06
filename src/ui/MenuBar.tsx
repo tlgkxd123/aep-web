@@ -8,6 +8,7 @@ export type MenuCommand =
   | "show-project"
   | "show-effect-controls"
   | "show-render-queue"
+  | "add-to-render-queue"
   | "show-chunks"
   | "show-composition"
   | "home"
@@ -152,7 +153,7 @@ const MENUS: { name: string; items: Entry[] }[] = [
       { label: "Trim Comp to Work Area", shortcut: "Ctrl+Shift+X" },
       { label: "Crop Comp to Region of Interest" },
       "-",
-      { label: "Add to Render Queue", shortcut: "Ctrl+M" },
+      { label: "Add to Render Queue", shortcut: "Ctrl+M", command: "add-to-render-queue", needsProject: true },
       { label: "Add Output Module" },
       "-",
       { label: "Preview", submenu: true },

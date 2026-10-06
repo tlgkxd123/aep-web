@@ -19,12 +19,22 @@ export interface RenderSettings {
   frameRate: number | null;
 }
 
+/**
+ * Encoding trade-off. "fast" hands GPU frames to a hardware encoder in real-time
+ * mode at a lean bitrate; "good" uses GPU frames at the quality setting; "high"
+ * converts colour exactly (BT.709 on the CPU) at a generous bitrate.
+ */
+export type Quality = "fast" | "good" | "high";
+
+export const QUALITY_LABELS: Record<Quality, string> = { fast: "Ultra fast", good: "Decent", high: "High quality" };
+
 export interface OutputModule {
   format: Format;
   channels: Channels;
-  /** Target video bitrate in bits per second; null picks one from the frame size and rate. */
+  /** Target video bitrate in bits per second; null picks one from the frame size, rate and quality. */
   bitrate: number | null;
   audio: AudioOutput;
+  quality: Quality;
 }
 
 export interface FormatInfo {
@@ -47,7 +57,7 @@ export function defaultRenderSettings(comp: CompItem): RenderSettings {
 }
 
 export function defaultOutputModule(): OutputModule {
-  return { format: "h264", channels: "rgb", bitrate: null, audio: "auto" };
+  return { format: "h264", channels: "rgb", bitrate: null, audio: "auto", quality: "good" };
 }
 
 /** Whether the format can carry an audio track (an image sequence cannot). */
@@ -107,9 +117,12 @@ export function outputChannels(output: OutputModule): Channels {
   return FORMATS[output.format].alpha ? output.channels : "rgb";
 }
 
-/** A bitrate that keeps flat motion graphics and gradients clean: about 0.2 bits per pixel, 1 to 80 Mbps. */
-export function autoBitrate(width: number, height: number, fps: number): number {
-  return Math.round(Math.min(80e6, Math.max(1e6, width * height * fps * 0.2)));
+const BITS_PER_PIXEL: Record<Quality, number> = { fast: 0.1, good: 0.2, high: 0.4 };
+const MAX_BITRATE: Record<Quality, number> = { fast: 40e6, good: 80e6, high: 120e6 };
+
+/** A bitrate for the quality: "good" (about 0.2 bits per pixel) keeps flat motion graphics and gradients clean. */
+export function autoBitrate(width: number, height: number, fps: number, quality: Quality = "good"): number {
+  return Math.round(Math.min(MAX_BITRATE[quality], Math.max(1e6, width * height * fps * BITS_PER_PIXEL[quality])));
 }
 
 export function defaultFileName(comp: CompItem, format: Format): string {

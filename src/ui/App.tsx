@@ -19,6 +19,8 @@ import { MenuBar, type MenuCommand } from "./MenuBar.tsx";
 import { PanelFrame, type PanelTab } from "./Panel.tsx";
 import { droppedHandle, pickProjectHandle, type ProjectHandle } from "./projectFiles.ts";
 import { ProjectPanel } from "./ProjectPanel.tsx";
+import { RenderQueuePanel } from "./RenderQueuePanel.tsx";
+import { renderQueue } from "../export/queue.ts";
 import { DEFAULT_PREVIEW, RightPanels, type PreviewSettings } from "./RightPanels.tsx";
 import { SolidSettings } from "./SolidSettings.tsx";
 import { TimelinePanel } from "./TimelinePanel.tsx";
@@ -78,32 +80,6 @@ function dragDelta(e: ReactPointerEvent, onMove: (dx: number, dy: number) => voi
   };
   window.addEventListener("pointermove", move);
   window.addEventListener("pointerup", up);
-}
-
-function RenderQueue() {
-  return (
-    <div className="render-queue">
-      <div className="rq-head">
-        <span className="dim">Current Render</span>
-        <span className="rq-spacer" />
-        <span className="ae-button" aria-disabled="true">
-          Queue in AME
-        </span>
-        <span className="ae-button" aria-disabled="true">
-          Render
-        </span>
-      </div>
-      <div className="rq-cols" aria-hidden="true">
-        <span>Render</span>
-        <span>#</span>
-        <span>Comp Name</span>
-        <span>Status</span>
-        <span>Started</span>
-        <span>Render Time</span>
-      </div>
-      <p className="panel-empty">Render queue items are not decoded from the project file yet.</p>
-    </div>
-  );
 }
 
 export function App() {
@@ -354,6 +330,19 @@ export function App() {
   const runLayerRef = useRef(runLayer);
   runLayerRef.current = runLayer;
 
+  // The render queue belongs to the open project and follows its edits.
+  useEffect(() => renderQueue.attach(loaded ? (editor?.project ?? null) : null), [loaded]);
+  useEffect(() => renderQueue.update(project ?? null), [project]);
+  const addToRenderQueue = (compId?: number) => {
+    const comp = compId !== undefined ? project?.items.get(compId) : activeComp;
+    if (!project || comp?.kind !== "comp") return;
+    renderQueue.add(project, comp);
+    setBottomTab("render-queue");
+    setFocused("bottom");
+  };
+  const addToRenderQueueRef = useRef(addToRenderQueue);
+  addToRenderQueueRef.current = addToRenderQueue;
+
   const command = useCallback(
     (cmd: MenuCommand) => {
       if (ops.command(cmd)) return;
@@ -385,6 +374,9 @@ export function App() {
           setBottomTab("render-queue");
           setFocused("bottom");
           break;
+        case "add-to-render-queue":
+          addToRenderQueueRef.current();
+          break;
         case "show-chunks":
           setCenterTab("chunks");
           setFocused("center");
@@ -408,6 +400,11 @@ export function App() {
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "o") {
         e.preventDefault();
         void pickFile();
+        return;
+      }
+      if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === "m") {
+        e.preventDefault();
+        addToRenderQueueRef.current();
         return;
       }
       if (ops.keyDown(e)) return;
@@ -553,6 +550,7 @@ export function App() {
   const actions = useMemo<AppActions>(
     () => ({
       openComp: openItem,
+      addToRenderQueue: (compId: number) => addToRenderQueueRef.current(compId),
       revealInProject: (id) => {
         setSelectedItemId(id);
         setLeftTab("project");
@@ -678,7 +676,7 @@ export function App() {
         className="frame-bottom"
       >
         {bottomActive === "render-queue" || !activeComp ? (
-          <RenderQueue />
+          <RenderQueuePanel project={project} activeComp={activeComp} />
         ) : (
           <TimelinePanel
             key={activeComp.id}

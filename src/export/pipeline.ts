@@ -23,6 +23,8 @@ export interface RenderHooks {
   onFrame?: (done: number, total: number) => void;
   /** Awaited before each frame; resolves when a paused render may continue. */
   resume?: () => Promise<void>;
+  /** GPU frames for opaque video at "fast" and "good" quality. */
+  gpuFrames?: GpuFrameSource;
 }
 
 export interface RenderSummary {
@@ -49,6 +51,32 @@ export function rendererSource(renderer: Renderer, project: Project, comp: CompI
         if (footageStore.version === version || attempt >= 8) {
           for (const w of renderer.lastWarnings) warnings?.add(w);
           return renderer.readPixels(target, plan.width, plan.height);
+        }
+      } finally {
+        renderer.release(target);
+      }
+    }
+  };
+}
+
+/**
+ * Comp frames as VideoFrames taken straight from the renderer's canvas (matted over
+ * the comp's background colour), skipping the read back and CPU colour conversion.
+ */
+export type GpuFrameSource = (time: number, width: number, height: number, timestamp: number, duration: number) => Promise<VideoFrame>;
+
+export function rendererFrames(renderer: Renderer, project: Project, comp: CompItem, plan: FramePlan, warnings?: Set<string>): GpuFrameSource | undefined {
+  if (typeof VideoFrame === "undefined" || typeof OffscreenCanvas === "undefined" || !(renderer.gl.canvas instanceof OffscreenCanvas)) return undefined;
+  return async (time, width, height, timestamp, duration) => {
+    for (let attempt = 0; ; attempt++) {
+      const version = footageStore.version;
+      const target = renderer.render(project, comp, time, { scale: plan.scale });
+      try {
+        await footageStore.idle();
+        if (footageStore.version === version || attempt >= 8) {
+          for (const w of renderer.lastWarnings) warnings?.add(w);
+          renderer.presentFrame(target, width, height, comp.bgColor);
+          return new VideoFrame(renderer.gl.canvas as OffscreenCanvas, { timestamp, duration, alpha: "discard" });
         }
       } finally {
         renderer.release(target);
@@ -164,21 +192,29 @@ export async function renderToSink(
     return { frames: plan.frames, width, height, fps: plan.fps, bytes: written };
   }
 
-  const bitrate = output.bitrate ?? autoBitrate(width, height, plan.fps);
-  const choice = await chooseEncoder(output.format, width, height, plan.fps, bitrate);
+  const quality = output.quality ?? "good";
+  const bitrate = output.bitrate ?? autoBitrate(width, height, plan.fps, quality);
+  const choice = await chooseEncoder(output.format, width, height, plan.fps, bitrate, quality);
   if (!choice.config) throw new Error(choice.error);
   const main = new StreamEncoder(choice.config);
   const alpha = channels === "rgba" ? new StreamEncoder({ ...choice.config, bitrate: Math.round(bitrate / 2) }) : null;
   const stepUs = (plan.duration / plan.frames) * 1e6;
   const keyInterval = Math.max(1, Math.round(plan.fps * 2));
+  const gpu = !alpha && quality !== "high" ? hooks.gpuFrames : undefined;
   try {
     for (let i = 0; i < plan.frames; i++) {
-      const rgba = await frameAt(i);
       const timestamp = Math.round(i * stepUs);
       const duration = Math.round((i + 1) * stepUs) - timestamp;
       const key = i % keyInterval === 0;
-      await main.encode(rgbToI420(rgba, width, height), timestamp, duration, key);
-      if (alpha) await alpha.encode(alphaToI420(rgba, width, height), timestamp, duration, key);
+      if (gpu) {
+        await hooks.resume?.();
+        if (hooks.signal?.aborted) throw stopped();
+        await main.encodeFrame(await gpu(plan.time(i), width, height, timestamp, duration), key);
+      } else {
+        const rgba = await frameAt(i);
+        await main.encode(rgbToI420(rgba, width, height), timestamp, duration, key);
+        if (alpha) await alpha.encode(alphaToI420(rgba, width, height), timestamp, duration, key);
+      }
       await done(i);
     }
     await main.flush();

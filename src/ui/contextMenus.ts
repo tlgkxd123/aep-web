@@ -26,6 +26,7 @@ export interface AppActions {
   /** Project operations, when the project is editable. They act on the Project panel's selection, which a context menu selects first. */
   projectCommand?: (command: ProjectItemCommand) => void;
   openCompSettings?: (compId: number) => void;
+  addToRenderQueue?: (compId: number) => void;
 }
 
 export type ProjectItemCommand = "rename" | "duplicate" | "delete" | "replace-footage" | "new-folder" | "new-comp" | "import";
@@ -104,7 +105,7 @@ export function projectItemMenu(target: Item, a: AppActions): MenuEntries {
       item("Composition Settings...", a.openCompSettings && (() => a.openCompSettings!(target.id)), "Ctrl+K"),
       projectEntry(a, "Rename", "rename"),
       "-",
-      item("Add To Render Queue", undefined, "Ctrl+M"),
+      item("Add To Render Queue", a.addToRenderQueue && (() => a.addToRenderQueue!(target.id)), "Ctrl+M"),
       item("Add To Adobe Media Encoder Queue...", undefined, "Ctrl+Alt+M"),
       "-",
       projectEntry(a, "Duplicate", "duplicate", "Ctrl+D"),
@@ -219,6 +220,6 @@ export function viewerMenu(comp: CompItem, a: AppActions): MenuEntries {
     item("Composition Settings...", a.openCompSettings && (() => a.openCompSettings!(comp.id)), "Ctrl+K"),
     item("Reveal Composition in Project", () => a.revealInProject(comp.id)),
     "-",
-    item("Add To Render Queue", undefined, "Ctrl+M"),
+    item("Add To Render Queue", a.addToRenderQueue && (() => a.addToRenderQueue!(comp.id)), "Ctrl+M"),
   ];
 }
