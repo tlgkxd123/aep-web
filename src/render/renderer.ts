@@ -9,7 +9,7 @@ import { cameraAt, localTransform, Mat4, worldMatrix, type Camera } from "../aep
 import "./features.ts";
 import { sourcePixelAspect } from "./footage.ts";
 import { bindTarget, compile, TargetPool, unitQuad, type GL, type Target } from "./gl.ts";
-import { maskCoverage } from "./masks.ts";
+import { MaskRenderer } from "./masks.ts";
 import { contentProviders, effectRenderer, type LayerImage, type RenderContext, type RendererOptions } from "./registry.ts";
 import { rasterizeShapeLayer } from "./shapes.ts";
 import { COMPOSITE_FS, FILL_FS, FULLSCREEN_VS, LAYER_FS, LAYER_VS, MASK_FS, MatteMode } from "./shaders.ts";
@@ -49,10 +49,14 @@ export class Renderer {
   private readonly quad: WebGLVertexArrayObject;
   private readonly programs: Programs;
   private readonly pool: TargetPool;
+  private readonly masks: MaskRenderer;
   private readonly uniforms = new Map<WebGLProgram, Map<string, WebGLUniformLocation | null>>();
   private project!: Project;
   private warnings = new Set<string>();
   private readonly passPrograms = new Map<string, WebGLProgram>();
+  /** When set, each render stage's exclusive time (GPU work included, via gl.finish) accumulates here by name. */
+  profile: Map<string, { ms: number; count: number }> | null = null;
+  private readonly profileStack: number[] = [];
   private readonly layersInProgress = new Set<Layer>();
 
   constructor(canvas: HTMLCanvasElement | OffscreenCanvas) {
@@ -67,6 +71,7 @@ export class Renderer {
       fill: compile(this.gl, FULLSCREEN_VS, FILL_FS),
       composite: compile(this.gl, FULLSCREEN_VS, COMPOSITE_FS),
     };
+    this.masks = new MaskRenderer(this.gl, () => this.draw());
   }
 
   /** Things the renderer skipped or approximated in the last frame (unsupported layer kinds, missing footage...). */
@@ -151,6 +156,34 @@ export class Renderer {
     gl.bindTexture(gl.TEXTURE_2D, texture);
   }
 
+  private timed<T>(key: string, run: () => T): T {
+    const profile = this.profile;
+    if (!profile) return run();
+    this.gl.finish();
+    const started = performance.now();
+    this.profileStack.push(0);
+    try {
+      return run();
+    } finally {
+      this.gl.finish();
+      const elapsed = performance.now() - started;
+      const children = this.profileStack.pop()!;
+      if (this.profileStack.length) this.profileStack[this.profileStack.length - 1] += elapsed;
+      const entry = profile.get(key) ?? { ms: 0, count: 0 };
+      entry.ms += elapsed - children;
+      entry.count++;
+      profile.set(key, entry);
+    }
+  }
+
+  private contentKind(layer: Layer): string {
+    if (layer.layerType !== "AVLayer") return layer.layerType;
+    const source = this.project.items.get(layer.sourceId);
+    if (source?.kind === "comp") return "precomp";
+    if (source?.kind === "footage") return source.mainSource.sourceType === "SolidSource" ? "solid" : "footage";
+    return "other";
+  }
+
   private renderComp(comp: CompItem, time: number, depth: number): Target {
     const width = comp.width + 2 * PAD;
     const height = comp.height + 2 * PAD;
@@ -178,7 +211,9 @@ export class Renderer {
       }
       const opacity = localTransform(layer, time).opacity / 100;
       const next = this.pool.acquire(width, height);
-      this.composite(accumulated, placed, { target: matte, mode: matteMode, opacity: matteOpacity }, layer.blendingMode, opacity, next);
+      this.timed("composite", () =>
+        this.composite(accumulated, placed, { target: matte, mode: matteMode, opacity: matteOpacity }, layer.blendingMode, opacity, next),
+      );
       this.pool.release(accumulated);
       this.pool.release(placed);
       if (matte) this.pool.release(matte);
@@ -245,9 +280,9 @@ export class Renderer {
   private placeLayer(layer: Layer, comp: CompItem, time: number, camera: Camera | undefined, depth: number, asMatte = false): Target | null {
     // A matte is used even when its own video is switched off, but only while it is in its time span.
     if (asMatte && !this.isActive(layer, time)) return null;
-    const content = this.layerContent(layer, time, depth);
+    const content = this.timed(`content: ${this.contentKind(layer)}`, () => this.layerContent(layer, time, depth));
     if (!content) return null;
-    const masked = this.applyEffects(layer, time, this.applyMasks(layer, time, content), depth);
+    const masked = this.applyEffects(layer, time, this.timed("masks", () => this.applyMasks(layer, time, content)), depth);
     const width = comp.width + 2 * PAD;
     const height = comp.height + 2 * PAD;
     const out = this.pool.acquire(width, height);
@@ -271,7 +306,7 @@ export class Renderer {
     }
     this.gl.disable(this.gl.BLEND);
     const origin: [number, number] = [masked.origin[0] - PAD, masked.origin[1] - PAD];
-    this.drawLayerQuad(masked.target, masked.width + 2 * PAD, masked.height + 2 * PAD, origin, toView, perspective, width, height);
+    this.timed("place", () => this.drawLayerQuad(masked.target, masked.width + 2 * PAD, masked.height + 2 * PAD, origin, toView, perspective, width, height));
     this.pool.release(masked.target);
     return out;
   }
@@ -424,7 +459,8 @@ export class Renderer {
           this.warnings.add(`effect "${effect.effectName ?? effect.name}" (${effect.matchName}) is not rendered yet`);
           continue;
         }
-        image = render(image, effect, layer, time, (ctx ??= this.context(depth)));
+        const input = image;
+        image = this.timed(`effect: ${effect.effectName ?? effect.matchName}`, () => render(input, effect, layer, time, (ctx ??= this.context(depth))));
       }
     } finally {
       this.layersInProgress.delete(layer);
@@ -433,27 +469,19 @@ export class Renderer {
   }
 
   private applyMasks(layer: Layer, time: number, content: LayerImage): LayerImage {
-    const coverage = maskCoverage(layer, time, content.width, content.height, PAD, content.origin);
+    const coverage = this.masks.coverage(layer, time, content.width, content.height, PAD, content.origin);
     if (!coverage) return content;
     const gl = this.gl;
     const w = content.width + 2 * PAD;
     const h = content.height + 2 * PAD;
-    const maskTexture = gl.createTexture()!;
-    gl.bindTexture(gl.TEXTURE_2D, maskTexture);
-    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
-    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, w, h, 0, gl.RGBA, gl.UNSIGNED_BYTE, coverage);
-    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, false);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
     const out = this.pool.acquire(w, h);
     const p = this.programs.mask;
     gl.useProgram(p);
     gl.uniform1i(this.uniform(p, "u_source"), 0);
     gl.uniform1i(this.uniform(p, "u_mask"), 1);
     this.bindTexture(0, content.target.texture);
-    this.bindTexture(1, maskTexture);
+    this.bindTexture(1, coverage);
     this.draw();
-    gl.deleteTexture(maskTexture);
     this.pool.release(content.target);
     return { target: out, width: content.width, height: content.height, origin: content.origin };
   }

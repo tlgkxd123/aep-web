@@ -5,8 +5,8 @@
 // their velocity plus wind, seen through the default comp camera, drawn as soft
 // white dots with a glow halo. It replaces the layer's pixels as Particular does.
 import { effectNumber, effectVector } from "../effectParams.ts";
+import { compile, type GL } from "../gl.ts";
 import { registerEffect } from "../registry.ts";
-import { writeTarget } from "./fxextraUtil.ts";
 
 /** Deterministic uniform random numbers in [0, 1). */
 function random(seed: number): () => number {
@@ -20,27 +20,79 @@ function random(seed: number): () => number {
   };
 }
 
-/** Adds a soft disc of radius r (feathered over its outer `feather` share) to a premultiplied float buffer. */
-function splat(buffer: Float32Array, width: number, height: number, cx: number, cy: number, radius: number, feather: number, opacity: number) {
+// Each dot is an instanced quad over its reach; its soft disc (full inside
+// `inner`, linear to zero at `r`) is laid over what is below: a + b (1 - a).
+const SPLAT_VS = `#version 300 es
+layout(location = 0) in vec2 a_corner;
+layout(location = 1) in vec4 a_splat;
+layout(location = 2) in float a_opacity;
+uniform vec2 u_size;
+uniform float u_pad;
+flat out vec4 v_splat;
+flat out float v_opacity;
+void main() {
+  vec2 p = a_splat.xy + (a_corner * 2.0 - 1.0) * (a_splat.z + 1.0);
+  v_splat = a_splat;
+  v_opacity = a_opacity;
+  gl_Position = vec4(vec2(p.x + u_pad, u_size.y - u_pad - p.y) / u_size * 2.0 - 1.0, 0.0, 1.0);
+}`;
+
+const SPLAT_FS = `#version 300 es
+precision highp float;
+uniform vec2 u_size;
+uniform float u_pad;
+flat in vec4 v_splat;
+flat in float v_opacity;
+out vec4 outColor;
+void main() {
+  vec2 pixel = vec2(gl_FragCoord.x - u_pad, u_size.y - u_pad - gl_FragCoord.y);
+  float d = distance(pixel, v_splat.xy);
+  float r = v_splat.z;
+  float inner = v_splat.w;
+  float cover = d <= inner ? 1.0 : d >= r ? 0.0 : 1.0 - (d - inner) / max(1e-6, r - inner);
+  outColor = vec4(v_opacity * cover);
+}`;
+
+interface SplatGpu {
+  program: WebGLProgram;
+  vao: WebGLVertexArrayObject;
+  instances: WebGLBuffer;
+  size: WebGLUniformLocation | null;
+  pad: WebGLUniformLocation | null;
+}
+const splatGpu = new WeakMap<GL, SplatGpu>();
+
+function splatter(gl: GL): SplatGpu {
+  let state = splatGpu.get(gl);
+  if (state) return state;
+  const program = compile(gl, SPLAT_VS, SPLAT_FS);
+  const vao = gl.createVertexArray()!;
+  gl.bindVertexArray(vao);
+  const corners = gl.createBuffer()!;
+  gl.bindBuffer(gl.ARRAY_BUFFER, corners);
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([0, 0, 1, 0, 0, 1, 1, 1]), gl.STATIC_DRAW);
+  gl.enableVertexAttribArray(0);
+  gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
+  const instances = gl.createBuffer()!;
+  gl.bindBuffer(gl.ARRAY_BUFFER, instances);
+  gl.enableVertexAttribArray(1);
+  gl.vertexAttribPointer(1, 4, gl.FLOAT, false, 20, 0);
+  gl.vertexAttribDivisor(1, 1);
+  gl.enableVertexAttribArray(2);
+  gl.vertexAttribPointer(2, 1, gl.FLOAT, false, 20, 16);
+  gl.vertexAttribDivisor(2, 1);
+  gl.bindVertexArray(null);
+  state = { program, vao, instances, size: gl.getUniformLocation(program, "u_size"), pad: gl.getUniformLocation(program, "u_pad") };
+  splatGpu.set(gl, state);
+  return state;
+}
+
+/** Appends a soft disc of radius r (feathered over its outer `feather` share) as one instance: cx, cy, r, inner, opacity. */
+function splat(out: number[], cx: number, cy: number, radius: number, feather: number, opacity: number) {
   // Dots below a pixel keep their area as fainter one-pixel dots.
   const r = Math.max(radius, 0.75);
   opacity *= Math.min(1, (radius / r) ** 2);
-  const reach = r + 1;
-  const x0 = Math.max(0, Math.floor(cx - reach));
-  const x1 = Math.min(width - 1, Math.ceil(cx + reach));
-  const y0 = Math.max(0, Math.floor(cy - reach));
-  const y1 = Math.min(height - 1, Math.ceil(cy + reach));
-  const inner = r * (1 - feather);
-  for (let y = y0; y <= y1; y++) {
-    for (let x = x0; x <= x1; x++) {
-      const d = Math.hypot(x + 0.5 - cx, y + 0.5 - cy);
-      const cover = d <= inner ? 1 : d >= r ? 0 : 1 - (d - inner) / Math.max(1e-6, r - inner);
-      const a = opacity * cover;
-      if (a <= 0) continue;
-      const i = (y * width + x) * 4 + 3;
-      buffer[i] = a + buffer[i] * (1 - a);
-    }
-  }
+  if (opacity > 0) out.push(cx, cy, r, r * (1 - feather), opacity);
 }
 
 registerEffect("tc Particular", (input, effect, layer, time, ctx) => {
@@ -67,7 +119,7 @@ registerEffect("tc Particular", (input, effect, layer, time, ctx) => {
 
   const width = input.width;
   const height = input.height;
-  const buffer = new Float32Array(width * height * 4);
+  const splats: number[] = [];
   // Default comp camera: 50 mm equivalent, looking at the comp centre from z = -zoom.
   const zoom = (width / 2) / Math.tan((39.6 * Math.PI) / 360);
   const born = Math.floor(time * rate + 1e-6);
@@ -88,28 +140,30 @@ registerEffect("tc Particular", (input, effect, layer, time, ctx) => {
     const sx = width / 2 + (p[0] - width / 2) * scale;
     const sy = height / 2 + (p[1] - height / 2) * scale;
     const r = (pSize * scale) / 2;
-    splat(buffer, width, height, sx, sy, r * glowSize, 1, pOpacity * glowOpacity);
-    splat(buffer, width, height, sx, sy, r, feather, pOpacity);
+    splat(splats, sx, sy, r * glowSize, 1, pOpacity * glowOpacity);
+    splat(splats, sx, sy, r, feather, pOpacity);
   }
   const pad = ctx.pad;
+  // `acquire` leaves the cleared target bound with its viewport set.
   const out = ctx.pool.acquire(width + 2 * pad, height + 2 * pad);
-  const tw = out.width;
-  const data = new Uint8Array(tw * out.height * 4);
-  for (let y = 0; y < height; y++) {
-    for (let x = 0; x < width; x++) {
-      const a = buffer[(y * width + x) * 4 + 3];
-      if (!a) continue;
-      // GL row order: row 0 is the bottom of the image.
-      const o = ((out.height - 1 - pad - y) * tw + x + pad) * 4;
-      const v = Math.round(a * 255);
-      data[o] = v;
-      data[o + 1] = v;
-      data[o + 2] = v;
-      data[o + 3] = v;
-    }
-  }
   ctx.pool.release(input.target);
-  const image = { ...input, target: out };
-  writeTarget(ctx, image, data);
-  return image;
+  if (splats.length) {
+    const gl = ctx.gl;
+    const gpu = splatter(gl);
+    gl.useProgram(gpu.program);
+    gl.uniform2f(gpu.size, out.width, out.height);
+    gl.uniform1f(gpu.pad, pad);
+    gl.bindBuffer(gl.ARRAY_BUFFER, gpu.instances);
+    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(splats), gl.STREAM_DRAW);
+    gl.enable(gl.SCISSOR_TEST);
+    gl.scissor(pad, pad, width, height);
+    gl.enable(gl.BLEND);
+    gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+    gl.bindVertexArray(gpu.vao);
+    gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, splats.length / 5);
+    gl.bindVertexArray(null);
+    gl.disable(gl.BLEND);
+    gl.disable(gl.SCISSOR_TEST);
+  }
+  return { ...input, target: out };
 });

@@ -91,20 +91,3 @@ export function gaussianBlur(ctx: RenderContext, input: LayerImage, sigmaX: numb
   }
   return image;
 }
-
-/** Premultiplied RGBA8 pixels of an image's target, GL row order. */
-export function readTarget(ctx: RenderContext, image: LayerImage): Uint8Array {
-  const gl = ctx.gl;
-  const { width, height } = image.target;
-  gl.bindFramebuffer(gl.FRAMEBUFFER, image.target.framebuffer);
-  const data = new Uint8Array(width * height * 4);
-  gl.readPixels(0, 0, width, height, gl.RGBA, gl.UNSIGNED_BYTE, data);
-  return data;
-}
-
-/** Writes premultiplied RGBA8 pixels (GL row order, target size) into the image's target. */
-export function writeTarget(ctx: RenderContext, image: LayerImage, data: Uint8Array): void {
-  const gl = ctx.gl;
-  gl.bindTexture(gl.TEXTURE_2D, image.target.texture);
-  gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, image.target.width, image.target.height, gl.RGBA, gl.UNSIGNED_BYTE, data);
-}

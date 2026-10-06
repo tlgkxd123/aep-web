@@ -48,9 +48,12 @@ export const MASK_FS = `#version 300 es
 precision highp float;
 uniform sampler2D u_source;
 uniform sampler2D u_mask;
-in vec2 v_uv;
 out vec4 outColor;
-void main() { outColor = texture(u_source, v_uv) * texture(u_mask, v_uv).a; }`;
+// Coverage is quantized to 8 bits, as AE's 8-bpc mask is.
+void main() {
+  ivec2 p = ivec2(gl_FragCoord.xy);
+  outColor = texelFetch(u_source, p, 0) * (floor(texelFetch(u_mask, p, 0).r * 255.0 + 0.5) / 255.0);
+}`;
 
 /** Fills the target with a constant premultiplied color. */
 export const FILL_FS = `#version 300 es

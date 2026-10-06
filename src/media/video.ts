@@ -70,14 +70,31 @@ async function toFootageFrame(frame: VideoFrame): Promise<FootageFrame> {
   }
 }
 
+/** How long to wait for a fed frame before flushing the decoder to force it out. */
+const OUTPUT_TIMEOUT_MS = 1500;
+
+/**
+ * Keeps one decoder per video and feeds it forward: playing or scrubbing ahead
+ * continues from the last fed sample instead of restarting at the key frame.
+ * It is reset only for a jump backwards or into a later GOP, and flushed only
+ * at the end of the file or when a frame does not come out (after a flush the
+ * next chunk must be a key frame, so feeding restarts from one).
+ */
 class WebCodecsReader implements VideoReader {
   private decoder: VideoDecoder | undefined;
   private readonly order: number[];
   private readonly times: number[];
+  private readonly presentationIndex: Map<number, number>;
   private queue: Promise<void> = Promise.resolve();
   private readonly blob: Blob;
   private readonly track: VideoTrack;
   private readonly config: VideoDecoderConfig;
+  /** Next sample (decode order) to feed; -1 when the decoder needs a key frame. */
+  private fed = -1;
+  private sink: FrameSink | undefined;
+  private failure: Error | undefined;
+  private readonly waiting = new Map<number, () => void>();
+  private conversions: Promise<void>[] = [];
 
   constructor(blob: Blob, track: VideoTrack, config: VideoDecoderConfig) {
     this.blob = blob;
@@ -90,6 +107,31 @@ class WebCodecsReader implements VideoReader {
       .sort((a, b) => a.s.time - b.s.time)
       .map(({ i }) => i);
     this.times = this.order.map((i) => track.samples[i].time);
+    this.presentationIndex = new Map(this.order.map((sample, p) => [sample, p]));
+  }
+
+  private ensureDecoder(): VideoDecoder {
+    if (this.decoder && this.decoder.state !== "closed") return this.decoder;
+    this.decoder = new VideoDecoder({
+      output: (frame) => {
+        const p = frame.timestamp;
+        const sink = this.sink;
+        this.conversions.push(
+          toFootageFrame(frame).then((f) => {
+            sink?.(p, f);
+            this.waiting.get(p)?.();
+          }),
+        );
+      },
+      error: (e) => {
+        this.failure = e instanceof Error ? e : new Error(String(e));
+        this.fed = -1;
+        for (const done of this.waiting.values()) done();
+      },
+    });
+    this.decoder.configure(this.config);
+    this.fed = -1;
+    return this.decoder;
   }
 
   indexAt(time: number): number {
@@ -123,47 +165,54 @@ class WebCodecsReader implements VideoReader {
       start--;
       while (start > 0 && !samples[start].isSync) start--;
     }
-    let end = target + 1;
-    while (end < samples.length && end <= target + LOOKAHEAD && !samples[end].isSync) end++;
-    const presentationIndex = new Map(this.order.map((sample, p) => [sample, p]));
-    const pending: Promise<void>[] = [];
-    let failure: Error | undefined;
-    const decoder = new VideoDecoder({
-      output: (frame) => {
-        const p = frame.timestamp;
-        pending.push(toFootageFrame(frame).then((f) => sink(p, f)));
-      },
-      error: (e) => {
-        failure = e instanceof Error ? e : new Error(String(e));
-      },
-    });
-    this.decoder = decoder;
-    try {
+    const end = Math.min(samples.length, target + 1 + LOOKAHEAD);
+    const wanted = this.presentationIndex.get(target) ?? -1;
+
+    this.sink = sink;
+    this.failure = undefined;
+    let decoder = this.ensureDecoder();
+    // Continue feeding when the target's GOP has already started and the target is still ahead.
+    const continues = this.fed >= 0 && start <= this.fed && this.fed <= target;
+    if (!continues) {
+      decoder.reset();
       decoder.configure(this.config);
-      const first = samples[start].offset;
+      this.fed = start;
+    }
+    const from = this.fed;
+    const arrived = new Promise<void>((resolve) => this.waiting.set(wanted, resolve));
+    if (from < end) {
+      const first = samples[from].offset;
       const last = samples[end - 1].offset + samples[end - 1].size;
       const bytes = new Uint8Array(await this.blob.slice(first, last).arrayBuffer());
-      for (let i = start; i < end; i++) {
+      for (let i = from; i < end; i++) {
         const s = samples[i];
         decoder.decode(
           new EncodedVideoChunk({
-            type: i === start || s.isSync ? "key" : "delta",
-            timestamp: presentationIndex.get(i) ?? -1,
+            type: (i === from && !continues) || s.isSync ? "key" : "delta",
+            timestamp: this.presentationIndex.get(i) ?? -1,
             data: bytes.subarray(s.offset - first, s.offset - first + s.size),
           }),
         );
       }
-      await decoder.flush();
-      await Promise.all(pending);
-    } finally {
-      if (decoder.state !== "closed") decoder.close();
-      this.decoder = undefined;
+      this.fed = end;
     }
-    if (failure) throw failure;
+    const timeout = new Promise<"timeout">((resolve) => setTimeout(() => resolve("timeout"), OUTPUT_TIMEOUT_MS));
+    const atEnd = end >= samples.length;
+    if (atEnd || (await Promise.race([arrived, timeout])) === "timeout") {
+      decoder = this.ensureDecoder();
+      await decoder.flush();
+      this.fed = -1;
+    }
+    this.waiting.delete(wanted);
+    const conversions = this.conversions;
+    this.conversions = [];
+    await Promise.all(conversions);
+    if (this.failure) throw this.failure;
   }
 
   close(): void {
     if (this.decoder && this.decoder.state !== "closed") this.decoder.close();
+    this.decoder = undefined;
   }
 }
 

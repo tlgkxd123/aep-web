@@ -122,6 +122,12 @@ Gate ledgers follow the unlazy skill (`C:/Users/schxm/.claude/skills/unlazy/SKIL
 
 ## Rules
 
+- Rendering runs on the GPU. Masks, effects and layer content must not read pixels back
+  (`readPixels`, `getImageData`) or loop over pixels in JavaScript per frame.
+  - Use `ctx.pass`/`ctx.program` shaders, instanced draws, or scissored clears.
+  - Profile with `node scripts/profile-render.ts <project> [--comps a,b] [--cpu]`. It runs on
+    the machine's GPU and reports ms per stage and per effect.
+
 - Never copy Adobe code, assets or binaries. Never decompile or disassemble plugins (third-party or
   Adobe's): that breaks their licenses.
   - Reading the parameters a project stores in the `.aep` is fine.
