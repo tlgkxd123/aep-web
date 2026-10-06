@@ -112,6 +112,38 @@ export interface SoundKeysResult {
   outputs: number[][];
 }
 
+/** Where the spectrum ends on the display. */
+export function displayLayout(width: number, height: number) {
+  return { left: MARGIN * width, right: (1 - MARGIN) * width, zero: ZERO_LINE * height, top: 0.1 * height, bottom: 0.9 * height };
+}
+
+/**
+ * The spectrum the plugin draws at time `t`: for every display column, the y
+ * (top-left origin) the spectrum reaches; NaN outside the spectrum's columns.
+ */
+export function displaySpectrum(settings: Pick<SoundKeysSettings, "width" | "height" | "eq" | "scale">, rate: number, read: SampleReader, t: number): Float32Array {
+  const n = 2 ** Math.round(Math.log2(WINDOW_SECONDS * rate));
+  const { width, height } = settings;
+  const { left, right } = displayLayout(width, height);
+  const re = new Float64Array(n);
+  const im = new Float64Array(n);
+  const samples = read(Math.round(t * rate - n / 2), n);
+  for (let i = 0; i < n; i++) re[i] = samples[i] * (0.5 - 0.5 * Math.cos((2 * Math.PI * i) / (n - 1)));
+  fft(re, im, -1);
+  const out = new Float32Array(Math.max(1, Math.round(width))).fill(Number.NaN);
+  for (let x = Math.ceil(left); x <= Math.floor(right) && x < out.length; x++) {
+    const hz = LOW_HZ * (HIGH_HZ / LOW_HZ) ** ((x - left) / (right - left));
+    const bin = (hz * n) / rate;
+    const b = Math.floor(bin);
+    if (b < 0 || b + 1 >= n / 2) continue;
+    const m0 = Math.hypot(re[b], im[b]) / n;
+    const m1 = Math.hypot(re[b + 1], im[b + 1]) / n;
+    const amplitude = (m0 + (m1 - m0) * (bin - b)) * eqGain(settings.eq, hz) * settings.scale;
+    out[x] = ZERO_LINE * height - GAIN * height * amplitude;
+  }
+  return out;
+}
+
 /** Computes the outputs at `keysPerSecond` from `from` to `to` (seconds of the audio layer's timeline). */
 export function computeSoundKeys(settings: SoundKeysSettings, rate: number, read: SampleReader, from: number, to: number): SoundKeysResult {
   const analysis = soundKeysAnalysis(settings, rate, read, from, to);

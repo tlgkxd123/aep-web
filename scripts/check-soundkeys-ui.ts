@@ -49,6 +49,16 @@ const status = page.locator(".ec-status");
 await status.waitFor({ timeout: 120_000 });
 for (let i = 0; i < 240 && /Analysing/.test(await status.innerText()); i++) await page.waitForTimeout(500);
 console.log("status:", await status.innerText());
+if (process.env.SK_VIEW) {
+  // Show the display: switch the layer's video on and move the playhead.
+  const row = page.locator(".tl-layer", { has: page.locator(".c-name .cell-text", { hasText: new RegExp(`^${layerName}$`) }) }).first();
+  await row.getByRole("button", { name: /^Video/ }).first().click().catch(() => console.log("no video switch"));
+  for (let i = 0; i < Number(process.env.SK_VIEW) * 6; i++) await page.keyboard.press("Shift+PageDown");
+  await page.waitForTimeout(6000);
+  await page.locator(".viewer, .comp-viewer, canvas").first().screenshot({ path: "refs/probe-soundkeys-display.png" }).catch(() => page.screenshot({ path: "refs/probe-soundkeys-display.png" }));
+  console.log("render notes:", (await page.locator(".render-notes").allInnerTexts()).join(" | "));
+  console.log("display: refs/probe-soundkeys-display.png");
+}
 const undo = await page.evaluate(() => document.title);
 console.log("title:", undo);
 await page.screenshot({ path: "refs/probe-soundkeys-apply.png" });

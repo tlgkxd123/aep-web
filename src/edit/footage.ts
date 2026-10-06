@@ -92,7 +92,8 @@ const alas = (path: string) =>
 const isStill = (info: MediaInfo) => info.duration === 0;
 
 /** `idta` footage-kind flags: video, single still, audio. */
-export const footageFlags = (info: MediaInfo) => (info.width > 0 ? 0x20 : 0) | (isStill(info) ? 0x10 : 0) | (info.audio ? 0x04 : 0);
+export const footageFlags = (info: MediaInfo) =>
+  (info.width > 0 ? 0x20 : 0) | (isStill(info) ? 0x10 : 0) | (info.audio || info.audioTrackRate ? 0x04 : 0);
 
 /** The label AE gives new footage: Audio (7), Still (5) or Video (3). */
 export const footageLabel = (info: MediaInfo) => (info.audio ? 7 : isStill(info) ? 5 : 3);
@@ -126,7 +127,7 @@ export function buildPin(file: FootageFile): Chunk {
     view.setUint32(SSPC.duration + 4, info.audio.sampleRate);
   } else if (isStill(info)) view.setUint32(SSPC.duration, 0), view.setUint32(SSPC.duration + 4, 1);
   else setRatio(view, SSPC.duration, info.duration, false);
-  if (sspc.data.length >= SSPC.audioSampleRate + 8) view.setFloat64(SSPC.audioSampleRate, info.audio?.sampleRate ?? 0);
+  if (sspc.data.length >= SSPC.audioSampleRate + 8) view.setFloat64(SSPC.audioSampleRate, info.audio?.sampleRate ?? info.audioTrackRate ?? 0);
   const whole = Math.trunc(info.frameRate);
   view.setUint32(SSPC.nativeFrameRate, whole);
   view.setUint16(SSPC.nativeFrameRate + 4, Math.round((info.frameRate - whole) * 65536));

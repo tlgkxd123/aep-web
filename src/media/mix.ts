@@ -61,7 +61,10 @@ export function layerAudio(project: Project, layer: Layer, time: number): LayerA
       for (const child of source.layers) {
         if (child.audioEnabled) visit(child, innerScale, innerOffset, from, to, depth + 1);
       }
-    } else if (source?.kind === "footage" && source.hasAudio) {
+    } else if (source?.kind === "footage") {
+      const sound = footageStore.hasAudio(source);
+      if (sound === "pending") pending = true;
+      if (sound !== true) return;
       const state = footageStore.audio(source);
       if (state.status === "ready") contributions.push({ audio: state.audio, scale: innerScale, offset: innerOffset, from, to });
       else if (state.status === "pending") pending = true;

@@ -3,7 +3,7 @@
 // and whether it has alpha (the rules AE's importers apply: PNG by color type
 // or tRNS, TIFF/BMP/GIF always, JPEG never).
 import { decodeAudio, decodeWav } from "./audio.ts";
-import { demuxVideo } from "./mp4.ts";
+import { audioTrackRate, demuxVideo } from "./mp4.ts";
 
 export type MediaKind = "png" | "jpeg" | "gif" | "bmp" | "tiff" | "video" | "audio";
 
@@ -20,6 +20,8 @@ export interface MediaInfo {
   hasAlpha: boolean;
   /** Audio-only files: the native sample rate (Hz) and the duration in samples. */
   audio?: { sampleRate: number; samples: number };
+  /** Movies with a sound track: its sample rate (Hz). */
+  audioTrackRate?: number;
 }
 
 const EXTENSIONS: Record<string, MediaKind> = {
@@ -153,7 +155,8 @@ export async function probeMedia(blob: Blob, name: string): Promise<MediaInfo> {
     const frameRate = deltas.length ? snapRate(1 / deltas[deltas.length >> 1]) : 30;
     const duration = times.length / frameRate;
     const format = extensionOf(name) === "mp4" ? "XCEX" : "MOoV";
-    return { kind, format, width: track.width, height: track.height, duration, frameRate, hasAlpha: false };
+    const audioRate = await audioTrackRate(blob).catch(() => 0);
+    return { kind, format, width: track.width, height: track.height, duration, frameRate, hasAlpha: false, ...(audioRate ? { audioTrackRate: audioRate } : {}) };
   }
   const head = new Uint8Array(await blob.slice(0, kind === "png" ? 1 << 16 : kind === "jpeg" ? 1 << 18 : 1 << 12).arrayBuffer());
   let b = head;

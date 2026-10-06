@@ -205,6 +205,24 @@ async function readMoov(blob: Blob): Promise<DataView> {
   throw new Error("no movie header (moov) found");
 }
 
+const handlerOf = (data: DataView, trak: Box): string | undefined => {
+  const hdlr = child(data, child(data, trak, "mdia"), "hdlr");
+  return hdlr ? String.fromCharCode(...new Uint8Array(data.buffer, data.byteOffset + hdlr.start + 8, 4)) : undefined;
+};
+
+/** The sample rate (media timescale) of the first sound track of an MP4 / MOV file; 0 without one. */
+export async function audioTrackRate(blob: Blob): Promise<number> {
+  const data = await readMoov(blob);
+  const moov: Box = { type: "moov", start: 8, end: data.byteLength };
+  for (const trak of children(data, moov, "trak")) {
+    if (handlerOf(data, trak) !== "soun") continue;
+    const mdhd = child(data, child(data, trak, "mdia"), "mdhd");
+    if (!mdhd) continue;
+    return data.getUint8(mdhd.start) === 1 ? data.getUint32(mdhd.start + 20) : data.getUint32(mdhd.start + 12);
+  }
+  return 0;
+}
+
 /** Parses the first video track of an MP4 / MOV file. */
 export async function demuxVideo(blob: Blob): Promise<VideoTrack> {
   const data = await readMoov(blob);
@@ -212,10 +230,7 @@ export async function demuxVideo(blob: Blob): Promise<VideoTrack> {
   if (child(data, moov, "mvex")) throw new Error("fragmented MP4 is not supported");
   for (const trak of children(data, moov, "trak")) {
     const mdia = child(data, trak, "mdia");
-    const hdlr = child(data, mdia, "hdlr");
-    if (!mdia || !hdlr) continue;
-    const handler = String.fromCharCode(...new Uint8Array(data.buffer, data.byteOffset + hdlr.start + 8, 4));
-    if (handler !== "vide") continue;
+    if (!mdia || handlerOf(data, trak) !== "vide") continue;
     const mdhd = child(data, mdia, "mdhd")!;
     const timescale = data.getUint8(mdhd.start) === 1 ? data.getUint32(mdhd.start + 20) : data.getUint32(mdhd.start + 12);
     const stbl = child(data, child(data, mdia, "minf"), "stbl");

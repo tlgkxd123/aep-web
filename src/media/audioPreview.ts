@@ -45,7 +45,7 @@ function collect(project: Project, comp: CompItem, a: number, b: number, from: n
     if (hi <= lo) continue;
     const la = a / stretch;
     const lb = (b - layer.startTime) / stretch;
-    if (source?.kind === "footage" && source.hasAudio && source.mainSource.sourceType === "FileSource") {
+    if (source?.kind === "footage" && source.mainSource.sourceType === "FileSource" && footageStore.hasAudio(source) !== false) {
       out.push({ item: source, layer, a: la, b: lb, from: lo, to: hi });
     } else if (source?.kind === "comp" && !layer.timeRemapEnabled) {
       collect(project, source, la, lb, lo, hi, out, depth + 1);

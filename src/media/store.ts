@@ -7,6 +7,7 @@ import type { FootageItem } from "../aep/model.ts";
 import { sequenceFrameName } from "../aep/footage.ts";
 import { decodeAudio, registeredAudio, type AudioData } from "./audio.ts";
 import { frameBytes, releaseFrame, type FootageFrame } from "./frames.ts";
+import { audioTrackRate } from "./mp4.ts";
 import { decodePsd, isPsd } from "./psd.ts";
 import { decodeTiff, isTiff } from "./tiff.ts";
 import { openVideo, type VideoReader } from "./video.ts";
@@ -47,6 +48,9 @@ interface ItemMedia {
   audio?: AudioData;
   audioDecoding?: boolean;
   audioError?: string;
+  /** Whether the movie file has a sound track (read from its header). */
+  soundTrack?: boolean;
+  soundScan?: boolean;
 }
 
 const VIDEO_EXTENSIONS = new Set(["mp4", "m4v", "mov", "qt", "3gp", "webm", "mkv", "avi", "mxf"]);
@@ -192,6 +196,23 @@ export class FootageStore {
   }
 
   /** The item's decoded audio; the first call starts decoding and reports "pending". */
+  /**
+   * Whether footage has sound: its stored flag, or, for a movie saved with the
+   * flag off (as earlier versions of this app replaced footage), a sound track in
+   * the file itself. "pending" while the movie header is read.
+   */
+  hasAudio(item: FootageItem): boolean | "pending" {
+    if (item.hasAudio) return true;
+    const media = this.mediaOf(item);
+    if (!media || media.kind !== "video" || !media.blob) return false;
+    if (media.soundTrack !== undefined) return media.soundTrack;
+    if (!media.soundScan) {
+      media.soundScan = true;
+      this.track(audioTrackRate(media.blob).then((rate) => (media.soundTrack = rate > 0), () => (media.soundTrack = false)));
+    }
+    return "pending";
+  }
+
   audio(item: FootageItem): AudioState {
     const registered = registeredAudio(item.id);
     if (registered) return { status: "ready", audio: registered };
