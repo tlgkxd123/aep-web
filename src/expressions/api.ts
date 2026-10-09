@@ -52,7 +52,7 @@ export interface Host {
 const DISPLAY_NAMES = matchNames as Record<string, string>;
 
 /** Expression attribute names AE uses for property match names (others are camel-cased display names). */
-const ATTRIBUTES: Record<string, string[]> = {
+export const ATTRIBUTES: Record<string, string[]> = {
   "ADBE Transform Group": ["transform"],
   "ADBE Anchor Point": ["anchorPoint"],
   "ADBE Position": ["position"],

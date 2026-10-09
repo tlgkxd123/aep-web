@@ -1,10 +1,14 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type DragEvent, type PointerEvent as ReactPointerEvent } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type DragEvent, type PointerEvent as ReactPointerEvent } from "react";
+import { flushSync } from "react-dom";
 import type { CompItem, Layer, Project } from "../aep/model.ts";
 import { Editor, type LayerSwitch } from "../edit/editor.ts";
 import { addLayer } from "../edit/layers.ts";
 import { nudgeLayers } from "../edit/transform-ops.ts";
 import { audioPreview } from "../media/audioPreview.ts";
 import { loadLocalFootage, localFootageAvailable } from "../media/localFootage.ts";
+import { playhead } from "../playback/playhead.ts";
+import { appRenderOptions, setSapphireLookalikes, useRenderOptionsVersion } from "../playback/renderOptions.ts";
+import { DEFAULT_PREVIEW, usePlayback, type PreviewSettings } from "../playback/usePlayback.ts";
 import { ContextMenuHost } from "./ContextMenu.tsx";
 import { AppActionsContext, type AppActions } from "./contextMenus.ts";
 import { ChunkPanel } from "./ChunkPanel.tsx";
@@ -21,7 +25,7 @@ import { droppedHandle, pickProjectHandle, type ProjectHandle } from "./projectF
 import { ProjectPanel } from "./ProjectPanel.tsx";
 import { RenderQueuePanel } from "./RenderQueuePanel.tsx";
 import { renderQueue } from "../export/queue.ts";
-import { DEFAULT_PREVIEW, RightPanels, type PreviewSettings } from "./RightPanels.tsx";
+import { RightPanels } from "./RightPanels.tsx";
 import { SolidSettings } from "./SolidSettings.tsx";
 import { TimelinePanel } from "./TimelinePanel.tsx";
 import { Toolbar, type Workspace } from "./Toolbar.tsx";
@@ -36,6 +40,8 @@ const WORKSPACE_LAYOUTS: Record<Workspace, { left: number; right: number; bottom
   Libraries: { left: 0.22, right: 380, bottom: 0.4 },
 };
 import { useProjectOps, type Session } from "./useProjectOps.tsx";
+
+const ParticleMatchDialog = lazy(() => import("./ParticleMatchDialog.tsx").then((m) => ({ default: m.ParticleMatchDialog })));
 
 type Frame = "left" | "center" | "right" | "bottom";
 
@@ -83,6 +89,8 @@ function dragDelta(e: ReactPointerEvent, onMove: (dx: number, dy: number) => voi
 }
 
 export function App() {
+  // The menu shows the render options' check marks.
+  useRenderOptionsVersion();
   const [loaded, setLoaded] = useState<Session>();
   const [error, setError] = useState<string>();
   const [busy, setBusy] = useState(false);
@@ -109,6 +117,7 @@ export function App() {
   const [revision, setRevision] = useState(0);
   const [editError, setEditError] = useState<string>();
   const [solidFor, setSolidFor] = useState<number>();
+  const [particleMatch, setParticleMatch] = useState(false);
 
   const editor = loaded?.editor;
   useEffect(() => editor?.subscribe(() => setRevision(editor.revision)), [editor]);
@@ -245,67 +254,54 @@ export function App() {
     setPlaying(false);
   };
 
+  /** Stops playback, leaving the playhead (and the app's time) on the frame shown last, or at `at`. */
+  const stopPlayback = useCallback(
+    (at?: number) => {
+      const live = playhead.get();
+      // Synchronously, so the viewer never sees playback stopped with the time it started from.
+      flushSync(() => {
+        if (live) setTime(live.compId, at ?? live.time);
+        setPlaying(false);
+      });
+    },
+    [setTime],
+  );
+  /** Moves the playhead from the UI: stops playback first, as clicking the timeline does in AE. */
+  const goTo = useCallback(
+    (compId: number, t: number) => {
+      if (playhead.get()) stopPlayback();
+      setTime(compId, t);
+    },
+    [stopPlayback, setTime],
+  );
+  /** The active comp's time, the playhead's while playing. */
+  const currentTime = (comp: CompItem) => {
+    const live = playhead.get();
+    return live?.compId === comp.id ? live.time : (views[comp.id]?.time ?? 0);
+  };
+  const currentTimeRef = useRef(currentTime);
+  currentTimeRef.current = currentTime;
   const step = useCallback(
     (frames: number) => {
       if (!activeComp) return;
-      setPlaying(false);
-      setTime(activeComp.id, (views[activeComp.id]?.time ?? 0) + frames * (activeComp.frameDuration || 1 / 24));
+      const t = currentTimeRef.current(activeComp);
+      goTo(activeComp.id, t + frames * (activeComp.frameDuration || 1 / 24));
     },
-    [activeComp, views, setTime],
+    [activeComp, goTo],
   );
   const edge = useCallback(
     (end: boolean) => {
       if (!activeComp) return;
-      setPlaying(false);
-      setTime(activeComp.id, end ? activeComp.duration : 0);
+      goTo(activeComp.id, end ? activeComp.duration : 0);
     },
-    [activeComp, setTime],
+    [activeComp, goTo],
   );
-  const togglePlay = useCallback(() => setPlaying((p) => !p && !!activeComp), [activeComp]);
+  const togglePlay = useCallback(() => {
+    if (playing || playhead.get()) stopPlayback();
+    else if (activeComp) setPlaying(true);
+  }, [playing, activeComp, stopPlayback]);
 
-  useEffect(() => {
-    if (!playing || !activeComp || typeof requestAnimationFrame === "undefined") return;
-    const frame = activeComp.frameDuration || 1 / 24;
-    const current = views[activeComp.id]?.time ?? 0;
-    // The preview range, as the Preview panel's Range popup sets it.
-    let ws = activeComp.workAreaStart;
-    let we = Math.min(activeComp.duration, ws + activeComp.workAreaDuration);
-    if (preview.range === "comp") [ws, we] = [0, activeComp.duration];
-    else if (preview.range === "extended") [ws, we] = [Math.min(ws, current), Math.max(we, Math.min(activeComp.duration, current + frame))];
-    const length = Math.max(frame, we - ws);
-    // Play From: the range start, or the current time when it lies inside the range.
-    const begin = preview.playFrom === "current" && current >= ws && current < we ? current : ws;
-    // Frame Rate (Auto = the comp's) and Skip set how often frames are shown.
-    const rate = preview.frameRate || activeComp.frameRate || 24;
-    const shownFrame = (1 / rate) * (preview.skip + 1);
-    const startWall = performance.now();
-    if (project && preview.audio) audioPreview.play(project, activeComp, begin, we);
-    let loop = 0;
-    let raf = 0;
-    const tick = (now: number) => {
-      const elapsed = begin - ws + (now - startWall) / 1000;
-      if (!preview.loop && elapsed >= length) {
-        setTime(activeComp.id, we - frame);
-        setPlaying(false);
-        return;
-      }
-      const t = ws + Math.floor((elapsed % length) / shownFrame) * shownFrame;
-      // Each pass over the range restarts the audio from its start.
-      const pass = Math.floor(elapsed / length);
-      if (pass !== loop && project) {
-        loop = pass;
-        if (preview.audio) audioPreview.play(project, activeComp, t, we);
-      }
-      setTime(activeComp.id, Math.floor(t / frame) * frame);
-      raf = requestAnimationFrame(tick);
-    };
-    raf = requestAnimationFrame(tick);
-    return () => {
-      cancelAnimationFrame(raf);
-      audioPreview.stop();
-    };
-    // `views` is read once at start: playback must not restart on its own ticks.
-  }, [playing, activeComp, setTime, project, preview]);
+  usePlayback(project, activeComp, playing, view?.time ?? 0, preview, stopPlayback);
 
   // Decode the active comp's audio ahead of playback once its footage is located.
   const footageVersion = useFootageVersion();
@@ -381,6 +377,12 @@ export function App() {
           setCenterTab("chunks");
           setFocused("center");
           break;
+        case "toggle-sapphire":
+          setSapphireLookalikes(!appRenderOptions.sapphireLookalikes);
+          break;
+        case "particle-match":
+          setParticleMatch(true);
+          break;
         case "show-composition":
           setCenterTab("composition");
           setFocused("center");
@@ -421,7 +423,7 @@ export function App() {
         // B: work area start at the current time; N: work area end after the current frame (AE).
         e.preventDefault();
         const frame = activeComp.frameDuration || 1 / (activeComp.frameRate || 24);
-        const t = views[activeComp.id]?.time ?? 0;
+        const t = currentTimeRef.current(activeComp);
         const start = activeComp.workAreaStart;
         const end = start + activeComp.workAreaDuration;
         const area: [number, number] =
@@ -444,7 +446,7 @@ export function App() {
         e.preventDefault();
         const n = e.shiftKey ? 10 : 1;
         try {
-          nudgeLayers(editor, activeComp, [selectedLayer], [nudge[0] * n, nudge[1] * n], views[activeComp.id]?.time ?? 0);
+          nudgeLayers(editor, activeComp, [selectedLayer], [nudge[0] * n, nudge[1] * n], currentTimeRef.current(activeComp));
         } catch (err) {
           setEditError((err as Error).message);
         }
@@ -632,7 +634,7 @@ export function App() {
               time={view?.time ?? 0}
               selectedLayerId={view?.layerId}
               onSelectLayer={(id) => selectLayer(activeComp.id, id)}
-              onTime={(t) => setTime(activeComp.id, t)}
+              onTime={(t) => goTo(activeComp.id, t)}
             />
           ) : (
             <div className="viewer-empty">
@@ -684,7 +686,7 @@ export function App() {
             comp={activeComp}
             time={view?.time ?? 0}
             selectedLayerId={view?.layerId}
-            onTime={setTime}
+            onTime={goTo}
             onSelectLayer={selectLayer}
           />
         )}
@@ -700,11 +702,12 @@ export function App() {
     return !layerCmd || canRunLayerCommand(layerCmd, layerTarget);
   };
   const menuLabel = (cmd: MenuCommand) => ops.menu.labels[cmd];
+  const menuChecked = (cmd: MenuCommand) => (cmd === "toggle-sapphire" ? appRenderOptions.sapphireLookalikes : undefined);
   const solidComp = solidFor !== undefined ? project?.items.get(solidFor) : undefined;
 
   const app = (
     <div className={`app ${dragging ? "dragging" : ""}`} {...dropHandlers}>
-      <MenuBar hasProject={!!loaded} onCommand={command} enabled={menuEnabled} label={menuLabel} />
+      <MenuBar hasProject={!!loaded} onCommand={command} enabled={menuEnabled} label={menuLabel} checked={menuChecked} />
       <Toolbar
         onHome={() => setShowHome(true)}
         workspace={workspaceName}
@@ -781,6 +784,11 @@ export function App() {
             }
           }}
         />
+      )}
+      {particleMatch && (
+        <Suspense fallback={null}>
+          <ParticleMatchDialog onClose={() => setParticleMatch(false)} />
+        </Suspense>
       )}
       {editError && (
         <div className="modal-backdrop">

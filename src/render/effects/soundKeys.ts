@@ -99,7 +99,7 @@ registerEffect("tc Sound Keys", (input, effect: PropertyGroup, layer, time, ctx)
   let columns: Float32Array | undefined;
   if (audioLayer) {
     const audio = layerAudio(ctx.project, audioLayer, time);
-    if (audio === "pending") ctx.warn(`audio is loading ("${audioLayer.name}")`);
+    if (audio === "pending") ctx.loading(`audio is loading ("${audioLayer.name}")`);
     else if (audio) {
       const rate = audio.rate * audio.timeScale;
       columns = displaySpectrum(settings, rate, (first, length) => mixWindow(audio, first, length, settings.channel), time);

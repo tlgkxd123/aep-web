@@ -22,7 +22,9 @@ export type MenuCommand =
   | "import"
   | "replace-footage"
   | "duplicate"
-  | "clear";
+  | "clear"
+  | "toggle-sapphire"
+  | "particle-match";
 
 interface Item {
   label: string;
@@ -218,7 +220,16 @@ const MENUS: { name: string; items: Entry[] }[] = [
           { label: "Auto-Orient...", shortcut: "Ctrl+Alt+O" },
         ],
       },
-      { label: "Time", submenu: true },
+      {
+        label: "Time",
+        submenu: true,
+        items: [
+          { label: "Enable Time Remapping", shortcut: "Ctrl+Alt+T", command: "time-remap" },
+          { label: "Time-Reverse Layer", shortcut: "Ctrl+Alt+R" },
+          { label: "Time Stretch..." },
+          { label: "Freeze Frame" },
+        ],
+      },
       { label: "Frame Blending", submenu: true },
       { label: "3D Layer" },
       { label: "Guide Layer" },
@@ -319,6 +330,8 @@ const MENUS: { name: string; items: Entry[] }[] = [
       { label: "Show Layer Controls", shortcut: "Ctrl+Shift+H" },
       { label: "Reset 3D View" },
       "-",
+      { label: "Render Sapphire S_Blur and S_Shake", command: "toggle-sapphire" },
+      "-",
       { label: "Go To Time...", shortcut: "Alt+Shift+J" },
     ],
   },
@@ -353,6 +366,10 @@ const MENUS: { name: string; items: Entry[] }[] = [
     ],
   },
   {
+    name: "Extra",
+    items: [{ label: "Particle Match...", command: "particle-match" }],
+  },
+  {
     name: "Help",
     items: [
       { label: "Home", command: "home" },
@@ -374,6 +391,8 @@ interface MenuState {
   enabled?: (command: MenuCommand) => boolean;
   /** A label that depends on the project, such as "Undo Move". */
   label?: (command: MenuCommand) => string | undefined;
+  /** Whether a command that toggles a setting has it on; undefined for other commands. */
+  checked?: (command: MenuCommand) => boolean | undefined;
   run: (command: MenuCommand) => void;
 }
 
@@ -389,14 +408,16 @@ function MenuList({ name, entries, state, className }: { name: string; entries: 
       {entries.map((entry, j) => {
         if (entry === "-") return <div key={j} className="menu-sep" role="separator" />;
         const label = (entry.command && state.label?.(entry.command)) || entry.label;
+        const checked = entry.command ? state.checked?.(entry.command) : undefined;
         const button = (
           <button
             key={j}
             type="button"
-            role="menuitem"
+            role={checked === undefined ? "menuitem" : "menuitemcheckbox"}
             className={`menu-item ${entry.items && sub === j ? "open" : ""}`}
             aria-haspopup={entry.items ? "menu" : undefined}
             aria-expanded={entry.items ? sub === j : undefined}
+            aria-checked={checked}
             disabled={!runnable(entry, state)}
             onPointerEnter={() => setSub(entry.items ? j : undefined)}
             onClick={() => {
@@ -404,6 +425,11 @@ function MenuList({ name, entries, state, className }: { name: string; entries: 
               else if (entry.command) state.run(entry.command);
             }}
           >
+            {checked && (
+              <span className="menu-check">
+                <Icon name="check" size={10} />
+              </span>
+            )}
             <span className="menu-label">{label}</span>
             <span className="menu-shortcut">{entry.shortcut}</span>
             <span className="menu-sub">{entry.submenu && <Icon name="chevronRight" size={10} />}</span>
@@ -427,11 +453,13 @@ export const MenuBar = memo(function MenuBar({
   onCommand,
   enabled,
   label,
+  checked,
 }: {
   hasProject: boolean;
   onCommand: (command: MenuCommand) => void;
   enabled?: (command: MenuCommand) => boolean;
   label?: (command: MenuCommand) => string | undefined;
+  checked?: (command: MenuCommand) => boolean | undefined;
 }) {
   const [open, setOpen] = useState<number>();
   const bar = useRef<HTMLDivElement>(null);
@@ -439,6 +467,7 @@ export const MenuBar = memo(function MenuBar({
     hasProject,
     enabled,
     label,
+    checked,
     run: (command) => {
       setOpen(undefined);
       onCommand(command);

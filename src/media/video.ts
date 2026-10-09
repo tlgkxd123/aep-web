@@ -10,14 +10,27 @@ export type FrameSink = (index: number, frame: FootageFrame) => void;
 export interface VideoReader {
   /** Presentation index of the sample shown at `time` seconds. */
   indexAt(time: number): number;
-  /** Decodes the sample at presentation index `index` (and usually its neighbours) into `sink`. */
-  decode(index: number, sink: FrameSink): Promise<void>;
+  /** Number of presentation indices (Infinity when unknown). */
+  readonly frameCount: number;
+  /**
+   * Decodes the sample at presentation index `index` (and usually its neighbours) into `sink`. Requests queue
+   * behind each other; one whose `needed` returns false by its turn (an earlier run delivered it) does nothing.
+   */
+  decode(index: number, sink: FrameSink, needed?: () => boolean): Promise<void>;
   close(): void;
 }
 
 /** Samples decoded past the requested one in a single run, so playback does not restart from the key frame every frame. */
 const LOOKAHEAD = 12;
 
+/** Decoder work counters, for profiling playback and exports. */
+export const videoStats = { resets: 0, fed: 0, frames: 0, convertMs: 0, waitMs: 0 };
+
+/**
+ * Planar frames keep their Y'CbCr samples: the footage shader converts them the way After Effects does (the
+ * browser's own conversion picks another matrix and upsamples chroma differently). Reading the planes back
+ * costs ~14 ms per 1080p frame, which is why decoding runs in a worker (src/media/videoWorker.ts).
+ */
 async function toFootageFrame(frame: VideoFrame): Promise<FootageFrame> {
   try {
     const format = frame.format;
@@ -25,36 +38,23 @@ async function toFootageFrame(frame: VideoFrame): Promise<FootageFrame> {
     const height = frame.visibleRect?.height ?? frame.codedHeight;
     const limitedRange = !(frame.colorSpace?.fullRange ?? false);
     if (format === "I420" || format === "I420A" || format === "I422" || format === "I444" || format === "NV12") {
-      const buffer = new Uint8Array(frame.allocationSize());
-      const layout = await frame.copyTo(buffer);
+      // The planes stay as the decoder lays them out: no per-pixel work on the CPU, the footage shader reads them.
+      const data = new Uint8Array(frame.allocationSize());
+      const layout = await frame.copyTo(data);
       const xShift = format === "I444" ? 0 : 1;
       const yShift = format === "I420" || format === "I420A" || format === "NV12" ? 1 : 0;
-      const chromaWidth = (width + xShift) >> xShift;
-      const chromaHeight = (height + yShift) >> yShift;
-      const plane = (index: number, w: number, h: number) => {
-        const { offset, stride } = layout[index];
-        const out = new Uint8Array(w * h);
-        for (let r = 0; r < h; r++) out.set(buffer.subarray(offset + r * stride, offset + r * stride + w), r * w);
-        return out;
+      const planes = layout.slice(0, format === "NV12" ? 2 : 3).map(({ offset, stride }) => ({ offset, stride }));
+      return {
+        kind: "yuv",
+        data,
+        planes,
+        interleaved: format === "NV12",
+        width,
+        height,
+        chromaWidth: (width + xShift) >> xShift,
+        chromaHeight: (height + yShift) >> yShift,
+        limitedRange,
       };
-      const y = plane(0, width, height);
-      let u: Uint8Array;
-      let v: Uint8Array;
-      if (format === "NV12") {
-        const { offset, stride } = layout[1];
-        u = new Uint8Array(chromaWidth * chromaHeight);
-        v = new Uint8Array(chromaWidth * chromaHeight);
-        for (let r = 0; r < chromaHeight; r++) {
-          for (let c = 0; c < chromaWidth; c++) {
-            u[r * chromaWidth + c] = buffer[offset + r * stride + c * 2];
-            v[r * chromaWidth + c] = buffer[offset + r * stride + c * 2 + 1];
-          }
-        }
-      } else {
-        u = plane(1, chromaWidth, chromaHeight);
-        v = plane(2, chromaWidth, chromaHeight);
-      }
-      return { kind: "yuv", y, u, v, width, height, chromaWidth, chromaHeight, limitedRange };
     }
     if (format === "RGBA" || format === "RGBX" || format === "BGRA" || format === "BGRX") {
       const data = new Uint8Array(width * height * 4);
@@ -75,15 +75,18 @@ const OUTPUT_TIMEOUT_MS = 1500;
 
 /**
  * Keeps one decoder per video and feeds it forward: playing or scrubbing ahead
- * continues from the last fed sample instead of restarting at the key frame.
- * It is reset only for a jump backwards or into a later GOP, and flushed only
- * at the end of the file or when a frame does not come out (after a flush the
- * next chunk must be a key frame, so feeding restarts from one).
+ * continues from the last fed sample instead of restarting at the key frame, and
+ * a sample already fed whose picture has not come out yet is waited for. It is
+ * reset only for a jump backwards, into a later GOP or to a picture it already
+ * delivered, and flushed only at the end of the file or when a frame does not
+ * come out (after a flush the next chunk must be a key frame, so feeding
+ * restarts from one).
  */
-class WebCodecsReader implements VideoReader {
+export class WebCodecsReader implements VideoReader {
   private decoder: VideoDecoder | undefined;
   private readonly order: number[];
-  private readonly times: number[];
+  /** Presentation times of the shown samples, in order. */
+  readonly times: number[];
   private readonly presentationIndex: Map<number, number>;
   private queue: Promise<void> = Promise.resolve();
   private readonly blob: Blob;
@@ -91,6 +94,11 @@ class WebCodecsReader implements VideoReader {
   private readonly config: VideoDecoderConfig;
   /** Next sample (decode order) to feed; -1 when the decoder needs a key frame. */
   private fed = -1;
+  /** Key frame (decode order) the decoder has been fed from since its last reset. */
+  private began = -1;
+  /** Presentation indices delivered since the last reset, with the number of requests finished at the time. */
+  private readonly delivered = new Map<number, number>();
+  private completed = 0;
   private sink: FrameSink | undefined;
   private failure: Error | undefined;
   private readonly waiting = new Map<number, () => void>();
@@ -116,8 +124,12 @@ class WebCodecsReader implements VideoReader {
       output: (frame) => {
         const p = frame.timestamp;
         const sink = this.sink;
+        const started = performance.now();
         this.conversions.push(
           toFootageFrame(frame).then((f) => {
+            videoStats.frames++;
+            videoStats.convertMs += performance.now() - started;
+            this.delivered.set(p, this.completed);
             sink?.(p, f);
             this.waiting.get(p)?.();
           }),
@@ -131,25 +143,20 @@ class WebCodecsReader implements VideoReader {
     });
     this.decoder.configure(this.config);
     this.fed = -1;
+    this.began = -1;
     return this.decoder;
   }
 
   indexAt(time: number): number {
-    // Tolerates timestamps rounded to the media timescale.
-    const t = time + 1e-4;
-    let lo = 0;
-    let hi = this.times.length - 1;
-    if (hi < 0) return 0;
-    while (lo < hi) {
-      const mid = (lo + hi + 1) >> 1;
-      if (this.times[mid] <= t) lo = mid;
-      else hi = mid - 1;
-    }
-    return lo;
+    return indexAtTimes(this.times, time);
   }
 
-  decode(index: number, sink: FrameSink): Promise<void> {
-    const run = this.queue.then(() => this.run(index, sink));
+  get frameCount(): number {
+    return this.times.length;
+  }
+
+  decode(index: number, sink: FrameSink, needed?: () => boolean): Promise<void> {
+    const run = this.queue.then(() => (needed && !needed() ? undefined : this.run(index, sink).finally(() => this.completed++)));
     this.queue = run.catch(() => undefined);
     return run;
   }
@@ -171,12 +178,20 @@ class WebCodecsReader implements VideoReader {
     this.sink = sink;
     this.failure = undefined;
     let decoder = this.ensureDecoder();
-    // Continue feeding when the target's GOP has already started and the target is still ahead.
-    const continues = this.fed >= 0 && start <= this.fed && this.fed <= target;
+    // Continue when the decoder has been fed through the target's GOP from its key frame on and the target's
+    // picture is still to come: either not fed yet, or fed and on its way out.
+    const live = this.fed >= 0 && this.began >= 0 && this.began <= start && start <= this.fed;
+    const continues = live && (this.fed <= target || !this.delivered.has(wanted));
+    // Delivered after the previous request finished: the caller decided it was missing before the frame reached
+    // it (from a worker, frames still coming out of the decoder arrive after the reply), so it is on its way.
+    if (live && this.delivered.get(wanted) === this.completed) return;
     if (!continues) {
+      videoStats.resets++;
       decoder.reset();
       decoder.configure(this.config);
       this.fed = start;
+      this.began = start;
+      this.delivered.clear();
     }
     const from = this.fed;
     const arrived = new Promise<void>((resolve) => this.waiting.set(wanted, resolve));
@@ -194,11 +209,15 @@ class WebCodecsReader implements VideoReader {
           }),
         );
       }
+      videoStats.fed += end - from;
       this.fed = end;
     }
     const timeout = new Promise<"timeout">((resolve) => setTimeout(() => resolve("timeout"), OUTPUT_TIMEOUT_MS));
     const atEnd = end >= samples.length;
-    if (atEnd || (await Promise.race([arrived, timeout])) === "timeout") {
+    const waiting = performance.now();
+    const outcome = atEnd ? "end" : await Promise.race([arrived, timeout]);
+    videoStats.waitMs += performance.now() - waiting;
+    if (outcome !== undefined) {
       decoder = this.ensureDecoder();
       await decoder.flush();
       this.fed = -1;
@@ -216,8 +235,52 @@ class WebCodecsReader implements VideoReader {
   }
 }
 
+/** Presentation index of the sample shown at `time`, tolerating timestamps rounded to the media timescale. */
+export function indexAtTimes(times: number[], time: number): number {
+  const t = time + 1e-4;
+  let lo = 0;
+  let hi = times.length - 1;
+  if (hi < 0) return 0;
+  while (lo < hi) {
+    const mid = (lo + hi + 1) >> 1;
+    if (times[mid] <= t) lo = mid;
+    else hi = mid - 1;
+  }
+  return lo;
+}
+
+/**
+ * A WebCodecs reader for the file's video track; fails when the demuxer or the browser cannot handle it.
+ * `preferSoftware` asks for a software decoder when there is one: its frames sit in memory, so reading their
+ * planes is a copy instead of a GPU readback.
+ */
+export async function openWebCodecs(blob: Blob, preferSoftware = false): Promise<WebCodecsReader> {
+  const track = await demuxVideo(blob);
+  const base: VideoDecoderConfig = { codec: track.codec, codedWidth: track.width, codedHeight: track.height, description: track.description };
+  const configs: VideoDecoderConfig[] = preferSoftware ? [{ ...base, hardwareAcceleration: "prefer-software" }, base] : [base];
+  for (const config of configs) {
+    if ((await VideoDecoder.isConfigSupported(config)).supported) return new WebCodecsReader(blob, track, config);
+  }
+  throw new Error(`codec ${track.codec} is not supported by this browser`);
+}
+
+/** Messages to src/media/videoWorker.ts. */
+export type WorkerRequest = { type: "open"; blob: Blob } | { type: "decode"; id: number; index: number };
+
+/** Messages from src/media/videoWorker.ts; `stats` is the worker's running videoStats. */
+export type WorkerReply =
+  | { type: "opened"; times: number[] }
+  | { type: "failed"; message: string }
+  | { type: "frame"; index: number; frame: FootageFrame }
+  | { type: "done"; id: number; error?: string; stats: typeof videoStats };
+
+/** What a frame's postMessage can hand over without copying. */
+export function transferables(frame: FootageFrame): Transferable[] {
+  return frame.kind === "bitmap" ? [frame.image] : [frame.data.buffer as ArrayBuffer];
+}
+
 /** Seeks an HTMLVideoElement and captures the frame; only as frame-accurate as the browser's seeking. */
-class ElementReader implements VideoReader {
+export class ElementReader implements VideoReader {
   private queue: Promise<void> = Promise.resolve();
   private readonly video: HTMLVideoElement;
   private readonly url: string;
@@ -247,8 +310,13 @@ class ElementReader implements VideoReader {
     return Math.max(0, Math.floor(time * this.frameRate + 1e-6));
   }
 
-  decode(index: number, sink: FrameSink): Promise<void> {
+  get frameCount(): number {
+    return Number.isFinite(this.video.duration) ? Math.ceil(this.video.duration * this.frameRate) : Infinity;
+  }
+
+  decode(index: number, sink: FrameSink, needed?: () => boolean): Promise<void> {
     const run = this.queue.then(async () => {
+      if (needed && !needed()) return;
       const video = this.video;
       await new Promise<void>((resolve) => {
         video.onseeked = () => resolve();
@@ -264,26 +332,5 @@ class ElementReader implements VideoReader {
   close(): void {
     this.video.removeAttribute("src");
     URL.revokeObjectURL(this.url);
-  }
-}
-
-/** Opens a video file: WebCodecs when the browser has it and supports the codec, else a video element. */
-export async function openVideo(blob: Blob, frameRate: number): Promise<VideoReader> {
-  let reason = "";
-  if (typeof VideoDecoder !== "undefined") {
-    try {
-      const track = await demuxVideo(blob);
-      const config: VideoDecoderConfig = { codec: track.codec, codedWidth: track.width, codedHeight: track.height, description: track.description };
-      if ((await VideoDecoder.isConfigSupported(config)).supported) return new WebCodecsReader(blob, track, config);
-      reason = `codec ${track.codec} is not supported by this browser`;
-    } catch (e) {
-      reason = (e as Error).message;
-    }
-  }
-  if (typeof document === "undefined") throw new Error(reason || "video decoding needs WebCodecs");
-  try {
-    return await ElementReader.open(blob, frameRate);
-  } catch (e) {
-    throw new Error(reason || (e as Error).message);
   }
 }

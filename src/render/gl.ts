@@ -38,11 +38,20 @@ export function createTexture(gl: GL, width: number, height: number, linear = tr
   return texture;
 }
 
-/** Pools render targets by size so a frame does not allocate textures per layer. */
+/** Frames a pooled target may go unused before it is deleted. */
+const KEEP_FRAMES = 2;
+
+/**
+ * Pools render targets by size so a frame does not allocate textures per layer, and a frame does not allocate
+ * what the frame before it used: allocating hundreds of megabytes of targets per frame stalls the GPU process.
+ */
 export class TargetPool {
   private readonly free = new Map<string, Target[]>();
   private readonly released = new Map<Target, number>();
+  /** Frame in which each pooled target was last released. */
+  private readonly lastFrame = new Map<Target, number>();
   private releases = 0;
+  private frame = 0;
   private freeBytes = 0;
   private readonly gl: GL;
   constructor(gl: GL) {
@@ -56,6 +65,7 @@ export class TargetPool {
     const pooled = list?.pop();
     if (pooled) {
       this.released.delete(pooled);
+      this.lastFrame.delete(pooled);
       this.freeBytes -= w * h * 4;
     }
     const target = pooled ?? this.create(w, h);
@@ -73,15 +83,23 @@ export class TargetPool {
     list.push(target);
     this.free.set(key, list);
     this.released.set(target, ++this.releases);
+    this.lastFrame.set(target, this.frame);
     this.freeBytes += target.width * target.height * 4;
   }
 
   /**
-   * Deletes pooled targets, least recently released first, until at most
-   * `maxBytes` stay pooled. Content whose size changes every frame (animated
-   * shapes) would otherwise leave one texture per size behind.
+   * Ends a frame: deletes pooled targets the last KEEP_FRAMES frames did not use (content whose size changes every
+   * frame, such as animated shapes, would otherwise leave one texture per size behind), then least recently
+   * released ones until at most `maxBytes` stay pooled.
    */
   trim(maxBytes: number): void {
+    for (const [key, list] of this.free) {
+      const keep = list.filter((t) => this.frame - this.lastFrame.get(t)! < KEEP_FRAMES);
+      if (keep.length === list.length) continue;
+      for (const t of list) if (!keep.includes(t)) this.delete(t);
+      if (keep.length) this.free.set(key, keep);
+      else this.free.delete(key);
+    }
     while (this.freeBytes > maxBytes) {
       let oldest: Target[] | undefined;
       for (const list of this.free.values()) {
@@ -89,11 +107,17 @@ export class TargetPool {
       }
       const target = oldest?.shift();
       if (!target) break;
-      this.released.delete(target);
-      this.freeBytes -= target.width * target.height * 4;
-      this.gl.deleteFramebuffer(target.framebuffer);
-      this.gl.deleteTexture(target.texture);
+      this.delete(target);
     }
+    this.frame++;
+  }
+
+  private delete(target: Target): void {
+    this.released.delete(target);
+    this.lastFrame.delete(target);
+    this.freeBytes -= target.width * target.height * 4;
+    this.gl.deleteFramebuffer(target.framebuffer);
+    this.gl.deleteTexture(target.texture);
   }
 
   private create(width: number, height: number): Target {

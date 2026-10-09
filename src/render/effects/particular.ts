@@ -6,7 +6,10 @@
 // comp by the World Transform (rotation about the comp centre, then offset; checked
 // against After Effects renders of the user's setup), seen through the comp's
 // camera, drawn as soft dots with a glow halo. It replaces the layer's pixels as
-// Particular does.
+// Particular does. Positions cannot match; the particle count, sizes, brightness and
+// spread are fitted to After Effects renders (scripts/particular-stats.ts): Size Random
+// varies the size by up to ±half its percentage, and with Depth of Field on, particles
+// off the focal plane (at the camera's zoom distance) spread over a circle of confusion.
 import type { CompItem, Layer, Project, PropertyGroup } from "../../aep/model.ts";
 import type { Chunk } from "../../aep/riff.ts";
 import { cameraAt, Mat4 } from "../../aep/transform.ts";
@@ -85,10 +88,10 @@ function splatter(gl: GL): SplatGpu {
   const instances = gl.createBuffer()!;
   gl.bindBuffer(gl.ARRAY_BUFFER, instances);
   gl.enableVertexAttribArray(1);
-  gl.vertexAttribPointer(1, 4, gl.FLOAT, false, 20, 0);
+  gl.vertexAttribPointer(1, 4, gl.FLOAT, false, SPLAT_FLOATS * 4, 0);
   gl.vertexAttribDivisor(1, 1);
   gl.enableVertexAttribArray(2);
-  gl.vertexAttribPointer(2, 1, gl.FLOAT, false, 20, 16);
+  gl.vertexAttribPointer(2, 1, gl.FLOAT, false, SPLAT_FLOATS * 4, 16);
   gl.vertexAttribDivisor(2, 1);
   gl.bindVertexArray(null);
   state = {
@@ -103,12 +106,25 @@ function splatter(gl: GL): SplatGpu {
   return state;
 }
 
-/** Appends a disc, opaque out to `inner` and fading linearly to zero at `outer`, as one instance: cx, cy, outer, inner, opacity. */
+/** Floats per splat instance: cx, cy, outer, inner, opacity. */
+const SPLAT_FLOATS = 5;
+
+/** Appends a disc, opaque out to `inner` and fading linearly to zero at `outer`. */
 function splat(out: number[], cx: number, cy: number, inner: number, outer: number, opacity: number) {
   // Dots below a pixel keep their area as fainter one-pixel dots.
   const r = Math.max(outer, 0.75);
   opacity *= Math.min(1, (outer / r) ** 2);
   if (opacity > 0) out.push(cx, cy, r, Math.min(inner, r), opacity);
+}
+
+/** A splat widened by `blur` on both sides of its falloff, its opacity lowered so its light stays the same. */
+function defocused(out: number[], cx: number, cy: number, inner: number, outer: number, opacity: number, blur: number) {
+  if (blur <= 0) return splat(out, cx, cy, inner, outer, opacity);
+  // A disc's light, up to a constant: plateau to `i`, linear falloff to `o`.
+  const light = (i: number, o: number) => i * i + i * o + o * o;
+  const i2 = Math.max(0, inner - blur);
+  const o2 = outer + blur;
+  splat(out, cx, cy, i2, o2, opacity * Math.min(1, light(inner, outer) / light(i2, o2)));
 }
 
 /** Samples of an "over Life" curve (Size, Opacity...): 201 float32 values from birth to death after a 28-byte header. */
@@ -232,6 +248,8 @@ class Emission {
 }
 
 const emissions = new WeakMap<object, Emission>();
+/** For an animated Physics Time Factor: simulation time ∫ factor dt and emission ∫ rate · factor dt. */
+const clocks = new WeakMap<object, { sim: Emission; births: Emission }>();
 
 const EMITTER_POINT = 1;
 const EMITTER_BOX = 2;
@@ -242,6 +260,11 @@ const DIRECTION_BIDIRECTIONAL = 3;
 const DIRECTION_DISC = 4;
 const DIRECTION_OUTWARDS = 5;
 const SIZE_LINKED = 1;
+const DOF_OFF = 1;
+/** Particle Type "Sphere": the dot without the glow halo the other types are drawn with here. */
+const TYPE_SPHERE = 1;
+/** Circle of confusion (comp pixels) of a particle twice the focal distance away: fitted, not Particular's own. */
+const DOF_APERTURE = 15;
 
 registerEffect("tc Particular", (input, effect, layer, time, ctx) => {
   const num = (index: number, fallback: number) => effectNumber(effect, index, layer, time, fallback);
@@ -269,14 +292,26 @@ registerEffect("tc Particular", (input, effect, layer, time, ctx) => {
   const opacity = num(33, 100) / 100;
   const opacityRandom = Math.min(1, num(75, 0) / 100);
   const feather = num(29, 50) / 100;
+  const glows = num(26, TYPE_SPHERE) !== TYPE_SPHERE;
   const glowSize = num(215, 300) / 100;
-  const glowOpacity = num(216, 25) / 100;
+  const glowOpacity = glows ? num(216, 25) / 100 : 0;
   const color = effectVector(effect, 70, layer, time, [1, 1, 1, 1]);
   const timeFactor = num(25, 1);
   const gravity = num(17, 0);
   const wind = [num(22, 0), num(23, 0), num(24, 0)];
   const seed = num(230, 100000);
   const preRun = Math.max(0, num(227, 0)) / 100;
+  const aperture = num(319, DOF_OFF) === DOF_OFF ? 0 : DOF_APERTURE;
+  const farVanish = num(100, 20000);
+  const farFade = num(102, 19000);
+  const nearFade = num(103, 10);
+  const nearVanish = num(105, 1);
+  /** Visibility at camera depth `z`: fading in from Near Vanish to Near Start Fade, out from Far Start Fade to Far Vanish. */
+  const visibility = (z: number) => {
+    const near = nearFade > nearVanish ? (z - nearVanish) / (nearFade - nearVanish) : z >= nearVanish ? 1 : 0;
+    const far = farVanish > farFade ? (farVanish - z) / (farVanish - farFade) : z <= farVanish ? 1 : 0;
+    return Math.max(0, Math.min(1, near, far));
+  };
   const sizeOverLife = overLife(effect, 569);
   const opacityOverLife = overLife(effect, 570);
 
@@ -303,36 +338,71 @@ registerEffect("tc Particular", (input, effect, layer, time, ctx) => {
 
   // Physics Time Factor runs the whole simulation (emission, ageing, motion) slower or
   // faster: Particles/sec counts per simulation second, and ages are simulation seconds.
-  // Pre Run emits for `preRun · life` simulation seconds before time 0 at the rate of time 0.
-  const simFactor = Math.max(timeFactor, 1e-3);
+  // Pre Run runs `preRun · life` seconds before time 0 at the rate and time factor of
+  // time 0, so below a factor of 1 it fills only that share of a life (as After Effects
+  // renders it). An animated factor accumulates like an animated rate, so a change
+  // speeds up or slows down the particles already flying rather than moving them.
   const rateProp = effectProperty(effect, 146);
   const animatedRate = !!rateProp && (rateProp.keyframes.length > 0 || rateProp.expressionEnabled);
-  let emission: Emission | undefined;
-  if (animatedRate && rateProp) {
-    emission = emissions.get(rateProp);
-    if (!emission || emission.step !== 1 / fps) {
-      emission = new Emission((t) => Math.max(0, effectNumber(effect, 146, layer, t, 0)), 1 / fps);
-      emissions.set(rateProp, emission);
-    }
-  }
+  const factorProp = effectProperty(effect, 25);
+  const animatedFactor = !!factorProp && (factorProp.keyframes.length > 0 || factorProp.expressionEnabled);
   const startRate = animatedRate ? Math.max(0, effectNumber(effect, 146, layer, 0, 0)) : rate;
-  const preRunSeconds = preRun * life / simFactor;
-  /** Particles emitted by real time t (pre run included), in simulation units. */
-  const emitted = (t: number) => simFactor * (preRunSeconds * startRate + (emission ? emission.at(t) : rate * Math.max(0, t)));
-  /** Real birth time of particle i. */
-  const birthOf = (i: number) => {
+  /** Simulation time now; a particle's age is that minus its birth's. */
+  let nowSim: number;
+  /** Real and simulation birth times of particle i (real time is never before 0). */
+  let birthOf: (i: number) => [real: number, sim: number];
+  let first: number;
+  let last: number;
+  if (animatedFactor && factorProp) {
+    let tables = clocks.get(factorProp);
+    if (!tables || tables.sim.step !== 1 / fps) {
+      const factorAt = (t: number) => Math.max(0, effectNumber(effect, 25, layer, t, 1));
+      const rateAt = (t: number) => Math.max(0, effectNumber(effect, 146, layer, t, 0));
+      tables = { sim: new Emission(factorAt, 1 / fps), births: new Emission((t) => rateAt(t) * factorAt(t), 1 / fps) };
+      clocks.set(factorProp, tables);
+    }
+    const { sim, births } = tables;
+    const preRunCount = preRun * life * Math.max(0, effectNumber(effect, 25, layer, 0, 1)) * startRate;
+    nowSim = sim.at(time);
+    birthOf = (i) => {
+      if (i < preRunCount) return [0, (i - preRunCount) / startRate];
+      const real = births.timeOf(i - preRunCount, time);
+      return [real, Number.isFinite(real) ? sim.at(real) : real];
+    };
+    const oldest = nowSim - life;
+    const before = oldest < 0 ? preRunCount + oldest * startRate : preRunCount + births.at(sim.timeOf(oldest, time));
+    first = Math.max(0, Math.floor(before) - 1);
+    last = Math.floor(preRunCount + births.at(time) + 1e-6);
+  } else {
+    const simFactor = Math.max(timeFactor, 1e-3);
+    let emission: Emission | undefined;
+    if (animatedRate && rateProp) {
+      emission = emissions.get(rateProp);
+      if (!emission || emission.step !== 1 / fps) {
+        emission = new Emission((t) => Math.max(0, effectNumber(effect, 146, layer, t, 0)), 1 / fps);
+        emissions.set(rateProp, emission);
+      }
+    }
+    const preRunSeconds = preRun * life;
+    /** Particles emitted by real time t (the pre run's from -preRunSeconds), in simulation units. */
+    const emitted = (t: number) =>
+      simFactor * (Math.max(0, Math.min(t, 0) + preRunSeconds) * startRate + (emission ? emission.at(t) : rate * Math.max(0, t)));
     const preRunCount = simFactor * preRunSeconds * startRate;
-    if (i < preRunCount) return i / (simFactor * startRate) - preRunSeconds;
-    const remaining = i / simFactor - preRunSeconds * startRate;
-    return emission ? emission.timeOf(remaining, time) : remaining / Math.max(rate, 1e-9);
-  };
+    nowSim = time * simFactor;
+    birthOf = (i) => {
+      const remaining = i / simFactor - preRunSeconds * startRate;
+      const real =
+        i < preRunCount ? i / (simFactor * startRate) - preRunSeconds : emission ? emission.timeOf(remaining, time) : remaining / Math.max(rate, 1e-9);
+      return [Math.max(0, real), real * simFactor];
+    };
+    first = Math.max(0, Math.floor(emitted(time - life / simFactor)) - 1);
+    last = Math.floor(emitted(time) + 1e-6);
+  }
   const splats: number[] = [];
-  const first = Math.max(0, Math.floor(emitted(time - life / simFactor)) - 1);
-  const last = Math.floor(emitted(time) + 1e-6);
   for (let i = first; i <= last && (rate > 0 || animatedRate); i++) {
-    const birthReal = birthOf(i);
-    if (!Number.isFinite(birthReal)) break;
-    const age = (time - birthReal) * simFactor;
+    const [birthReal, birthSim] = birthOf(i);
+    if (!Number.isFinite(birthSim)) break;
+    const age = nowSim - birthSim;
     const rand = random(Math.imul(seed | 0, 2654435761) ^ Math.imul(i + 1, 0x9e3779b1));
     const lifeSpan = life * (1 - lifeRandom * 0.5 * rand());
     if (age < 0 || age > lifeSpan) continue;
@@ -357,16 +427,17 @@ registerEffect("tc Particular", (input, effect, layer, time, ctx) => {
     }
     const speed = Math.max(0, velocity * (1 + velocityRandom * (rand() * 2 - 1)));
     const lifeShare = lifeSpan > 0 ? age / lifeSpan : 0;
-    const pSize = particleSize * (1 - sizeRandom * rand()) * sampleCurve(sizeOverLife, lifeShare);
+    const pSize = particleSize * (1 + sizeRandom * (rand() - 0.5)) * sampleCurve(sizeOverLife, lifeShare);
     const pOpacity = opacity * (1 - opacityRandom * rand()) * sampleCurve(opacityOverLife, lifeShare);
     const norm = Math.hypot(dir[0], dir[1], dir[2]) || 1;
     const t = age;
-    const origin = emitterPosition(Math.max(0, birthReal));
+    const origin = emitterPosition(birthReal);
     const box = emitterRotation.transformVector(offset);
     const local = [0, 1, 2].map((c) => origin[c] + box[c] + (dir[c] / norm) * speed * t + wind[c] * t + (c === 1 ? 0.5 * gravity * t * t : 0));
     const p = world.transformPoint(local);
     const view = toCamera.transformVector([p[0] - camera.position[0], p[1] - camera.position[1], p[2] - camera.position[2]]);
     if (view[2] <= 1) continue;
+    const seen = pOpacity * visibility(view[2]);
     const scale = camera.zoom / view[2];
     const sx = cx + view[0] * scale + shiftX;
     const sy = cy + view[1] * scale + shiftY;
@@ -374,10 +445,12 @@ registerEffect("tc Particular", (input, effect, layer, time, ctx) => {
     // The glow halo scales from that feathered edge.
     const r = (pSize * scale) / 2;
     const edge = r * (1 + 1.8 * feather);
-    const reach = edge * Math.max(glowSize, 1);
-    if (pOpacity <= 0 || sx + reach < 0 || sy + reach < 0 || sx - reach > width || sy - reach > height) continue;
-    splat(splats, sx, sy, 0, edge * glowSize, pOpacity * glowOpacity);
-    splat(splats, sx, sy, r, edge, pOpacity);
+    // Out of the focal plane a particle spreads over its circle of confusion, keeping its light.
+    const blur = (aperture * Math.abs(view[2] - camera.zoom)) / view[2] / 2;
+    const reach = edge * (glows ? Math.max(glowSize, 1) : 1) + blur;
+    if (seen <= 0 || sx + reach < 0 || sy + reach < 0 || sx - reach > width || sy - reach > height) continue;
+    if (glows) defocused(splats, sx, sy, 0, edge * glowSize, seen * glowOpacity, blur);
+    defocused(splats, sx, sy, r, edge, seen, blur);
   }
   const pad = ctx.pad;
   // `acquire` leaves the cleared target bound with its viewport set.
@@ -397,7 +470,7 @@ registerEffect("tc Particular", (input, effect, layer, time, ctx) => {
     gl.enable(gl.BLEND);
     gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
     gl.bindVertexArray(gpu.vao);
-    gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, splats.length / 5);
+    gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, splats.length / SPLAT_FLOATS);
     gl.bindVertexArray(null);
     gl.disable(gl.BLEND);
     gl.disable(gl.SCISSOR_TEST);

@@ -1,6 +1,7 @@
 import { memo, useState, type ReactNode } from "react";
 import type { CompItem, Layer, Project } from "../aep/model.ts";
 import { moveLayers } from "../edit/transform-ops.ts";
+import { DEFAULT_PREVIEW, type PreviewSettings } from "../playback/usePlayback.ts";
 import { attempt, useEditing } from "./editing.tsx";
 import { bitsPerChannel, bytesLabel, fpsLabel } from "./format.ts";
 import { bounds } from "./viewerOverlays.tsx";
@@ -102,21 +103,6 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
     </div>
   );
 }
-
-/** The Preview panel's playback options. */
-export interface PreviewSettings {
-  /** Work area, work area extended by the current time, or the whole comp. */
-  range: "workArea" | "extended" | "comp";
-  playFrom: "start" | "current";
-  loop: boolean;
-  audio: boolean;
-  /** Frames per second shown; 0 = the comp's rate (Auto). */
-  frameRate: number;
-  /** Frames skipped between shown frames. */
-  skip: number;
-}
-
-export const DEFAULT_PREVIEW: PreviewSettings = { range: "extended", playFrom: "start", loop: true, audio: true, frameRate: 0, skip: 0 };
 
 const RANGES: [PreviewSettings["range"], string][] = [
   ["workArea", "Work Area"],

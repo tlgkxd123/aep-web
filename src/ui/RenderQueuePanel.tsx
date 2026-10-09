@@ -140,6 +140,7 @@ function ItemRow({ item, index, busy }: { item: QueueItem; index: number; busy: 
         </label>
       </div>
       {item.error && <p className="rq-error">{item.error}</p>}
+      {item.status === "Done" && item.perf && <p className="rq-perf">{item.perf}</p>}
     </div>
   );
 }

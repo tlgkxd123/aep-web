@@ -1,5 +1,5 @@
-import { valueAtTime } from "../aep/evaluate.ts";
-import type { CompItem, Layer, Property, PropertyValue } from "../aep/model.ts";
+import { currentValue, getExpressionScope, setExpressionScope, valueAtTime, type ExpressionScope } from "../aep/evaluate.ts";
+import type { CompItem, Layer, Project, Property, PropertyValue } from "../aep/model.ts";
 import { sourcePointToComp } from "../aep/transform.ts";
 
 /** `prop`'s value at comp time `t`, falling back to its stored value if it cannot be evaluated. */
@@ -8,6 +8,28 @@ export function valueAt(prop: Property, t: number, layer: Layer): PropertyValue 
     return valueAtTime(prop, t, layer);
   } catch {
     return prop.value;
+  }
+}
+
+/** One expression scope per project and time, so the panels share evaluations while the playhead stays. */
+const panelScopes = new WeakMap<Project, { time: number; scope: ExpressionScope }>();
+
+/**
+ * The value a panel shows: after the property's expression when one is enabled, as After Effects shows it (in
+ * red). Evaluating it also records the expression's error for the expression row.
+ */
+export function shownValue(project: Project, prop: Property, t: number, layer: Layer): PropertyValue {
+  if (!prop.expression || !prop.expressionEnabled) return valueAt(prop, t, layer);
+  let entry = panelScopes.get(project);
+  if (!entry || entry.time !== t) panelScopes.set(project, (entry = { time: t, scope: { project, warn: () => {} } }));
+  const previous = getExpressionScope();
+  setExpressionScope(entry.scope);
+  try {
+    return currentValue(prop, t, layer);
+  } catch {
+    return valueAt(prop, t, layer);
+  } finally {
+    setExpressionScope(previous);
   }
 }
 

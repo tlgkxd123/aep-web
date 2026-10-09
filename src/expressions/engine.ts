@@ -40,6 +40,8 @@ interface Frame extends EvalFrame {
 interface Result {
   value: PropertyValue;
   warning?: string;
+  /** The error alone ("TypeError: ..."), without the property path the warning names. */
+  error?: string;
 }
 
 const copy = (v: PropertyValue): PropertyValue => (Array.isArray(v) ? [...v] : isShapeValue(v) ? structuredCloneShape(v) : v);
@@ -55,6 +57,8 @@ export class ExpressionEngine implements Host {
   readonly api: Api = new Api(this);
   private scope: ExpressionScope | undefined;
   private results = new WeakMap<Property, Map<number, Result>>();
+  /** The error of each property's latest evaluation, for showing under its expression. */
+  private readonly errors = new WeakMap<Property, string>();
   private readonly compiled = new WeakMap<Property, { source: string; legacy: boolean; result: CompiledExpression | Error }>();
   private readonly stack: Frame[] = [];
   private readonly globals: Readonly<Record<string, unknown>>;
@@ -96,6 +100,7 @@ export class ExpressionEngine implements Host {
     let byTime = this.results.get(prop);
     const hit = byTime?.get(compTime);
     if (hit) {
+      this.noteError(prop, hit.error);
       if (hit.warning) scope.warn(hit.warning);
       return copy(hit.value);
     }
@@ -107,13 +112,24 @@ export class ExpressionEngine implements Host {
     const comp = this.index.comp(layer);
     if (!comp) return pre;
     const result = this.run(prop, compTime, layer, pre, comp, scope);
+    this.noteError(prop, result.error);
     if (result.warning) scope.warn(result.warning);
     if (!result.cycle) {
       if (!byTime) this.results.set(prop, (byTime = new Map()));
-      byTime.set(compTime, { value: result.value, warning: result.warning });
+      byTime.set(compTime, { value: result.value, warning: result.warning, error: result.error });
     }
     return copy(result.value);
   };
+
+  /** The error the property's expression raised when it was last evaluated, if it did. */
+  errorOf(prop: Property): string | undefined {
+    return prop.expression && prop.expressionEnabled ? this.errors.get(prop) : undefined;
+  }
+
+  private noteError(prop: Property, error: string | undefined): void {
+    if (error) this.errors.set(prop, error);
+    else this.errors.delete(prop);
+  }
 
   private compile(prop: Property, legacy: boolean): CompiledExpression | Error {
     const source = prop.expression!;
@@ -138,7 +154,7 @@ export class ExpressionEngine implements Host {
     const fail = (error: unknown, cycle = false) => {
       const e = error as { name?: unknown; message?: unknown };
       const text = error instanceof Error || (e && typeof e === "object" && "message" in e) ? `${String(e.name ?? "Error")}: ${cleanMessage(String(e.message))}` : `uncaught ${cleanMessage(String(error))}`;
-      return { value: pre, warning: `Expression error on ${this.describe(layer, prop)}: ${text}`, cycle };
+      return { value: pre, warning: `Expression error on ${this.describe(layer, prop)}: ${text}`, error: text, cycle };
     };
     if (compiled instanceof Error) return fail(compiled);
     const frame: Frame = {

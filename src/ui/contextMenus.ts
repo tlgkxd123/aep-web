@@ -180,7 +180,7 @@ export function layerMenu(project: Project, comp: CompItem, layer: Layer, a: App
       command(a, "Fit to Comp Height", "fit-to-comp-height", comp, layer, "Ctrl+Alt+Shift+G"),
     ]),
     sub("Time", [
-      item("Enable Time Remapping", undefined, "Ctrl+Alt+T"),
+      { ...command(a, "Enable Time Remapping", "time-remap", comp, layer, "Ctrl+Alt+T"), checked: layer.timeRemapEnabled },
       item("Time-Reverse Layer", undefined, "Ctrl+Alt+R"),
       item("Time Stretch..."),
       item("Freeze Frame"),

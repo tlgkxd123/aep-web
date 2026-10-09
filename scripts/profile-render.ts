@@ -2,7 +2,7 @@
 // ms per frame and per stage (content by layer kind, masks, each effect,
 // placement, compositing). Footage is located on disk like the dev server does.
 //
-//   node scripts/profile-render.ts <project.aep> [--comps name,name] [--top 5] [--times 1,5] [--swiftshader]
+//   node scripts/profile-render.ts <project.aep> [--comps name,name] [--top 5] [--times 1,5] [--swiftshader] [--sapphire]
 import { execSync } from "node:child_process";
 import { readFileSync, statSync } from "node:fs";
 import { resolve } from "node:path";
@@ -28,6 +28,7 @@ await page.addScriptTag({ path: resolve("dist-harness/harness.js") });
 
 const bytes = readFileSync(path);
 await page.evaluate((b64) => (globalThis as any).aepHarness.load(b64), bytes.toString("base64"));
+if (args.includes("--sapphire")) await page.evaluate(() => (globalThis as any).aepHarness.setOptions({ sapphireLookalikes: true }));
 
 const project = parseProject(new Uint8Array(bytes.buffer, bytes.byteOffset, bytes.byteLength));
 let footageBytes = 0;
@@ -64,6 +65,7 @@ for (const name of wanted) {
   const result = (await page.evaluate(([c, t]) => (globalThis as any).aepHarness.profile(c, t), [name, times] as const)) as {
     frameMs: number[];
     warmMs: number[];
+    coldMs: number[];
     stages: [string, number, number][];
     gpu: string;
   };
@@ -83,6 +85,7 @@ for (const name of wanted) {
   }
   console.log(`\n== ${name} (${w}x${h}, ${layers} layers) on ${result.gpu}`);
   console.log(`frame ms at t=${times.join(",")}: ${result.frameMs.map((m) => m.toFixed(1)).join(", ")}`);
+  console.log(`first complete render ms (footage uploads included): ${result.coldMs.map((m) => m.toFixed(1)).join(", ")}`);
   for (const [stage, ms, count] of result.stages.slice(0, 14)) console.log(`  ${ms.toFixed(1).padStart(8)} ms  ${count.toFixed(0).padStart(4)}x  ${stage}`);
 }
 await browser.close();

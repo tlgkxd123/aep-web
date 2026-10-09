@@ -7,17 +7,28 @@ import {
   useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
   type CSSProperties,
   type DragEvent,
   type KeyboardEvent,
   type MouseEvent as ReactMouseEvent,
   type PointerEvent as ReactPointerEvent,
+  type ReactNode,
 } from "react";
-import type { CompItem, Layer, Project, Property } from "../aep/model.ts";
-import type { Editor, LayerSwitch } from "../edit/editor.ts";
+import type { CompItem, Layer, Project, Property, PropertyGroup, PropertyNode } from "../aep/model.ts";
+import { hasNumericValue, isEditableProperty, type Editor, type LayerSwitch } from "../edit/editor.ts";
+import { canStore, toggleStopwatch } from "../edit/stored-property.ts";
+import { expressionEngine } from "../expressions/install.ts";
+import { useLiveTime } from "../playback/playhead.ts";
+import { effectMenu, toggleEffect } from "./effectCommands.ts";
+import { canEditEffectValue, EffectValue } from "./EffectValue.tsx";
+import { addressOf, canHaveExpression, expressionFocus, propertyMenu, resolveAddress, sameAddress, toggleExpression } from "./expressionCommands.ts";
+import { ExpressionEditor, HighlightedCode } from "./ExpressionEditor.tsx";
+import { expressionPath } from "./expressionPath.ts";
+import type { NameSource } from "./expressionSyntax.ts";
 import { addLayer } from "../edit/layers.ts";
 import { isTransformValue, resetTransform, toggleTransformStopwatch, transformProp } from "../edit/transform-ops.ts";
-import { keyframeAt, valueAt } from "./animate.ts";
+import { keyframeAt, shownValue } from "./animate.ts";
 import { openContextMenu } from "./ContextMenu.tsx";
 import { AppActionsContext, layerMenu } from "./contextMenus.ts";
 import { attempt, ITEM_MIME, LAYER_MIME, nextDragKey, useEditing } from "./editing.tsx";
@@ -131,7 +142,8 @@ export function TimeDisplay({
   title?: string;
 }) {
   const [editing, setEditing] = useState(false);
-  const tc = timecode(time + comp.displayStartTime, comp.frameRate);
+  const shown = useLiveTime(comp.id, time);
+  const tc = timecode(shown + comp.displayStartTime, comp.frameRate);
   if (editing) {
     return (
       <input
@@ -157,6 +169,28 @@ export function TimeDisplay({
     <button type="button" className="tl-timecode" title={title} onClick={() => setEditing(true)}>
       {tc}
     </button>
+  );
+}
+
+function FrameCount({ comp, time }: { comp: CompItem; time: number }) {
+  const shown = useLiveTime(comp.id, time);
+  return (
+    <span className="tl-frames">
+      {frameLabel(shown + comp.displayStartTime, comp.frameRate)} ({fpsLabel(comp.frameRate)} fps)
+    </span>
+  );
+}
+
+/**
+ * A mark at the current time (the CTI's head or line), following the playhead while the comp plays. It slides on
+ * a full-width track moved by a transform, so moving it every frame does not lay out or repaint the Timeline.
+ */
+function CtiMark({ comp, time, view, className, children }: { comp: CompItem; time: number; view: View; className: string; children?: ReactNode }) {
+  const shown = useLiveTime(comp.id, time);
+  return (
+    <span className="tl-cti-track" style={{ transform: `translateX(${pct(shown, view)})` }} aria-hidden="true">
+      <span className={className}>{children}</span>
+    </span>
   );
 }
 
@@ -589,11 +623,17 @@ function NodeRow({ row, project, comp, open, time, view, selectedKeys, onToggle,
   const isProp = node.kind === "property";
   const prop = isProp ? node.prop : undefined;
   const animated = !!prop && isAnimated(prop);
-  const value = prop ? valueAt(prop, time, layer) : null;
+  const value = prop ? shownValue(project, prop, time, layer) : null;
   const indent = { paddingLeft: depth * 14 - 8 };
   const editing = useEditing();
   const editor = editing.editor;
   const transformValue = !!editor && !!prop && isTransformValue(prop.matchName) && transformProp(layer, prop.matchName) === prop;
+  const otherValue = !!editor && !!prop && !transformValue && canEditEffectValue(editor, layer, prop, value);
+  const keyframeable = !!prop && (transformValue || isEditableProperty(prop) || (!!prop.synthesized && hasNumericValue(prop) && canStore(editor, layer, prop)));
+  const stopwatchLive = !!editor && !!prop && prop.canVaryOverTime && (keyframeable || canHaveExpression(editing, layer, prop));
+  const menu = editor && prop && canHaveExpression(editing, layer, prop) ? (e: ReactMouseEvent) => openContextMenu(e, propertyMenu(editing, comp, layer, prop, time)) : undefined;
+  // Where the expression pick whip finds this property when dropped on it.
+  const propPath = useMemo(() => (prop ? addressOf(comp, layer, prop)?.path.join(".") : undefined), [comp, layer, prop]);
   const onReset =
     editor && node.kind === "group" && node.role === "transform" ? () => attempt(editing, () => resetTransform(editor, comp, [layer], time)) : undefined;
   return (
@@ -604,7 +644,16 @@ function NodeRow({ row, project, comp, open, time, view, selectedKeys, onToggle,
       aria-expanded={isProp ? undefined : open}
       className={`tl-row tl-prop ${node.kind === "group" ? `role-${node.role}` : ""} ${node.kind === "group" && !node.group.enabled ? "disabled" : ""}`}
       data-owner-id={layer.id}
+      data-prop-path={propPath}
       onClick={() => onSelect(layer.id)}
+      onContextMenu={
+        node.kind === "group" && node.role === "effect"
+          ? (e) => {
+              onSelect(layer.id);
+              openContextMenu(e, effectMenu(editing, comp, layer, node.group));
+            }
+          : undefined
+      }
     >
       <div className="tl-outline">
         <span className="c-av">{prop && animated && <KeyframeNav prop={prop} layer={layer} time={time} comp={comp} onTime={onTime} />}</span>
@@ -625,25 +674,39 @@ function NodeRow({ row, project, comp, open, time, view, selectedKeys, onToggle,
             </button>
           )}
           {node.kind === "group" && node.role === "effect" && (
-            <span className={`fx-switch ${node.group.enabled ? "on" : ""}`} role="img" aria-label={node.group.enabled ? "Effect on" : "Effect off"}>
+            <button
+              type="button"
+              className={`fx-switch ${node.group.enabled ? "on" : ""}`}
+              title="Effect on/off"
+              aria-label={`${node.name} on`}
+              aria-pressed={node.group.enabled}
+              disabled={!editor || layer.locked}
+              onClick={(e) => {
+                e.stopPropagation();
+                toggleEffect(editing, comp, layer, node.group);
+              }}
+            >
               <Icon name="fx" size={12} />
-            </span>
+            </button>
           )}
           {node.kind === "group" && node.role === "mask" && node.group.mask && (
             <span className="mask-chip" style={{ background: colorCss(node.group.mask.color) }} />
           )}
           {prop &&
-            (prop.canVaryOverTime && transformValue && editor ? (
+            (stopwatchLive && editor ? (
               <button
                 type="button"
                 className={`stopwatch ${animated ? "on" : ""}`}
-                title="Time-Vary Stopwatch"
+                title="Time-Vary Stopwatch (Alt+click: add or remove an expression)"
                 aria-label={animated ? "Stopwatch on (animated)" : "Stopwatch off"}
                 aria-pressed={animated}
                 onClick={(e) => {
                   e.stopPropagation();
-                  attempt(editing, () => toggleTransformStopwatch(editor, comp, layer, prop.matchName, time));
+                  if (e.altKey) toggleExpression(editing, comp, layer, prop);
+                  else if (transformValue) attempt(editing, () => toggleTransformStopwatch(editor, comp, layer, prop.matchName, time));
+                  else if (keyframeable) attempt(editing, () => toggleStopwatch(editor, comp, layer, prop, time));
                 }}
+                onContextMenu={menu}
               >
                 <Icon name="stopwatch" size={13} />
               </button>
@@ -659,11 +722,15 @@ function NodeRow({ row, project, comp, open, time, view, selectedKeys, onToggle,
             ) : (
               <span className="stopwatch-space" />
             ))}
-          <span className="cell-text">{node.name}</span>
+          <span className="cell-text" onContextMenu={menu}>
+            {node.name}
+          </span>
         </span>
-        <span className="c-prop-value">
+        <span className={`c-prop-value ${prop?.expression && prop.expressionEnabled ? "has-expression" : ""}`}>
           {prop && transformValue ? (
             <TransformValue comp={comp} layer={layer} prop={prop} value={value} time={time} />
+          ) : prop && otherValue ? (
+            <EffectValue comp={comp} layer={layer} prop={prop} value={value} time={time} />
           ) : prop ? (
             <PropertyValueView prop={prop} value={value} ctx={ctx} place="timeline" />
           ) : (
@@ -703,28 +770,153 @@ function NodeRow({ row, project, comp, open, time, view, selectedKeys, onToggle,
   );
 }
 
-function ExpressionRow({ row }: { row: Extract<Row, { kind: "expr" }> }) {
-  const { prop, depth } = row;
+/** Names offered inside layer(""), effect(""), mask("") and effect("")("") while typing an expression. */
+function expressionNames(comp: CompItem, layer: Layer): NameSource {
+  const layerNamed = (name?: string) => (name === undefined ? layer : comp.layers.find((l) => l.name === name));
+  const groupNames = (nodes: readonly PropertyNode[]) => nodes.filter((n) => n.name).map((n) => n.name);
+  return {
+    layers: () => comp.layers.map((l) => l.name),
+    effects: (name) => {
+      const target = layerNamed(name);
+      return target ? layerEffects(target).map((e) => e.name) : [];
+    },
+    params: (effect, name) => {
+      const target = layerNamed(name);
+      const group = target && layerEffects(target).find((e) => e.name === effect);
+      return group ? groupNames(group.children) : [];
+    },
+    masks: (name) => {
+      const target = layerNamed(name);
+      const parade = target?.properties.find((n): n is PropertyGroup => n.kind === "group" && n.matchName === "ADBE Mask Parade");
+      return parade ? groupNames(parade.children) : [];
+    },
+  };
+}
+
+/** The expression row under a property: the = switch, the pick whip, and the code, edited in place. */
+function ExpressionRow({ row, comp, time }: { row: Extract<Row, { kind: "expr" }>; comp: CompItem; time: number }) {
+  const { prop, depth, layer } = row;
+  const editing = useEditing();
+  const { editor } = editing;
+  const address = useMemo(() => addressOf(comp, layer, prop), [comp, layer, prop]);
+  const focus = useSyncExternalStore(expressionFocus.subscribe, expressionFocus.get, expressionFocus.get);
+  const [open, setOpen] = useState(false);
+  const editingCode = !!editor && (open || sameAddress(focus, address));
+  const [whip, setWhip] = useState<{ x: number; y: number; x0: number; y0: number }>();
+  // The property row above evaluated the expression at `time` while rendering, so this is its current error.
+  const error = expressionEngine.errorOf(prop);
+
+  const close = () => {
+    setOpen(false);
+    if (sameAddress(expressionFocus.get(), address)) expressionFocus.set(null);
+  };
+  const commit = (text: string) => {
+    close();
+    if (editor && text !== prop.expression) attempt(editing, () => editor.setExpression(comp, layer, prop, text.trim() ? text : ""));
+  };
+
+  // The pick whip: drag onto another property's name to insert a reference to it.
+  const onWhipDown = (e: ReactPointerEvent) => {
+    if (!editor || e.button !== 0) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const start = { x0: e.clientX, y0: e.clientY };
+    setWhip({ ...start, x: e.clientX, y: e.clientY });
+    const move = (ev: PointerEvent) => setWhip({ ...start, x: ev.clientX, y: ev.clientY });
+    const up = (ev: PointerEvent) => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+      setWhip(undefined);
+      const target = document.elementFromPoint(ev.clientX, ev.clientY)?.closest<HTMLElement>("[data-prop-path]");
+      if (!target) return;
+      const targetLayer = comp.layers.find((l) => l.id === Number(target.dataset.ownerId));
+      const targetProp = targetLayer && resolveAddress(targetLayer, { compId: comp.id, layerId: targetLayer.id, path: target.dataset.propPath!.split(".").map(Number) });
+      const path = targetLayer && targetProp ? expressionPath(targetLayer, targetProp, layer) : undefined;
+      if (path && path !== prop.expression) attempt(editing, () => editor.setExpression(comp, layer, prop, path));
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+  };
+
   return (
-    <div role="treeitem" aria-level={depth + 1} aria-label={`Expression: ${prop.name}`} className="tl-row tl-expr-row">
+    <div
+      role="treeitem"
+      aria-level={depth + 1}
+      aria-label={`Expression: ${prop.name}`}
+      className={`tl-row tl-expr-row ${error ? "has-error" : ""}`}
+      onContextMenu={editor ? (e) => openContextMenu(e, propertyMenu(editing, comp, layer, prop, time)) : undefined}
+    >
       <div className="tl-outline">
         <span className="c-av" />
         <span className="c-prop-name" style={{ paddingLeft: depth * 14 - 8 }}>
           <span className="twirl-space" />
           <span className={`expr-label ${prop.expressionEnabled ? "" : "off"}`}>Expression: {prop.name}</span>
         </span>
-        <span className="c-prop-value expr-tools" aria-hidden="true">
-          <span className={`expr-eq ${prop.expressionEnabled ? "on" : ""}`}>{prop.expressionEnabled ? "=" : "≠"}</span>
-          <Icon name="graphEditor" size={12} />
-          <Icon name="pickwhip" size={12} />
-          <Icon name="overflow" size={12} />
+        <span className="c-prop-value expr-tools">
+          {editor ? (
+            <button
+              type="button"
+              className={`expr-eq ${prop.expressionEnabled ? "on" : ""}`}
+              aria-pressed={prop.expressionEnabled}
+              aria-label={prop.expressionEnabled ? "Disable expression" : "Enable expression"}
+              title={prop.expressionEnabled ? "Disable expression" : "Enable expression"}
+              onClick={(e) => {
+                e.stopPropagation();
+                attempt(editing, () => editor.setExpressionEnabled(comp, layer, prop, !prop.expressionEnabled));
+              }}
+            >
+              {prop.expressionEnabled ? "=" : "≠"}
+            </button>
+          ) : (
+            <span className={`expr-eq ${prop.expressionEnabled ? "on" : ""}`} aria-hidden="true">
+              {prop.expressionEnabled ? "=" : "≠"}
+            </span>
+          )}
+          <span
+            className={`expr-whip ${editor ? "live" : ""}`}
+            role={editor ? "button" : undefined}
+            aria-label="Expression pick whip"
+            title="Pick whip: drag to a property to reference it"
+            onPointerDown={onWhipDown}
+          >
+            <Icon name="pickwhip" size={12} />
+          </span>
+          {error && (
+            <span className="expr-warn" role="img" aria-label="Expression error" title={error}>
+              !
+            </span>
+          )}
         </span>
       </div>
       <div className="tl-track tl-expr-track">
-        <pre className="tl-expr" title={prop.expression}>
-          {prop.expression}
-        </pre>
+        {editingCode ? (
+          <ExpressionEditor
+            initial={prop.expression}
+            names={expressionNames(comp, layer)}
+            label={`Expression: ${prop.name}`}
+            onCommit={commit}
+            onCancel={close}
+          />
+        ) : (
+          <pre
+            className={`tl-expr ${editor ? "editable" : ""}`}
+            title={editor ? "Click to edit the expression" : prop.expression}
+            onClick={(e) => {
+              if (!editor) return;
+              e.stopPropagation();
+              setOpen(true);
+            }}
+          >
+            <HighlightedCode source={prop.expression} />
+          </pre>
+        )}
+        {error && !editingCode && <div className="tl-expr-error">{error}</div>}
       </div>
+      {whip && (
+        <svg className="expr-whip-line" aria-hidden="true">
+          <line x1={whip.x0} y1={whip.y0} x2={whip.x} y2={whip.y} />
+        </svg>
+      )}
     </div>
   );
 }
@@ -748,6 +940,24 @@ function collectReveal(project: Project, layer: Layer, q: string, budget: { left
   };
   walk(layerOutline(ctx), `L${layer.id}`, [`L${layer.id}`]);
   return found ? reveal : undefined;
+}
+
+/** The row keys to open so that `prop`'s row shows: the layer and every group above it. */
+function revealKeys(project: Project, layer: Layer, prop: Property): string[] | undefined {
+  const ctx = { project, layer };
+  const walk = (nodes: DisplayNode[], parentKey: string, chain: string[]): string[] | undefined => {
+    for (const node of nodes) {
+      const key = `${parentKey}/${node.key}`;
+      if (node.kind === "property") {
+        if (node.prop === prop) return chain;
+        continue;
+      }
+      const found = walk(outlineChildren(node, ctx), key, [...chain, key]);
+      if (found) return found;
+    }
+    return undefined;
+  };
+  return walk(layerOutline(ctx), `L${layer.id}`, [`L${layer.id}`]);
 }
 
 /** The Timeline for one composition: layer outline with switches and twirl-downs, ruler, layer bars, keyframes and CTI. */
@@ -808,6 +1018,17 @@ export const TimelinePanel = memo(function TimelinePanel({
     observer.observe(el);
     return () => observer.disconnect();
   }, []);
+
+  // A property whose expression was just added from any panel: twirl down to it so its field shows.
+  const focus = useSyncExternalStore(expressionFocus.subscribe, expressionFocus.get, expressionFocus.get);
+  useEffect(() => {
+    if (!focus || focus.compId !== comp.id) return;
+    const layer = comp.layers.find((l) => l.id === focus.layerId);
+    const prop = layer && resolveAddress(layer, focus);
+    const keys = layer && prop ? revealKeys(project, layer, prop) : undefined;
+    if (!keys) return;
+    setExpanded((prev) => (keys.every((k) => prev.has(k)) ? prev : new Set([...prev, ...keys])));
+  }, [focus, comp, project, revision]);
 
   const setTime = useCallback((t: number) => onTime(comp.id, t), [onTime, comp.id]);
   const select = useCallback((id: number) => onSelectLayer(comp.id, id), [onSelectLayer, comp.id]);
@@ -1012,7 +1233,6 @@ export const TimelinePanel = memo(function TimelinePanel({
   };
 
   const tc = timecode(time + comp.displayStartTime, comp.frameRate);
-  const ctiLeft = pct(time, view);
   const workStart = comp.workAreaStart;
   const workEnd = Math.min(duration, comp.workAreaStart + comp.workAreaDuration);
 
@@ -1027,9 +1247,7 @@ export const TimelinePanel = memo(function TimelinePanel({
           <div className="tl-controls">
             <div className="tl-time">
               <TimeDisplay comp={comp} time={time} onTime={setTime} />
-              <span className="tl-frames">
-                {frameLabel(time + comp.displayStartTime, comp.frameRate)} ({fpsLabel(comp.frameRate)} fps)
-              </span>
+              <FrameCount comp={comp} time={time} />
             </div>
             <label className="search-field tl-search">
               <Icon name="search" size={12} />
@@ -1110,11 +1328,11 @@ export const TimelinePanel = memo(function TimelinePanel({
               <span className="tl-workarea" style={{ left: pct(workStart, view), width: `${((workEnd - workStart) / view.span) * 100}%` }} title="Work Area" />
             </div>
             <Ruler comp={comp} view={view} width={rulerWidth} />
-            <span className="tl-cti-head" style={{ left: ctiLeft }} aria-hidden="true">
+            <CtiMark comp={comp} time={time} view={view} className="tl-cti-head">
               <svg width="11" height="12" viewBox="0 0 11 12">
                 <path d="M.5.5h10v6.5L5.5 11.5.5 7z" />
               </svg>
-            </span>
+            </CtiMark>
           </div>
         </div>
       </div>
@@ -1173,12 +1391,12 @@ export const TimelinePanel = memo(function TimelinePanel({
                 onSelectKey={selectKey}
               />
             ) : (
-              <ExpressionRow key={row.key} row={row} />
+              <ExpressionRow key={row.key} row={row} comp={comp} time={time} />
             ),
           )}
         </div>
         <div className="tl-cti-layer" aria-hidden="true">
-          <span className="tl-cti-line" style={{ left: ctiLeft }} />
+          <CtiMark comp={comp} time={time} view={view} className="tl-cti-line" />
         </div>
       </div>
       <div className="tl-split" onPointerDown={onSplitDown} role="separator" aria-orientation="vertical" aria-label="Resize layer outline" />

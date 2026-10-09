@@ -88,9 +88,11 @@ export interface PlaybackStats {
   /** Milliseconds the last rendered (not cached) frame took. */
   renderMs: number;
   dropped: number;
+  /** Holding a frame whose footage is still decoding. */
+  waiting: boolean;
 }
 
-let stats: PlaybackStats = { playing: false, fps: 0, realTime: true, renderMs: 0, dropped: 0 };
+let stats: PlaybackStats = { playing: false, fps: 0, realTime: true, renderMs: 0, dropped: 0, waiting: false };
 const statsListeners = new Set<() => void>();
 
 export const playbackStats = {

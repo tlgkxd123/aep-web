@@ -4,7 +4,7 @@
 // history stores chunk states, so undo and redo are exact.
 import { LdatKind, decodeCdta, decodeLdta, decodeLhd3, decodeTdb4 } from "../aep/decode.ts";
 import { valueAtTime } from "../aep/evaluate.ts";
-import type { CompItem, Layer, Project, Property, PropertyValue } from "../aep/model.ts";
+import type { CompItem, Layer, Project, Property, PropertyGroup, PropertyValue } from "../aep/model.ts";
 import { PropertyValueType } from "../aep/model.ts";
 import {
   BLENDING_MODES,
@@ -67,6 +67,11 @@ const NUMERIC_VALUE_TYPES = new Set<number>([
 /** Whether the editor can change this property's value and keyframes. */
 export function isEditableProperty(prop: Property): boolean {
   return !!prop.chunk && !prop.synthesized && !!propertyCodec(prop) && NUMERIC_VALUE_TYPES.has(prop.propertyValueType);
+}
+
+/** Whether the property holds numbers, vectors or a colour (the values the editor writes). */
+export function hasNumericValue(prop: Property): boolean {
+  return NUMERIC_VALUE_TYPES.has(prop.propertyValueType);
 }
 
 /** Whether an expression can be written on this property. */
@@ -693,11 +698,57 @@ export class Editor {
     });
   }
 
+  /**
+   * Points a layer parameter (an effect's "Layer" popup) at `target`, or at nothing with null. The file stores
+   * the layer's id, so the reference follows the layer when the stack is reordered.
+   */
+  setLayerReference(comp: CompItem, _layer: Layer, prop: Property, target: Layer | null): void {
+    if (target && !comp.layers.includes(target)) throw new Error(`"${target.name}" is not in this composition`);
+    this.run(`Change ${prop.name}`, [comp], {}, (tx) => {
+      const tdpi = prop.chunk && findChild(prop.chunk, "tdpi");
+      if (!tdpi || tdpi.data.length < 4) throw new Error(`"${prop.name}" is not a layer parameter`);
+      tx.patch(tdpi, (view) => view.setInt32(0, target?.id ?? 0));
+    });
+  }
+
+  /** Points a mask parameter (an effect's "Path" popup) at the layer's mask `index` (1-based), or at none with 0. */
+  setMaskReference(comp: CompItem, _layer: Layer, prop: Property, index: number): void {
+    this.run(`Change ${prop.name}`, [comp], {}, (tx) => {
+      const tdli = prop.chunk && findChild(prop.chunk, "tdli");
+      if (!tdli || tdli.data.length < 4) throw new Error(`"${prop.name}" is not a mask parameter`);
+      tx.patch(tdli, (view) => view.setInt32(0, index));
+    });
+  }
+
   setExpressionEnabled(comp: CompItem, layer: Layer, prop: Property, enabled: boolean): void {
     if (!prop.expression) return;
     this.run(enabled ? "Enable expression" : "Disable expression", [comp], {}, (tx) => {
       const t = this.target(comp, layer, prop);
       tx.patch(t.tdb4, (_, bytes) => setExpressionFlags(bytes, true, enabled));
+    });
+  }
+
+  // ---------------------------------------------------------------- effects
+
+  /** Turns an effect on or off (its fx switch): bit 0 of byte 3 of the tdsb in the effect's tdgp. */
+  setEffectEnabled(comp: CompItem, layer: Layer, effect: PropertyGroup, enabled: boolean): void {
+    const tdsb = effect.isEffect && effect.chunk ? findChild(findList(effect.chunk, "tdgp"), "tdsb") : undefined;
+    if (!tdsb || tdsb.data.length < 4) throw new Error(`"${effect.name}" on "${layer.name}" cannot be switched off in this file`);
+    this.run(`${enabled ? "Enable" : "Disable"} ${effect.name}`, [comp], {}, (tx) => {
+      tx.patch(tdsb, (_, bytes) => setBit(bytes, 3, 0, enabled));
+    });
+  }
+
+  /** Deletes an effect from its layer: the match name in the Effects group and the effect's parameters after it. */
+  removeEffect(comp: CompItem, layer: Layer, effect: PropertyGroup): void {
+    const parade = layer.properties.find((n): n is PropertyGroup => n.kind === "group" && n.matchName === "ADBE Effect Parade")?.chunk;
+    const children = parade?.children ?? [];
+    const at = effect.isEffect && effect.chunk ? children.indexOf(effect.chunk) : -1;
+    let from = at;
+    while (from > 0 && children[from - 1].type !== "tdmn") from--;
+    if (!parade || at < 0 || children[from - 1]?.type !== "tdmn") throw new Error(`"${effect.name}" is not an effect of "${layer.name}"`);
+    this.run(`Delete ${effect.name}`, [comp], {}, (tx) => {
+      tx.setChildren(parade, [...children.slice(0, from - 1), ...children.slice(at + 1)]);
     });
   }
 

@@ -10,11 +10,13 @@ import { frameBytes, releaseFrame, type FootageFrame } from "./frames.ts";
 import { audioTrackRate } from "./mp4.ts";
 import { decodePsd, isPsd } from "./psd.ts";
 import { decodeTiff, isTiff } from "./tiff.ts";
-import { openVideo, type VideoReader } from "./video.ts";
+import { openVideo } from "./openVideo.ts";
+import { videoStats, type VideoReader } from "./video.ts";
 
 export type FrameState =
   | { status: "ready"; frame: FootageFrame }
-  | { status: "pending" }
+  /** Decoding; `fallback` is the item's nearest decoded frame, to hold on screen meanwhile. */
+  | { status: "pending"; fallback?: FootageFrame }
   /** No file for it among the located files. */
   | { status: "missing"; path: string }
   | { status: "error"; message: string };
@@ -38,7 +40,14 @@ interface ItemMedia {
   /** Main file (the first frame of a sequence), when located. */
   blob?: Blob;
   path: string;
+  /** The first decoder opened; its sample table serves every decoder of the file. */
   video?: VideoReader;
+  /** Open decoders, with the sample each was last asked for (-1: none yet) and the requests renders wait on. */
+  decoders: Decoder[];
+  /** How many decoders the browser allowed, once it refused one more. */
+  decoderLimit?: number;
+  /** Decoding-ahead runs not yet waited on, by the sample each was started for. */
+  readAheads: Map<number, Promise<unknown>>;
   opening?: boolean;
   error?: string;
   /** Sequence frames located so far, by frame index. */
@@ -53,8 +62,28 @@ interface ItemMedia {
   soundScan?: boolean;
 }
 
+interface Decoder {
+  reader: VideoReader;
+  at: number;
+  used: number;
+  busy: number;
+}
+
 const VIDEO_EXTENSIONS = new Set(["mp4", "m4v", "mov", "qt", "3gp", "webm", "mkv", "avi", "mxf"]);
 const CACHE_BYTES = 384 * 1024 * 1024;
+/**
+ * Requested frames are kept out of eviction until the renderer takes them, so a video's lookahead cannot push
+ * out the frame it was decoded for. Bounded, oldest first, for requests nobody comes back for.
+ */
+const MAX_PINNED = 16;
+/** Movie samples kept decoded ahead of the one shown. */
+const READ_AHEAD = 8;
+/** Decoders per movie, for layers showing it at different times. */
+const MAX_DECODERS = 3;
+/** How far ahead of its last sample a decoder still takes a request rather than another one starting fresh. */
+const NEAR_SAMPLES = 90;
+/** How far behind its last sample (where decoding ahead left it) a decoder still takes a request. */
+const BEHIND_SAMPLES = 2 * READ_AHEAD;
 
 const split = (path: string) => path.split(/[\\/]+/).filter(Boolean).map((p) => p.toLowerCase());
 
@@ -71,6 +100,12 @@ export class FootageStore {
   private media = new WeakMap<FootageItem, ItemMedia>();
   private readonly cache = new Map<string, { frame: FootageFrame; bytes: number }>();
   private cacheBytes = 0;
+  private readonly pinned = new Set<string>();
+  /** Every open video reader, to close them (and their workers) with the files. */
+  private readonly readers = new Set<VideoReader>();
+  private uses = 0;
+  /** Work counters, for profiling exports. */
+  readonly stats = { imageDecodes: 0, imageMs: 0, videoRuns: 0, videoMs: 0, evictions: 0, decoder: videoStats };
   private readonly listeners = new Set<() => void>();
   private readonly inflight = new Set<Promise<unknown>>();
   private nextId = 1;
@@ -87,6 +122,11 @@ export class FootageStore {
   /** Increments whenever files are added or decoded frames arrive. */
   get version(): number {
     return this.changes;
+  }
+
+  /** Increments whenever files are added or forgotten, which changes what footage renders. */
+  get filesVersion(): number {
+    return this.generation;
   }
 
   /** Adds files by path (relative paths from a picked folder, or bare names). Returns how many were added. */
@@ -118,8 +158,11 @@ export class FootageStore {
     this.byName.clear();
     this.fileCount = 0;
     this.media = new WeakMap();
+    for (const reader of this.readers) reader.close();
+    this.readers.clear();
     for (const entry of this.cache.values()) releaseFrame(entry.frame);
     this.cache.clear();
+    this.pinned.clear();
     this.cacheBytes = 0;
     this.generation++;
     this.notify();
@@ -163,10 +206,7 @@ export class FootageStore {
     if (media.kind === "image") index = 0;
     const key = `${media.id}:${index}`;
     const cached = this.cache.get(key);
-    if (cached) {
-      this.touch(key, cached);
-      return { status: "ready", frame: cached.frame };
-    }
+    if (cached) return this.ready(key, cached);
     const failure = media.failed.get(index);
     if (failure) return { status: "error", message: failure };
     let blob: Blob | null | undefined = media.blob;
@@ -184,15 +224,24 @@ export class FootageStore {
     }
     if (!media.requested.has(index)) {
       media.requested.add(index);
+      this.pin(key);
       const file = blob;
+      const started = performance.now();
+      this.stats.imageDecodes++;
       this.track(
         decodeImage(file).then(
-          (frame) => this.put(key, frame),
-          (e: Error) => media.failed.set(index, e.message || "cannot decode the file"),
+          (frame) => {
+            this.stats.imageMs += performance.now() - started;
+            this.put(key, frame);
+          },
+          (e: Error) => {
+            this.pinned.delete(key);
+            media.failed.set(index, e.message || "cannot decode the file");
+          },
         ).finally(() => media.requested.delete(index)),
       );
     }
-    return { status: "pending" };
+    return this.pending(media, index);
   }
 
   /** The item's decoded audio; the first call starts decoding and reports "pending". */
@@ -273,6 +322,8 @@ export class FootageStore {
         path,
         blob: this.locate(path) ?? (source.relativePath ? this.locate(source.relativePath) : undefined),
         frames: new Map(),
+        decoders: [],
+        readAheads: new Map(),
         requested: new Set(),
         failed: new Map(),
       };
@@ -283,49 +334,175 @@ export class FootageStore {
   }
 
   private videoFrame(item: FootageItem, media: ItemMedia, index: number): FrameState {
-    if (!media.video) {
-      if (!media.opening) {
-        media.opening = true;
-        const source = item.mainSource;
-        const rate = (source.sourceType === "FileSource" && source.nativeFrameRate) || item.frameRate || 30;
-        this.track(
-          openVideo(media.blob!, rate).then(
-            (reader) => (media.video = reader),
-            (e: Error) => (media.error = e.message || "cannot decode the video"),
-          ).finally(() => {
-            media.opening = false;
-            this.notify();
-          }),
-        );
-      }
-      return { status: "pending" };
-    }
     const source = item.mainSource;
     const rate = (source.sourceType === "FileSource" && source.nativeFrameRate) || item.frameRate || 30;
+    if (!media.video) {
+      if (!media.opening) this.openDecoder(media, rate);
+      return { status: "pending" };
+    }
     const sample = media.video.indexAt(index / rate);
     const key = `${media.id}:${sample}`;
     const cached = this.cache.get(key);
     if (cached) {
-      this.touch(key, cached);
-      return { status: "ready", frame: cached.frame };
+      this.readAhead(media, sample, rate);
+      return this.ready(key, cached);
     }
     const failure = media.failed.get(sample);
     if (failure) return { status: "error", message: failure };
+    // Decoding ahead already asked for this frame: wait for it like any request, so the views render again and
+    // exports hold the frame back until it is there.
+    const ahead = media.readAheads.get(sample);
+    if (ahead) {
+      media.readAheads.delete(sample);
+      this.track(ahead);
+    }
     if (!media.requested.has(sample)) {
+      const decoder = this.decoderFor(media, sample, rate);
+      if (!decoder) return this.pending(media, sample);
       media.requested.add(sample);
+      this.pin(key);
+      const started = performance.now();
+      this.stats.videoRuns++;
+      let delivered = false;
+      decoder.busy++;
       this.track(
-        media.video
-          .decode(sample, (p, frame) => this.put(`${media.id}:${p}`, frame))
+        decoder.reader
+          .decode(
+            sample,
+            (p, frame) => {
+              if (p === sample) delivered = true;
+              this.put(`${media.id}:${p}`, frame);
+            },
+            () => !this.cache.has(key),
+          )
           .then(
             () => {
-              if (!this.cache.has(key)) media.failed.set(sample, "the decoder returned no picture for this frame");
+              this.stats.videoMs += performance.now() - started;
+              if (!delivered && !this.cache.has(key)) {
+                this.pinned.delete(key);
+                media.failed.set(sample, "the decoder returned no picture for this frame");
+              }
             },
-            (e: Error) => media.failed.set(sample, e.message || "cannot decode the video"),
+            (e: Error) => {
+              this.pinned.delete(key);
+              media.failed.set(sample, e.message || "cannot decode the video");
+            },
           )
-          .finally(() => media.requested.delete(sample)),
+          .finally(() => {
+            decoder.busy--;
+            media.requested.delete(sample);
+          }),
       );
     }
-    return { status: "pending" };
+    return this.pending(media, sample);
+  }
+
+  /**
+   * Keeps decoding ahead of a movie frame being shown: when one of the next READ_AHEAD samples is neither
+   * decoded nor requested, it is decoded now, so playback does not reach the end of what is decoded and
+   * stall. Nothing waits on it until a render asks for that very frame (see videoFrame); a request for a
+   * frame it decodes on the way is skipped by the reader.
+   */
+  private readAhead(media: ItemMedia, sample: number, rate: number): void {
+    const last = Math.min(media.video!.frameCount - 1, sample + READ_AHEAD);
+    for (let p = sample + 1; p <= last; p++) {
+      const key = `${media.id}:${p}`;
+      if (this.cache.has(key)) continue;
+      if (media.requested.has(p)) return;
+      const decoder = this.decoderFor(media, p, rate, true);
+      if (!decoder) return;
+      media.requested.add(p);
+      const run = decoder.reader
+        .decode(p, (q, frame) => this.put(`${media.id}:${q}`, frame), () => !this.cache.has(key))
+        .catch(() => undefined)
+        .finally(() => {
+          media.requested.delete(p);
+          media.readAheads.delete(p);
+        });
+      media.readAheads.set(p, run);
+      return;
+    }
+  }
+
+  private openDecoder(media: ItemMedia, rate: number): void {
+    media.opening = true;
+    this.track(
+      openVideo(media.blob!, rate)
+        .then(
+          (reader) => {
+            this.readers.add(reader);
+            media.video ??= reader;
+            media.decoders.push({ reader, at: -1, used: 0, busy: 0 });
+          },
+          (e: Error) => {
+            if (!media.video) media.error = e.message || "cannot decode the video";
+            // The browser would not open one more decoder: make do with the ones open instead of retrying.
+            else media.decoderLimit = media.decoders.length;
+          },
+        )
+        .finally(() => {
+          media.opening = false;
+          this.notify();
+        }),
+    );
+  }
+
+  /**
+   * The decoder for a sample: the one positioned near it (up to NEAR_SAMPLES before it, or a little past it
+   * after decoding ahead), else an unused one, else one no render is waiting on, which restarts there at once
+   * (a jump of the playhead). Layers showing one movie at different times keep each other's decoders busy, so
+   * each gets its own, up to MAX_DECODERS, instead of one decoder jumping between them and restarting from a
+   * key frame each time. Undefined while that decoder opens. Decoding ahead never opens or takes over a
+   * decoder and only moves a decoder's position forwards.
+   */
+  private decoderFor(media: ItemMedia, sample: number, rate: number, ahead = false): Decoder | undefined {
+    const gap = (d: { at: number }) => sample - d.at;
+    let pick: Decoder | undefined = media.decoders
+      .filter((d) => d.at >= 0 && gap(d) >= -BEHIND_SAMPLES && gap(d) <= NEAR_SAMPLES)
+      .sort((a, b) => Math.abs(gap(a)) - Math.abs(gap(b)))[0];
+    pick ??= media.decoders.find((d) => d.at < 0);
+    if (!pick && ahead) return undefined;
+    pick ??= media.decoders.filter((d) => !d.busy).reduce<Decoder | undefined>((a, b) => (a && a.used <= b.used ? a : b), undefined);
+    if (!pick && media.decoders.length < Math.min(MAX_DECODERS, media.decoderLimit ?? MAX_DECODERS)) {
+      if (!media.opening) this.openDecoder(media, rate);
+      return undefined;
+    }
+    pick ??= media.decoders.reduce((a, b) => (a.used <= b.used ? a : b));
+    pick.at = ahead ? Math.max(pick.at, sample) : sample;
+    pick.used = ++this.uses;
+    return pick;
+  }
+
+  private ready(key: string, entry: { frame: FootageFrame; bytes: number }): FrameState {
+    this.touch(key, entry);
+    this.pinned.delete(key);
+    return { status: "ready", frame: entry.frame };
+  }
+
+  /**
+   * Pending, with the decoded frame of the same item nearest before `index` (else after it) to hold meanwhile.
+   * Nearest by index rather than last shown: layers showing one movie at different times each keep their own.
+   */
+  private pending(media: ItemMedia, index: number): FrameState {
+    const prefix = `${media.id}:`;
+    let best: { distance: number; frame: FootageFrame } | undefined;
+    for (const [key, entry] of this.cache) {
+      if (!key.startsWith(prefix)) continue;
+      const at = Number(key.slice(prefix.length));
+      // Earlier frames first: playback moves forwards, so the previous frame is what was just on screen.
+      const distance = at <= index ? index - at : at - index + 1e6;
+      if (!best || distance < best.distance) best = { distance, frame: entry.frame };
+    }
+    return best ? { status: "pending", fallback: best.frame } : { status: "pending" };
+  }
+
+  private pin(key: string): void {
+    this.pinned.delete(key);
+    this.pinned.add(key);
+    for (const k of this.pinned) {
+      if (this.pinned.size <= MAX_PINNED) break;
+      this.pinned.delete(k);
+    }
   }
 
   private put(key: string, frame: FootageFrame): void {
@@ -339,7 +516,9 @@ export class FootageStore {
     this.cache.set(key, { frame, bytes });
     this.cacheBytes += bytes;
     for (const [k, entry] of this.cache) {
-      if (this.cacheBytes <= CACHE_BYTES || k === key) break;
+      if (this.cacheBytes <= CACHE_BYTES) break;
+      if (k === key || this.pinned.has(k)) continue;
+      this.stats.evictions++;
       this.cache.delete(k);
       this.cacheBytes -= entry.bytes;
       releaseFrame(entry.frame);

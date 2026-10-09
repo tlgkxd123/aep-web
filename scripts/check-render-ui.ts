@@ -52,6 +52,8 @@ await file.saveAs(out);
 const seconds_ = (Date.now() - started) / 1000;
 console.log(`rendered ${out} (${(statSync(out).size / 1048576).toFixed(2)} MB) in ${seconds_.toFixed(1)} s`);
 console.log("status:", (await page.locator(".rq-status").allInnerTexts()).join(" | "));
+console.log("perf:", (await page.locator(".rq-perf").allInnerTexts()).join(" | "));
+console.log("perf:", (await page.locator(".rq-perf").allInnerTexts()).join(" | "));
 await browser.close();
 try {
   console.log(execFileSync("ffprobe", ["-v", "error", "-show_entries", "stream=codec_name,width,height,r_frame_rate,nb_frames,sample_rate,bit_rate:format=duration", "-of", "compact", out], { encoding: "utf8" }));

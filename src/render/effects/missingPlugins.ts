@@ -3,6 +3,7 @@
 // the effect were not there (verified with aerender: fxextra_missing_* fixtures).
 // The browser does the same by default. With `approximateMissingPlugins`, rough,
 // unverified look-alikes built from the stored parameters are drawn instead.
+// Sapphire S_Blur and S_Shake have their own look-alikes in sapphire.ts.
 import type { Layer, PropertyGroup } from "../../aep/model.ts";
 import { effectNumber, effectVector } from "../effectParams.ts";
 import { registerEffect, type LayerImage, type RenderContext } from "../registry.ts";
@@ -56,18 +57,6 @@ void main() {
   outColor = base + glow - base * glow;
 }`;
 
-const SHIFT_FS = `${PASS_HEADER}
-uniform vec2 u_size;
-uniform vec2 u_offset;
-uniform float u_pad;
-void main() {
-  vec2 inner = u_size - 2.0 * u_pad;
-  vec2 p = v_uv * u_size - u_pad - u_offset;
-  vec2 m = mod(p, 2.0 * inner);
-  p = mix(m, 2.0 * inner - m, step(inner, m));
-  outColor = texture(u_source, (p + u_pad) / u_size);
-}`;
-
 function glow(input: LayerImage, ctx: RenderContext, threshold: number, color: number[], widthX: number, widthY: number, brightness: number): LayerImage {
   const margin = Math.ceil(Math.max(widthX, widthY) * 1.5);
   const base = grown(ctx, input, margin);
@@ -84,15 +73,6 @@ function glow(input: LayerImage, ctx: RenderContext, threshold: number, color: n
 const approximations: Record<string, Approximation> = {
   "Fandev XMult": (input, effect, layer, time, ctx) =>
     mapPass(ctx, input, UNMULT_FS, (uniform) => ctx.gl.uniform1f(uniform("u_blend"), effectNumber(effect, 1, layer, time, 0) / 100)),
-  S_Blur: (input, effect, layer, time, ctx) => {
-    const num = (i: number, f: number) => effectNumber(effect, i, layer, time, f);
-    const amount = num(50, 0);
-    const sx = (amount * num(51, 1)) / 2;
-    const sy = (amount * num(52, 1)) / 2;
-    const blurred = gaussianBlur(ctx, grown(ctx, input, Math.max(sx, sy) * 3), sx, sy);
-    const brightness = num(53, 1);
-    return brightness === 1 ? blurred : mapPass(ctx, blurred, SCALE_FS, (u) => ctx.gl.uniform3f(u("u_scale"), brightness, brightness, brightness));
-  },
   S_Glow: (input, effect, layer, time, ctx) => {
     const num = (i: number, f: number) => effectNumber(effect, i, layer, time, f);
     const width = num(54, 20);
@@ -102,16 +82,6 @@ const approximations: Record<string, Approximation> = {
     const num = (i: number, f: number) => effectNumber(effect, i, layer, time, f);
     const width = num(52, 4);
     return glow(input, ctx, num(54, 0.5), effectVector(effect, 51, layer, time, [1, 1, 1]), width * num(70, 1), width * num(71, 1), num(50, 1));
-  },
-  S_Shake: (input, effect, layer, time, ctx) => {
-    const num = (i: number, f: number) => effectNumber(effect, i, layer, time, f);
-    const amplitude = num(50, 1);
-    const frequency = num(51, 1);
-    const seed = num(56, 0);
-    const dx = amplitude * num(59, 0) * noise1(time * frequency * num(60, 1), seed + 1) + amplitude * num(61, 0) * Math.sin(2 * Math.PI * time * num(62, 0.5));
-    const dy = amplitude * num(64, 0) * noise1(time * frequency * num(65, 1), seed + 2) + amplitude * num(66, 0) * Math.sin(2 * Math.PI * time * num(67, 0.5));
-    if (!dx && !dy) return input;
-    return mapPass(ctx, input, SHIFT_FS, (uniform) => ctx.gl.uniform2f(uniform("u_offset"), dx, -dy));
   },
   S_Flicker: (input, effect, layer, time, ctx) => {
     const num = (i: number, f: number) => effectNumber(effect, i, layer, time, f);
@@ -129,10 +99,8 @@ const approximations: Record<string, Approximation> = {
 
 const NAMES: Record<string, string> = {
   "Fandev XMult": "XMult",
-  S_Blur: "Sapphire S_Blur",
   S_Glow: "Sapphire S_Glow",
   S_ZGlow: "Sapphire S_ZGlow",
-  S_Shake: "Sapphire S_Shake",
   S_Flicker: "Sapphire S_Flicker",
 };
 

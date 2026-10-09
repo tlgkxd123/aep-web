@@ -7,12 +7,16 @@ export type FootageFrame =
   | { kind: "bitmap"; image: ImageBitmap; width: number; height: number }
   /** 8-bit RGBA, rows packed. */
   | { kind: "rgba"; data: Uint8Array; width: number; height: number }
-  /** 8-bit planar Y'CbCr; chroma planes are `width / xShift`-subsampled. */
+  /**
+   * 8-bit Y'CbCr as the decoder laid it out in `data`: the Y plane, then Cb and Cr planes or one
+   * interleaved CbCr plane (NV12), each from its offset with rows `stride` bytes apart. Chroma is
+   * subsampled to chromaWidth x chromaHeight.
+   */
   | {
       kind: "yuv";
-      y: Uint8Array;
-      u: Uint8Array;
-      v: Uint8Array;
+      data: Uint8Array;
+      planes: { offset: number; stride: number }[];
+      interleaved: boolean;
       width: number;
       height: number;
       chromaWidth: number;
@@ -22,7 +26,7 @@ export type FootageFrame =
     };
 
 export function frameBytes(frame: FootageFrame): number {
-  if (frame.kind === "yuv") return frame.y.length + frame.u.length + frame.v.length;
+  if (frame.kind === "yuv") return frame.data.length;
   return frame.width * frame.height * 4;
 }
 

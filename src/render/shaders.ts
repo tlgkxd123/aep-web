@@ -87,6 +87,9 @@ uniform int u_matteMode;
 uniform float u_matteOpacity;
 uniform int u_mode;
 uniform float u_opacity;
+// Adjustment layers: u_source is the backdrop with the layer's effects, applied where u_coverage's alpha is.
+uniform int u_adjust;
+uniform sampler2D u_coverage;
 in vec2 v_uv;
 out vec4 outColor;
 
@@ -150,14 +153,23 @@ vec3 blendColor(vec3 b, vec3 s) {
 void main() {
   vec4 dst = texture(u_backdrop, v_uv);
   vec4 src = texture(u_source, v_uv);
+  float k = u_opacity;
   if (u_matteMode != ${MatteMode.NONE}) {
     vec4 m = texture(u_matte, v_uv) * u_matteOpacity;
     float a = (u_matteMode == ${MatteMode.LUMA} || u_matteMode == ${MatteMode.LUMA_INVERTED})
       ? dot(m.rgb, vec3(0.299, 0.587, 0.114)) : m.a;
     if (u_matteMode == ${MatteMode.ALPHA_INVERTED} || u_matteMode == ${MatteMode.LUMA_INVERTED}) a = 1.0 - a;
-    src *= a;
+    k *= a;
   }
-  src *= u_opacity;
+  if (u_adjust == 1) {
+    k *= texture(u_coverage, v_uv).a;
+    // The effected backdrop replaces the backdrop in proportion, rather than being laid over it.
+    if (u_mode == ${BlendMode.NORMAL} || u_mode == ${BlendMode.DISSOLVE} || u_mode == ${BlendMode.DANCING_DISSOLVE}) {
+      outColor = mix(dst, src, k);
+      return;
+    }
+  }
+  src *= k;
   if (u_mode == ${BlendMode.STENCIL_ALPHA}) { outColor = dst * src.a; return; }
   if (u_mode == ${BlendMode.SILHOUETTE_ALPHA}) { outColor = dst * (1.0 - src.a); return; }
   if (u_mode == ${BlendMode.STENCIL_LUMA}) { outColor = dst * dot(src.rgb, vec3(0.299, 0.587, 0.114)); return; }

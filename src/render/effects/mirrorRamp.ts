@@ -4,7 +4,8 @@
 //
 // Mirror: the line through Reflection Center at Reflection Angle splits the
 // layer; the side its normal (cos a, sin a) points into shows the other side
-// reflected.
+// reflected. After Effects places that line with pixel centres on whole numbers,
+// half a pixel from where other effects' points fall (measured on its renders).
 // Gradient Ramp: the layer's colour becomes the ramp from Start Color at Start
 // of Ramp to End Color at End of Ramp (linear: along the line between them,
 // radial: by distance), keeping the layer's alpha; Blend With Original mixes the
@@ -54,7 +55,7 @@ registerEffect("ADBE Mirror", (input, effect, layer, time, ctx) => {
   const angle = (effectNumber(effect, 2, layer, time, 0) * Math.PI) / 180;
   return mapPass(ctx, input, MIRROR_FS, (u) => {
     ctx.gl.uniform2f(u("u_origin"), input.origin[0], input.origin[1]);
-    ctx.gl.uniform2f(u("u_center"), cx, cy);
+    ctx.gl.uniform2f(u("u_center"), cx + 0.5, cy + 0.5);
     ctx.gl.uniform2f(u("u_normal"), Math.cos(angle), Math.sin(angle));
   });
 });

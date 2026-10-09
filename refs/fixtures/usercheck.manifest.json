@@ -1,0 +1,15 @@
+{
+ "project": "../../../_user/bass-supreme.aep",
+ "comps": [
+  {
+   "comp": "Spectrum",
+   "frames": [
+    1500
+   ],
+   "fps": 50
+  }
+ ],
+ "media": [
+  "../../../Downloads/NEZZY & Coopex - Parallel Lines (feat. Veronica Bravo) - Trap Nation (128k).mp3"
+ ]
+}

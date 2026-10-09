@@ -25,6 +25,7 @@ export interface RenderHooks {
   resume?: () => Promise<void>;
   /** GPU frames for opaque video at "fast" and "good" quality. */
   gpuFrames?: GpuFrameSource;
+  stats?: RenderStats;
 }
 
 export interface RenderSummary {
@@ -65,18 +66,48 @@ export function rendererSource(renderer: Renderer, project: Project, comp: CompI
  */
 export type GpuFrameSource = (time: number, width: number, height: number, timestamp: number, duration: number) => Promise<VideoFrame>;
 
-export function rendererFrames(renderer: Renderer, project: Project, comp: CompItem, plan: FramePlan, warnings?: Set<string>): GpuFrameSource | undefined {
+/** Where an export's time goes, in milliseconds summed over frames. */
+export interface RenderStats {
+  frames: number;
+  renders: number;
+  renderMs: number;
+  footageWaitMs: number;
+  captureMs: number;
+  encodeWaitMs: number;
+}
+
+export const newStats = (): RenderStats => ({ frames: 0, renders: 0, renderMs: 0, footageWaitMs: 0, captureMs: 0, encodeWaitMs: 0 });
+
+export function statsSummary(s: RenderStats): string {
+  const per = (ms: number) => (s.frames ? (ms / s.frames).toFixed(1) : "0");
+  return `per frame: render ${per(s.renderMs)} ms (${(s.renders / Math.max(1, s.frames)).toFixed(2)} renders), footage wait ${per(s.footageWaitMs)} ms, capture ${per(s.captureMs)} ms, encoder wait ${per(s.encodeWaitMs)} ms`;
+}
+
+export function rendererFrames(renderer: Renderer, project: Project, comp: CompItem, plan: FramePlan, warnings?: Set<string>, stats?: RenderStats): GpuFrameSource | undefined {
   if (typeof VideoFrame === "undefined" || typeof OffscreenCanvas === "undefined" || !(renderer.gl.canvas instanceof OffscreenCanvas)) return undefined;
   return async (time, width, height, timestamp, duration) => {
     for (let attempt = 0; ; attempt++) {
       const version = footageStore.version;
+      let t0 = performance.now();
       const target = renderer.render(project, comp, time, { scale: plan.scale });
+      if (stats) {
+        stats.renders++;
+        stats.renderMs += performance.now() - t0;
+      }
       try {
+        t0 = performance.now();
         await footageStore.idle();
+        if (stats) stats.footageWaitMs += performance.now() - t0;
         if (footageStore.version === version || attempt >= 8) {
           for (const w of renderer.lastWarnings) warnings?.add(w);
+          t0 = performance.now();
           renderer.presentFrame(target, width, height, comp.bgColor);
-          return new VideoFrame(renderer.gl.canvas as OffscreenCanvas, { timestamp, duration, alpha: "discard" });
+          const frame = new VideoFrame(renderer.gl.canvas as OffscreenCanvas, { timestamp, duration, alpha: "discard" });
+          if (stats) {
+            stats.captureMs += performance.now() - t0;
+            stats.frames++;
+          }
+          return frame;
         }
       } finally {
         renderer.release(target);
@@ -209,7 +240,10 @@ export async function renderToSink(
       if (gpu) {
         await hooks.resume?.();
         if (hooks.signal?.aborted) throw stopped();
-        await main.encodeFrame(await gpu(plan.time(i), width, height, timestamp, duration), key);
+        const frame = await gpu(plan.time(i), width, height, timestamp, duration);
+        const t0 = performance.now();
+        await main.encodeFrame(frame, key);
+        if (hooks.stats) hooks.stats.encodeWaitMs += performance.now() - t0;
       } else {
         const rgba = await frameAt(i);
         await main.encode(rgbToI420(rgba, width, height), timestamp, duration, key);

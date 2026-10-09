@@ -8,6 +8,7 @@ import type { CompItem, Layer, Project, Property, PropertyGroup, PropertyNode } 
 import { cameraAt, localTransform, Mat4, worldMatrix, type Camera } from "../aep/transform.ts";
 import { LayerCache, valuesKey } from "./contentCache.ts";
 import "./features.ts";
+import { trimFloat } from "./floatTargets.ts";
 import { sourcePixelAspect } from "./footage.ts";
 import { bindTarget, compile, TargetPool, unitQuad, type GL, type Target } from "./gl.ts";
 import { MaskRenderer } from "./masks.ts";
@@ -24,7 +25,9 @@ const MATTE_MODES: Record<number, number> = {
   5016: MatteMode.LUMA_INVERTED,
 };
 const MAX_DEPTH = 16;
-const POOL_BYTES = 256 * 1024 * 1024;
+/** Render target memory pooled between frames at most (8-bit and float). */
+const POOL_BYTES = 1024 * 1024 * 1024;
+const FLOAT_POOL_BYTES = 1024 * 1024 * 1024;
 
 export interface RenderOptions {
   /**
@@ -61,7 +64,7 @@ function findProperty(nodes: PropertyNode[], path: string[]): Property | undefin
 
 export class Renderer {
   readonly gl: GL;
-  readonly options: RendererOptions = { approximateMissingPlugins: false };
+  readonly options: RendererOptions;
   private readonly quad: WebGLVertexArrayObject;
   private readonly programs: Programs;
   private readonly pool: TargetPool;
@@ -69,6 +72,7 @@ export class Renderer {
   private readonly uniforms = new Map<WebGLProgram, Map<string, WebGLUniformLocation | null>>();
   private project!: Project;
   private warnings = new Set<string>();
+  private complete = true;
   private readonly passPrograms = new Map<string, WebGLProgram>();
   /** When set, each render stage's exclusive time (GPU work included, via gl.finish) accumulates here by name. */
   profile: Map<string, { ms: number; count: number }> | null = null;
@@ -78,7 +82,9 @@ export class Renderer {
   private readonly shapeCache: LayerCache<LayerImage | null>;
   private cachedProject?: Project;
 
-  constructor(canvas: HTMLCanvasElement | OffscreenCanvas) {
+  /** `options` may be shared with other renderers and changed between renders. */
+  constructor(canvas: HTMLCanvasElement | OffscreenCanvas, options: RendererOptions = { approximateMissingPlugins: false, sapphireLookalikes: false }) {
+    this.options = options;
     const gl = canvas.getContext("webgl2", { premultipliedAlpha: true, alpha: true, antialias: false, preserveDrawingBuffer: true });
     if (!gl) throw new Error("WebGL2 is not available");
     this.gl = gl as GL;
@@ -104,6 +110,11 @@ export class Renderer {
     return [...this.warnings];
   }
 
+  /** False when the last frame was drawn while footage or audio it needs was still loading. */
+  get lastComplete(): boolean {
+    return this.complete;
+  }
+
   /** Renders `comp` at composition time `time`; the returned target is owned by the caller (see `release`). */
   render(project: Project, comp: CompItem, time: number, options: RenderOptions = {}): Target {
     if (project !== this.cachedProject) {
@@ -112,10 +123,12 @@ export class Renderer {
     }
     this.project = project;
     const warnings = (this.warnings = new Set());
+    this.complete = true;
     setExpressionScope({ project, warn: (message) => warnings.add(message) });
     this.scale = options.scale ?? 1;
     const result = this.renderComp(comp, time, 0);
     this.pool.trim(Math.max(POOL_BYTES, 8 * result.width * result.height * 4));
+    trimFloat(this.gl, FLOAT_POOL_BYTES);
     return result;
   }
 
@@ -252,7 +265,13 @@ export class Renderer {
     const drawOrder = this.drawOrder(comp, time, camera, anySolo);
 
     for (const layer of drawOrder) {
-      const placed = this.placeLayer(layer, comp, time, camera, depth);
+      let coverage: Target | null = null;
+      let placed: Target | null;
+      if (layer.adjustmentLayer) {
+        const adjusted = this.placeAdjustment(layer, comp, time, camera, depth, accumulated);
+        placed = adjusted?.image ?? null;
+        coverage = adjusted?.coverage ?? null;
+      } else placed = this.placeLayer(layer, comp, time, camera, depth);
       if (!placed) continue;
       let matte: Target | null = null;
       let matteMode: number = MatteMode.NONE;
@@ -267,11 +286,12 @@ export class Renderer {
       const opacity = localTransform(layer, time).opacity / 100;
       const next = this.pool.acquire(width, height);
       this.timed("composite", () =>
-        this.composite(accumulated, placed, { target: matte, mode: matteMode, opacity: matteOpacity }, layer.blendingMode, opacity, next),
+        this.composite(accumulated, placed, { target: matte, mode: matteMode, opacity: matteOpacity }, layer.blendingMode, opacity, next, coverage),
       );
+      if (placed !== accumulated) this.pool.release(placed);
       this.pool.release(accumulated);
-      this.pool.release(placed);
       if (matte) this.pool.release(matte);
+      if (coverage) this.pool.release(coverage);
       accumulated = next;
     }
     return accumulated;
@@ -302,7 +322,6 @@ export class Renderer {
           (!anySolo || l.solo) &&
           !l.nullLayer &&
           !l.guideLayer &&
-          !l.adjustmentLayer &&
           this.isActive(l, time),
       );
     if (!camera) return candidates;
@@ -338,10 +357,12 @@ export class Renderer {
     const content = this.timed(`content: ${this.contentKind(layer)}`, () => this.layerContent(layer, time, depth));
     if (!content) return null;
     const masked = this.applyEffects(layer, time, this.timed("masks", () => this.applyMasks(layer, time, content)), depth);
+    return this.placeImage(layer, comp, time, camera, depth, masked);
+  }
+
+  /** The layer's matrix from its own pixels to the comp target's (2D layers), with the source's pixel aspect. */
+  private layerToTarget(layer: Layer, comp: CompItem, time: number, depth: number): Mat4 {
     const scale = depth === 0 ? this.scale : 1;
-    const width = scaledSize(comp.width, scale) + 2 * PAD;
-    const height = scaledSize(comp.height, scale) + 2 * PAD;
-    const out = this.pool.acquire(width, height);
     let world = worldMatrix(layer, comp, time);
     const aspect = sourcePixelAspect(layer, comp, this.project);
     if (aspect !== 1) {
@@ -350,21 +371,52 @@ export class Renderer {
       world = world.mul(Mat4.translation(ax, ay, 0).mul(Mat4.scale(aspect, 1, 1)).mul(Mat4.translation(-ax, -ay, 0)));
     }
     const toTarget = scale === 1 ? Mat4.translation(PAD, PAD, 0) : Mat4.translation(PAD, PAD, 0).mul(Mat4.scale(scale, scale, 1));
+    return toTarget.mul(world);
+  }
+
+  /** Draws a layer-space image through the layer's transform into a new comp-sized target; releases `image`. */
+  private placeImage(layer: Layer, comp: CompItem, time: number, camera: Camera | undefined, depth: number, image: LayerImage): Target {
+    const scale = depth === 0 ? this.scale : 1;
+    const width = scaledSize(comp.width, scale) + 2 * PAD;
+    const height = scaledSize(comp.height, scale) + 2 * PAD;
+    const out = this.pool.acquire(width, height);
     let toView: Mat4;
     let perspective: { zoom: number } | null = null;
     if (layer.threeDLayer && camera) {
       // World -> camera space: R^T (p - eye).
       const view = camera.rotation.inverse().mul(Mat4.translation(-camera.position[0], -camera.position[1], -camera.position[2]));
-      toView = view.mul(world);
+      toView = view.mul(worldMatrix(layer, comp, time));
       perspective = { zoom: camera.zoom * scale };
     } else {
-      toView = toTarget.mul(world);
+      toView = this.layerToTarget(layer, comp, time, depth);
     }
     this.gl.disable(this.gl.BLEND);
-    const origin: [number, number] = [masked.origin[0] - PAD, masked.origin[1] - PAD];
-    this.timed("place", () => this.drawLayerQuad(masked.target, masked.width + 2 * PAD, masked.height + 2 * PAD, origin, toView, perspective, width, height));
-    this.pool.release(masked.target);
+    const origin: [number, number] = [image.origin[0] - PAD, image.origin[1] - PAD];
+    this.timed("place", () => this.drawLayerQuad(image.target, image.width + 2 * PAD, image.height + 2 * PAD, origin, toView, perspective, width, height));
+    this.pool.release(image.target);
     return out;
+  }
+
+  /**
+   * An adjustment layer: its effects run on the composite below, in comp pixels; its transform, source
+   * alpha and masks only say where the result shows (`coverage`). Without effects `image` is `below` itself.
+   */
+  private placeAdjustment(layer: Layer, comp: CompItem, time: number, camera: Camera | undefined, depth: number, below: Target): { image: Target; coverage: Target } | null {
+    const content = this.timed(`content: ${this.contentKind(layer)}`, () => this.layerContent(layer, time, depth));
+    if (!content) return null;
+    const coverage = this.placeImage(layer, comp, time, camera, depth, this.timed("masks", () => this.applyMasks(layer, time, content)));
+    const parade = layer.properties.find((n): n is PropertyGroup => n.kind === "group" && n.matchName === "ADBE Effect Parade");
+    if (!layer.effectsActive || !parade?.children.some((e) => e.kind === "group" && e.enabled)) return { image: below, coverage };
+    const local = this.copyImage({ target: below, width: below.width - 2 * PAD, height: below.height - 2 * PAD, origin: [0, 0] });
+    const effected = this.applyEffects(layer, time, local, depth);
+    const out = this.pool.acquire(below.width, below.height);
+    this.gl.disable(this.gl.BLEND);
+    const origin: [number, number] = [effected.origin[0] - PAD, effected.origin[1] - PAD];
+    this.timed("place", () =>
+      this.drawLayerQuad(effected.target, effected.width + 2 * PAD, effected.height + 2 * PAD, origin, Mat4.translation(PAD, PAD, 0), null, below.width, below.height),
+    );
+    this.pool.release(effected.target);
+    return { image: out, coverage };
   }
 
   private drawLayerQuad(
@@ -402,6 +454,10 @@ export class Renderer {
       pad: PAD,
       project: this.project,
       warn: (message) => this.warnings.add(message),
+      loading: (message) => {
+        this.warnings.add(message);
+        this.complete = false;
+      },
       upload: (source, width, height, origin = [0, 0]) => this.upload(source, width, height, origin),
       renderComp: (comp, time) => this.renderComp(comp, time, depth + 1),
       layerImage: (layer, time, withMasksAndEffects) => {
@@ -576,6 +632,7 @@ export class Renderer {
     mode: number,
     opacity: number,
     out: Target,
+    coverage: Target | null = null,
   ): void {
     const gl = this.gl;
     bindTarget(gl, out);
@@ -589,9 +646,12 @@ export class Renderer {
     gl.uniform1f(this.uniform(p, "u_matteOpacity"), matte.opacity);
     gl.uniform1i(this.uniform(p, "u_mode"), mode);
     gl.uniform1f(this.uniform(p, "u_opacity"), opacity);
+    gl.uniform1i(this.uniform(p, "u_adjust"), coverage ? 1 : 0);
+    gl.uniform1i(this.uniform(p, "u_coverage"), 3);
     this.bindTexture(0, backdrop.texture);
     this.bindTexture(1, source.texture);
     this.bindTexture(2, matte.target ? matte.target.texture : source.texture);
+    this.bindTexture(3, (coverage ?? source).texture);
     this.draw();
   }
 }

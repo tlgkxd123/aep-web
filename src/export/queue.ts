@@ -1,8 +1,10 @@
 import type { CompItem, Project } from "../aep/model.ts";
+import { footageStore } from "../media/store.ts";
+import { appRenderOptions } from "../playback/renderOptions.ts";
 import { Renderer } from "../render/renderer.ts";
 import { EXPORT_CHANNELS, EXPORT_SAMPLE_RATE, mixCompAudio, type MixedAudio } from "./audio.ts";
 import { downloadSink, fileSink } from "./output.ts";
-import { rendererFrames, rendererSource, renderToSink, type Sink } from "./pipeline.ts";
+import { newStats, rendererFrames, rendererSource, renderToSink, statsSummary, type Sink } from "./pipeline.ts";
 import {
   defaultFileName,
   defaultOutputModule,
@@ -36,6 +38,8 @@ export interface QueueItem {
   /** Codec of the audio track the last render wrote, if it wrote one. */
   audioCodec?: string;
   error?: string;
+  /** Where the last render's time went. */
+  perf?: string;
   /** Renderer warnings from the last render: features it skipped or approximated. */
   log: string[];
 }
@@ -68,7 +72,7 @@ export class RenderQueue {
   private resumeWaiters: (() => void)[] = [];
   private renderer: Renderer | null = null;
   /** Builds the renderer used for output; replaced in tests. */
-  createRenderer: () => Renderer = () => new Renderer(new OffscreenCanvas(1, 1));
+  createRenderer: () => Renderer = () => new Renderer(new OffscreenCanvas(1, 1), appRenderOptions);
   /** Opens the sink for an item; replaced by the export gate to keep bytes in memory. */
   openSink: (item: QueueItem) => Promise<Sink> = async (item) =>
     item.handle ? fileSink(item.handle) : downloadSink(item.fileName, FORMATS[item.output.format].mime);
@@ -215,7 +219,11 @@ export class RenderQueue {
     try {
       if (!comp || !plan) throw new Error("The composition is no longer in the project.");
       this.renderer ??= this.createRenderer();
+      Object.assign(footageStore.stats, { imageDecodes: 0, imageMs: 0, videoRuns: 0, videoMs: 0, evictions: 0 });
+      const audioStart = performance.now();
       const audio = await this.mixAudio(project, comp, item.output, plan.start, plan.duration, warnings);
+      const audioMs = performance.now() - audioStart;
+      const stats = newStats();
       sink = await this.openSink(item);
       const summary = await renderToSink(
         comp,
@@ -227,7 +235,8 @@ export class RenderQueue {
         {
           signal,
           resume: () => this.waitWhilePaused(),
-          gpuFrames: rendererFrames(this.renderer, project, comp, plan, warnings),
+          gpuFrames: rendererFrames(this.renderer, project, comp, plan, warnings, stats),
+          stats,
           onFrame: (frame, frames) => {
             const ms = elapsed();
             this.patch(item.id, { frame });
@@ -236,7 +245,9 @@ export class RenderQueue {
         },
         audio,
       );
-      this.patch(item.id, { status: "Done", renderMs: elapsed(), bytes: summary.bytes, audioCodec: summary.audioCodec, log: [...warnings] });
+      const f = footageStore.stats;
+      const perf = `audio mix ${(audioMs / 1000).toFixed(1)} s; ${statsSummary(stats)}; footage: ${f.imageDecodes} image decodes (${(f.imageMs / 1000).toFixed(1)} s), ${f.videoRuns} video decode runs (${(f.videoMs / 1000).toFixed(1)} s), ${f.evictions} cache evictions`;
+      this.patch(item.id, { status: "Done", renderMs: elapsed(), bytes: summary.bytes, audioCodec: summary.audioCodec, perf, log: [...warnings] });
     } catch (e) {
       await sink?.abort().catch(() => undefined);
       const aborted = e instanceof DOMException && e.name === "AbortError";

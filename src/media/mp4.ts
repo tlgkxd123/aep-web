@@ -189,6 +189,70 @@ function sampleTable(data: DataView, stbl: Box, timescale: number, mediaStart: n
   return samples;
 }
 
+/**
+ * Samples of track `trackId` in a fragmented file: the moof boxes' track runs, with the movie's trex defaults.
+ * Each run's data offset is relative to its tfhd base (the moof by default).
+ */
+async function fragmentSamples(blob: Blob, data: DataView, moov: Box, trackId: number, timescale: number, mediaStart: number): Promise<VideoSample[]> {
+  let defaults = { duration: 0, size: 0, flags: 0 };
+  for (const trex of children(data, child(data, moov, "mvex") ?? moov, "trex")) {
+    if (data.getUint32(trex.start + 4) === trackId) defaults = { duration: data.getUint32(trex.start + 12), size: data.getUint32(trex.start + 16), flags: data.getUint32(trex.start + 20) };
+  }
+  const samples: VideoSample[] = [];
+  let decodeTime = 0;
+  let at = 0;
+  while (at + 8 <= blob.size) {
+    const head = new DataView(await blob.slice(at, at + 16).arrayBuffer());
+    let size = head.getUint32(0);
+    const type = String.fromCharCode(head.getUint8(4), head.getUint8(5), head.getUint8(6), head.getUint8(7));
+    if (size === 1) size = Number(head.getBigUint64(8));
+    else if (size === 0) size = blob.size - at;
+    if (size < 8) break;
+    if (type === "moof") {
+      const moofData = new DataView(await blob.slice(at, at + size).arrayBuffer());
+      const moof: Box = { type, start: 8, end: size };
+      for (const traf of children(moofData, moof, "traf")) {
+        const tfhd = child(moofData, traf, "tfhd");
+        if (!tfhd || moofData.getUint32(tfhd.start + 4) !== trackId) continue;
+        const tfFlags = moofData.getUint32(tfhd.start) & 0xffffff;
+        let p = tfhd.start + 8;
+        let base = at;
+        if (tfFlags & 0x01) {
+          base = Number(moofData.getBigUint64(p));
+          p += 8;
+        }
+        if (tfFlags & 0x02) p += 4;
+        const duration = tfFlags & 0x08 ? moofData.getUint32((p += 4) - 4) : defaults.duration;
+        const sampleSize = tfFlags & 0x10 ? moofData.getUint32((p += 4) - 4) : defaults.size;
+        const sampleFlags = tfFlags & 0x20 ? moofData.getUint32((p += 4) - 4) : defaults.flags;
+        const tfdt = child(moofData, traf, "tfdt");
+        if (tfdt) decodeTime = moofData.getUint8(tfdt.start) === 1 ? Number(moofData.getBigUint64(tfdt.start + 4)) : moofData.getUint32(tfdt.start + 4);
+        let offset = base;
+        for (const trun of children(moofData, traf, "trun")) {
+          const version = moofData.getUint8(trun.start);
+          const flags = moofData.getUint32(trun.start) & 0xffffff;
+          const count = moofData.getUint32(trun.start + 4);
+          let q = trun.start + 8;
+          if (flags & 0x01) offset = base + moofData.getInt32((q += 4) - 4);
+          const firstFlags = flags & 0x04 ? moofData.getUint32((q += 4) - 4) : undefined;
+          for (let i = 0; i < count; i++) {
+            const d = flags & 0x100 ? moofData.getUint32((q += 4) - 4) : duration;
+            const s = flags & 0x200 ? moofData.getUint32((q += 4) - 4) : sampleSize;
+            const f = flags & 0x400 ? moofData.getUint32((q += 4) - 4) : i === 0 && firstFlags !== undefined ? firstFlags : sampleFlags;
+            const cto = flags & 0x800 ? (version ? moofData.getInt32((q += 4) - 4) : moofData.getUint32((q += 4) - 4)) : 0;
+            // sample_is_non_sync_sample is bit 16 of the sample flags.
+            samples.push({ offset, size: s, time: (decodeTime + cto - mediaStart) / timescale, isSync: (f & 0x10000) === 0 });
+            offset += s;
+            decodeTime += d;
+          }
+        }
+      }
+    }
+    at += size;
+  }
+  return samples;
+}
+
 /** Reads the top-level boxes of `blob` and returns the payload of `moov`. */
 async function readMoov(blob: Blob): Promise<DataView> {
   let at = 0;
@@ -227,7 +291,7 @@ export async function audioTrackRate(blob: Blob): Promise<number> {
 export async function demuxVideo(blob: Blob): Promise<VideoTrack> {
   const data = await readMoov(blob);
   const moov: Box = { type: "moov", start: 8, end: data.byteLength };
-  if (child(data, moov, "mvex")) throw new Error("fragmented MP4 is not supported");
+  const fragmented = !!child(data, moov, "mvex");
   for (const trak of children(data, moov, "trak")) {
     const mdia = child(data, trak, "mdia");
     if (!mdia || handlerOf(data, trak) !== "vide") continue;
@@ -255,7 +319,13 @@ export async function demuxVideo(blob: Blob): Promise<VideoTrack> {
         }
       }
     }
-    return { ...codec, samples: sampleTable(data, stbl, timescale, mediaStart) };
+    if (!fragmented) return { ...codec, samples: sampleTable(data, stbl, timescale, mediaStart) };
+    const tkhd = child(data, trak, "tkhd");
+    const trackId = tkhd ? data.getUint32(tkhd.start + (data.getUint8(tkhd.start) === 1 ? 20 : 12)) : 1;
+    // A fragmented file may also keep samples in the moov's own table.
+    const samples = [...sampleTable(data, stbl, timescale, mediaStart), ...(await fragmentSamples(blob, data, moov, trackId, timescale, mediaStart))];
+    if (!samples.length) throw new Error("the video track has no samples");
+    return { ...codec, samples };
   }
   throw new Error("no video track");
 }

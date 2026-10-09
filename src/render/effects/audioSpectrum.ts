@@ -419,7 +419,7 @@ registerEffect("ADBE AudSpect", (input, effect, layer, time, ctx) => {
   if (!audioLayer) return finish();
   const audio = layerAudio(ctx.project, audioLayer, time);
   if (audio === "pending") {
-    ctx.warn(`audio is loading ("${audioLayer.name}")`);
+    ctx.loading(`audio is loading ("${audioLayer.name}")`);
     return finish();
   }
   const bands = Math.max(1, Math.round(num(8, 64)));

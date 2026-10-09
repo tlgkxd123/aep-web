@@ -2,8 +2,9 @@ import { useContext, useEffect, useMemo, useRef, useState, type DragEvent, type 
 import type { CompItem, Layer, Project } from "../aep/model.ts";
 import { addLayer } from "../edit/layers.ts";
 import { anchorInComp, moveLayers, panBehind, rotateByDrag, scaleByHandle, type Handle } from "../edit/transform-ops.ts";
-import type { Target } from "../render/gl.ts";
-import { Renderer } from "../render/renderer.ts";
+import { frameIndex } from "../playback/clock.ts";
+import { usePlaying } from "../playback/playhead.ts";
+import { useViewer } from "../playback/useViewer.ts";
 import { apply, invert, layerAffine, type Matrix } from "./animate.ts";
 import { openContextMenu, openMenuBelow, type MenuEntries } from "./ContextMenu.tsx";
 import { AppActionsContext, layerMenu, viewerMenu } from "./contextMenus.ts";
@@ -13,7 +14,7 @@ import { attempt, ITEM_MIME, nextDragKey, useEditing } from "./editing.tsx";
 import { colorCss, labelColor, timecode } from "./format.ts";
 import { setHover } from "./hover.ts";
 import { Icon, type IconName } from "./icons.tsx";
-import { locateFootageFolder, missingFootage, useFootageVersion } from "./LocateFootage.tsx";
+import { locateFootageFolder, missingFootage } from "./LocateFootage.tsx";
 import { layerHasVideo } from "./properties.ts";
 import { Dropdown } from "./values.tsx";
 
@@ -55,51 +56,6 @@ const RESIZE_CURSORS = ["ew-resize", "nwse-resize", "ns-resize", "nesw-resize"];
 function resizeCursor(dx: number, dy: number): string {
   const angle = ((Math.atan2(dy, dx) * 180) / Math.PI + 360 + 22.5) % 180;
   return RESIZE_CURSORS[Math.floor(angle / 45) % 4] ?? "move";
-}
-
-interface RenderState {
-  renderer: Renderer;
-  target?: Target;
-}
-
-/**
- * Renders `comp` at `time` into the canvas with the WebGL compositor, one
- * render per animation frame however fast `time` changes. Returns the
- * renderer state (for pixel readback) and what the renderer skipped.
- */
-function useCompRender(canvas: HTMLCanvasElement | null, project: Project, comp: CompItem, time: number, revision = 0, downsample = 1) {
-  const state = useRef<RenderState | null>(null);
-  const [notes, setNotes] = useState<string[]>([]);
-  const [error, setError] = useState<string>();
-  // Footage decodes asynchronously; render again when its frames arrive.
-  const footageVersion = useFootageVersion();
-  useEffect(() => {
-    // jsdom and browsers without WebGL2 keep the plain comp frame.
-    if (!canvas || typeof WebGL2RenderingContext === "undefined") return;
-    const frame = requestAnimationFrame(() => {
-      try {
-        state.current ??= { renderer: new Renderer(canvas) };
-        const { renderer } = state.current;
-        // Lower resolutions present the frame on a smaller canvas, which the viewer scales up.
-        const width = Math.max(1, Math.ceil(comp.width / downsample));
-        const height = Math.max(1, Math.ceil(comp.height / downsample));
-        if (canvas.width !== width || canvas.height !== height) {
-          canvas.width = width;
-          canvas.height = height;
-        }
-        if (state.current.target) renderer.release(state.current.target);
-        const target = renderer.render(project, comp, time);
-        renderer.present(target, comp);
-        state.current.target = target;
-        setNotes(renderer.lastWarnings);
-        setError(undefined);
-      } catch (e) {
-        setError((e as Error).message);
-      }
-    });
-    return () => cancelAnimationFrame(frame);
-  }, [canvas, project, comp, time, footageVersion, revision, downsample]);
-  return { state, notes, error };
 }
 
 function ViewerButton({
@@ -183,7 +139,9 @@ export function CompositionPanel({
   const editing = useEditing();
   const { editor, revision, tool } = editing;
   const downsample = Math.max(1, comp.resolutionFactor[0] || 1);
-  const render = useCompRender(canvas, project, comp, time, revision, downsample);
+  const render = useViewer(canvas, project, comp, time, downsample);
+  // Layer boxes would trail the picture during playback; they come back where it stops.
+  const playing = usePlaying(comp.id);
 
   // Holding Space pans with the Hand tool, as in AE.
   useEffect(() => {
@@ -392,10 +350,10 @@ export function CompositionPanel({
   };
   const onMove = (e: PointerEvent<SVGSVGElement>) => {
     const [x, y] = toComp(e);
-    const { renderer, target } = render.state.current ?? {};
+    const engine = render.engine.current;
     const inside = x >= 0 && y >= 0 && x < comp.width && y < comp.height;
     const rgba: [number, number, number, number] =
-      renderer && target && inside ? renderer.readPixel(target, x, y) : [0, 0, 0, 0];
+      engine && inside && !playing ? engine.readPixel(frameIndex(comp, time), x, y) : [0, 0, 0, 0];
     setHover({ x: Math.round(x), y: Math.round(y), rgba });
   };
 
@@ -464,8 +422,8 @@ export function CompositionPanel({
             >
               {(guides.safe || guides.proportional || guides.grid) && <Guides comp={comp} options={guides} scale={scale} />}
               {roi && <rect className="roi-rect" x={roi[0]} y={roi[1]} width={roi[2]} height={roi[3]} strokeWidth={1 / scale} />}
-              {showMasks && selected && selectedMatrix && <MaskPaths layer={selected} matrix={selectedMatrix} time={time} scale={scale} />}
-              {selected && selectedMatrix && (
+              {!playing && showMasks && selected && selectedMatrix && <MaskPaths layer={selected} matrix={selectedMatrix} time={time} scale={scale} />}
+              {!playing && selected && selectedMatrix && (
                 <g className="sel-box" style={{ color: labelColor(selected.label) }}>
                   <polygon
                     points={[

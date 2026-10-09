@@ -131,8 +131,8 @@ export function writeTransform(editor: Editor, comp: CompItem, layerId: number, 
   }
 }
 
-/** The layer and property, with the property's chunks written first when AE left them out. */
-function editable(editor: Editor, comp: CompItem, layerId: number, matchName: string): { layer: Layer; prop: Property } | undefined {
+/** The layer and Transform property, with the property's chunks written first when AE left them out. */
+export function editable(editor: Editor, comp: CompItem, layerId: number, matchName: string): { layer: Layer; prop: Property } | undefined {
   const find = () => {
     const layer = comp.layers.find((l) => l.id === layerId);
     const prop = layer && transformProp(layer, matchName);

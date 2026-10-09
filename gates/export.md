@@ -18,7 +18,7 @@ Scope: AE's Render Queue (Composition > Add to Render Queue, render settings, ou
   CHECK: node scripts/export-report.ts --require
   EXPECT: EXPORT-PASSED
 
-- [ ] G3: the playback clock plays at the comp frame rate against wall time, drops frames when rendering is slow and reports Non-real-time, loops over the work area, and the RAM preview cache keeps frames within its byte budget, evicts least recently used frames, reports cached ranges for the green bar and empties on invalidate()
+- [ ] G3: playback shows the Preview panel's range (work area, extended by the current time, from the current time) one comp frame per slot, spaced by Frame Rate and Skip, looping or ending after one pass; the RAM preview cache keeps frames within its byte budget, evicts least recently used frames, reports cached ranges for the green bar and empties on invalidate(); render target pools keep a frame's working set for the next frame and drop sizes frames stopped using
   CHECK: npx vitest run tests/playback.test.ts
   EXPECT: /Test Files\s+1 passed/
 

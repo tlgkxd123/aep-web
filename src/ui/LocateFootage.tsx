@@ -9,12 +9,12 @@ import "./footage.css";
 
 type Picked = { path: string; blob: Blob };
 
-/** Re-renders the caller whenever footage files are added or decoded frames arrive. */
+const subscribe = (onChange: () => void) => footageStore.subscribe(onChange);
+const filesVersion = () => footageStore.filesVersion;
+
+/** Re-renders the caller whenever footage files are added or forgotten (not for every decoded frame). */
 export function useFootageVersion(): number {
-  return useSyncExternalStore(
-    (onChange) => footageStore.subscribe(onChange),
-    () => footageStore.version,
-  );
+  return useSyncExternalStore(subscribe, filesVersion);
 }
 
 /** Footage used by `comp` (through nested comps) whose file has not been located. */

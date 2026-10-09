@@ -3,6 +3,7 @@
 import type { CompItem, Project } from "../aep/model.ts";
 import { parseProject } from "../aep/parse.ts";
 import { footageStore } from "../media/store.ts";
+import type { RendererOptions } from "./registry.ts";
 import { Renderer } from "./renderer.ts";
 
 let project: Project | undefined;
@@ -30,6 +31,11 @@ const harness = {
     renderer ??= new Renderer(new OffscreenCanvas(16, 16));
     return project.warnings;
   },
+  /** Changes renderer options (after `load`); the pixel suites keep the defaults. */
+  setOptions(options: Partial<RendererOptions>): void {
+    if (!renderer) throw new Error("load a project first");
+    Object.assign(renderer.options, options);
+  },
   /** Makes a footage file available, by its path relative to the project (e.g. "media/clip.mp4"). */
   addFile(path: string, base64: string): void {
     footageStore.addFiles([{ path, blob: new Blob([decodeBase64(base64) as BlobPart]) }]);
@@ -54,7 +60,7 @@ const harness = {
     return { width: comp.width, height: comp.height, pixels: encodeBase64(pixels), warnings: renderer.lastWarnings };
   },
   /** Renders `times` (after one warm-up render each) with the stage profiler on; returns ms per frame and per stage. */
-  async profile(compName: string, times: number[]): Promise<{ frameMs: number[]; warmMs: number[]; stages: [string, number, number][]; gpu: string }> {
+  async profile(compName: string, times: number[]): Promise<{ frameMs: number[]; warmMs: number[]; coldMs: number[]; stages: [string, number, number][]; gpu: string }> {
     if (!project || !renderer) throw new Error("load a project first");
     const comp = [...project.items.values()].find((i): i is CompItem => i.kind === "comp" && i.name === compName);
     if (!comp) throw new Error(`no composition named ${compName}`);
@@ -63,11 +69,13 @@ const harness = {
     const gpu = info ? String(gl.getParameter(info.UNMASKED_RENDERER_WEBGL)) : "unknown";
     const frameMs: number[] = [];
     const warmMs: number[] = [];
+    const coldMs: number[] = [];
     const stages = new Map<string, { ms: number; count: number }>();
     for (const time of times) {
       const warming = performance.now();
       renderer.release(await harness.renderTarget(comp, time));
       warmMs.push(performance.now() - warming);
+      coldMs.push(harness.lastPassMs);
       renderer.profile = stages;
       const started = performance.now();
       renderer.release(renderer.render(project, comp, time));
@@ -77,15 +85,24 @@ const harness = {
     }
     const rows = [...stages].map(([k, v]): [string, number, number] => [k, v.ms / times.length, v.count / times.length]);
     rows.sort((a, b) => b[1] - a[1]);
-    return { frameMs, warmMs, stages: rows, gpu };
+    return { frameMs, warmMs, coldMs, stages: rows, gpu };
   },
+  /** Milliseconds (GPU work included) of renderTarget's last pass, the first with all footage decoded. */
+  lastPassMs: 0,
   /** A rendered target once the footage it needs has decoded. */
   async renderTarget(comp: CompItem, time: number) {
-    let target = renderer!.render(project!, comp, time);
-    for (let pass = 1; pass < MAX_PASSES && footageStore.busy; pass++) {
+    const pass = () => {
+      const started = performance.now();
+      const target = renderer!.render(project!, comp, time);
+      renderer!.gl.finish();
+      harness.lastPassMs = performance.now() - started;
+      return target;
+    };
+    let target = pass();
+    for (let n = 1; n < MAX_PASSES && footageStore.busy; n++) {
       renderer!.release(target);
       await footageStore.idle();
-      target = renderer!.render(project!, comp, time);
+      target = pass();
     }
     return target;
   },

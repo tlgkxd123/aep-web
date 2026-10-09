@@ -435,3 +435,42 @@ export function arrangeLayer(editor: Editor, comp: CompItem, layer: Layer, how: 
   if (index < 1 || index > count || index === layer.index) return;
   editor.moveLayer(comp, layer, index);
 }
+
+/** The duration and frame rate of the layer's source when it has time to remap (movies and comps, not stills). */
+function remappableSource(project: Project, layer: Layer): { duration: number; frameRate: number } | undefined {
+  const source = layer.sourceId ? project.items.get(layer.sourceId) : undefined;
+  if (source?.kind !== "footage" && source?.kind !== "comp") return undefined;
+  if (source.kind === "footage" && source.mainSource.isStill) return undefined;
+  return source.duration > 0 ? { duration: source.duration, frameRate: source.frameRate || 24 } : undefined;
+}
+
+/** Whether Layer > Time > Enable Time Remapping applies to the layer. */
+export function canRemapTime(project: Project, layer: Layer): boolean {
+  return !!remappableSource(project, layer) && layer.properties.some((n) => n.matchName === "ADBE Time Remapping" && n.kind === "property");
+}
+
+/**
+ * Layer > Time > Enable Time Remapping, on or off. On seeds the two linear keys After Effects' command adds:
+ * source time 0 at the layer's start and the source's last frame where the layer reaches it. Off removes
+ * every Time Remap key, which turns remapping off.
+ */
+export function setTimeRemapping(editor: Editor, comp: CompItem, layers: Layer[], on: boolean): void {
+  editor.perform(on ? "Enable Time Remapping" : "Disable Time Remapping", [comp], () => {
+    for (const { id } of layers) {
+      const layer = comp.layers.find((l) => l.id === id);
+      const source = layer && remappableSource(editor.project, layer);
+      const prop = layer?.properties.find((n) => n.matchName === "ADBE Time Remapping");
+      if (!layer || !source || prop?.kind !== "property" || layer.timeRemapEnabled === on) continue;
+      if (!on) {
+        editor.removeKeyframes(comp, layer, prop, prop.keyframes.map((_, i) => i), 0);
+        continue;
+      }
+      const last = Math.max(0, source.duration - 1 / source.frameRate);
+      const keys = [
+        { time: layer.startTime, value: 0 },
+        { time: layer.startTime + last * (layer.stretch / 100), value: last },
+      ];
+      editor.replaceKeyframes(comp, layer, [{ prop, keys }], -Infinity, Infinity, "Enable Time Remapping");
+    }
+  });
+}

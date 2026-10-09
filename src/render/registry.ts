@@ -23,6 +23,8 @@ export interface RendererOptions {
    * When set, unverified look-alikes drawn from their stored parameters are used instead.
    */
   approximateMissingPlugins: boolean;
+  /** Sapphire S_Blur and S_Shake are drawn with look-alikes instead of being skipped. */
+  sapphireLookalikes: boolean;
 }
 
 export interface RenderContext {
@@ -34,6 +36,11 @@ export interface RenderContext {
   readonly project: Project;
   /** Records something skipped or approximated in this frame; shown in the UI. */
   warn(message: string): void;
+  /**
+   * Records that something this frame needs (decoded footage, audio) is still loading: the frame is drawn
+   * without it and is incomplete, to be rendered again once it arrives.
+   */
+  loading(message: string): void;
   /** Uploads straight-alpha pixels (canvas, bitmap, video frame...; top row first) into a new padded image. */
   upload(source: TexImageSource, width: number, height: number, origin?: [number, number]): LayerImage;
   /** Renders a composition at its own time, one nesting level deeper. Returns a comp-sized padded target. */

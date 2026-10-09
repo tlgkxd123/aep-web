@@ -1,6 +1,6 @@
 import type { CompItem, Layer } from "../aep/model.ts";
 import type { Editor } from "../edit/editor.ts";
-import { addLayer, arrangeLayer, deleteLayers, duplicateLayers, type Arrange } from "../edit/layers.ts";
+import { addLayer, arrangeLayer, canRemapTime, deleteLayers, duplicateLayers, setTimeRemapping, type Arrange } from "../edit/layers.ts";
 import { centerAnchorPoint, centerInView, fitToComp, flipLayers, resetTransform } from "../edit/transform-ops.ts";
 
 export type LayerCommand =
@@ -23,12 +23,14 @@ export type LayerCommand =
   | "center-in-view"
   | "fit-to-comp"
   | "fit-to-comp-width"
-  | "fit-to-comp-height";
+  | "fit-to-comp-height"
+  | "time-remap";
 
 const LAYER_COMMANDS = new Set<string>([
   "undo", "redo", "new-solid", "new-null", "new-shape", "new-adjustment", "delete-layer", "duplicate-layer",
   "bring-to-front", "bring-forward", "send-backward", "send-to-back", "reset-transform", "flip-horizontal",
   "flip-vertical", "center-anchor", "center-in-view", "fit-to-comp", "fit-to-comp-width", "fit-to-comp-height",
+  "time-remap",
 ]);
 
 export const isLayerCommand = (command: string): command is LayerCommand => LAYER_COMMANDS.has(command);
@@ -68,6 +70,7 @@ export function layerShortcut(e: Keys): LayerCommand | undefined {
   if (e.altKey) {
     if (key === "y") return "new-adjustment";
     if (key === "f") return "fit-to-comp";
+    if (key === "t") return "time-remap";
     if (key === "home") return "center-anchor";
     return undefined;
   }
@@ -92,6 +95,7 @@ export function canRunLayerCommand(command: LayerCommand, { editor, comp, layers
   if (command === "redo") return !!editor.redoLabel;
   if (!comp) return false;
   if (command.startsWith("new-")) return true;
+  if (command === "time-remap") return layers.some((l) => canRemapTime(editor.project, l));
   return layers.length > 0;
 }
 
@@ -146,6 +150,12 @@ export function runLayerCommand(command: LayerCommand, { editor, comp, layers }:
     case "fit-to-comp-height":
       fitToComp(editor, comp, layers, "height", time);
       break;
+    case "time-remap": {
+      // As in After Effects: on for all the selected layers unless the first one already remaps time.
+      const remappable = layers.filter((l) => canRemapTime(editor.project, l));
+      setTimeRemapping(editor, comp, remappable, !remappable[0]?.timeRemapEnabled);
+      break;
+    }
     default: {
       const how = ARRANGE[command];
       if (!how) break;

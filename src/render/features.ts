@@ -2,13 +2,17 @@
 // One import per feature area.
 import "../expressions/install.ts";
 import "./effects/audioSpectrum.ts";
+import "./effects/boxBlur.ts";
 import "./effects/controls.ts";
+import "./effects/deepGlow.ts";
 import "./effects/keylight.ts";
 import "./effects/missingPlugins.ts";
+import "./effects/sapphire.ts";
 import "./effects/vignette.ts";
 import "./effects/removeColorMatting.ts";
 import "./effects/minimax.ts";
 import "./effects/particular.ts";
+import "./effects/particleMatch.ts";
 import "./effects/polar.ts";
 import "./effects/soundKeys.ts";
 import "./effects/superpose.ts";

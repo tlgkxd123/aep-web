@@ -1,8 +1,10 @@
 import type { CompItem, Project } from "../aep/model.ts";
+import { footageStore } from "../media/store.ts";
 import type { Target } from "../render/gl.ts";
 import { Renderer, scaledSize } from "../render/renderer.ts";
 import { frameDuration } from "./clock.ts";
-import { attachProject, cacheView, contentGeneration, ramCache, registerRenderer } from "./ramCache.ts";
+import { attachProject, cacheView, contentGeneration, invalidate, ramCache, registerRenderer } from "./ramCache.ts";
+import { appRenderOptions } from "./renderOptions.ts";
 
 /** The Composition panel's Resolution/Down Sample Factor: a divisor, or Auto from the magnification. */
 export type ViewerResolution = 1 | 2 | 3 | 4 | "auto";
@@ -13,9 +15,27 @@ export function autoFactor(zoom: number): 1 | 2 | 3 | 4 {
 }
 
 /**
+ * What `show` did: drew the frame from the RAM cache or rendered it, found it already on screen, or kept the
+ * frame on screen because footage or audio the new one needs is still loading.
+ */
+export type Shown = "cached" | "rendered" | "same" | "waiting";
+
+let footageFiles = -1;
+
+/** Frames rendered while footage was missing are stale once files are added. */
+function checkFootageFiles(): void {
+  const version = footageStore.filesVersion;
+  if (version === footageFiles) return;
+  if (footageFiles >= 0) invalidate();
+  footageFiles = version;
+}
+
+/**
  * Draws a comp's frames into a visible 2D canvas. Frames come from the RAM preview cache when they are there;
- * otherwise the renderer (on its own OffscreenCanvas) renders them at the view's resolution, and the frame is
- * shown and cached as an ImageBitmap.
+ * otherwise the renderer (on its own OffscreenCanvas) renders them at the view's resolution, and complete frames
+ * are shown and cached as ImageBitmaps. A frame rendered while its footage is still decoding is never cached and
+ * replaces the picture only when there is nothing of the view on screen yet, so the viewer does not flicker
+ * through stand-in footage while playing or scrubbing.
  */
 export class ViewerEngine {
   private readonly display: HTMLCanvasElement;
@@ -27,7 +47,7 @@ export class ViewerEngine {
   private comp: CompItem | null = null;
   private factor = 1;
   private last: { frame: number; view: string; generation: number; target: Target } | null = null;
-  private shown: { key: string; generation: number } | null = null;
+  private shown: { view: string; frame: number; generation: number; complete: boolean } | null = null;
   /** What the renderer skipped or approximated in the last rendered frame. */
   warnings: string[] = [];
   /** Milliseconds the last render took. */
@@ -37,12 +57,12 @@ export class ViewerEngine {
     this.display = display;
     this.context = display.getContext("2d");
     this.surface = new OffscreenCanvas(1, 1);
-    this.renderer = new Renderer(this.surface);
+    this.renderer = new Renderer(this.surface, appRenderOptions);
     this.unregister = registerRenderer(this.renderer);
   }
 
   /** Sets what the viewer shows; frames are cached per comp and resolution. */
-  attach(project: Project, comp: CompItem, factor: number): void {
+  attach(project: Project, comp: CompItem, factor = this.factor): void {
     attachProject(project);
     this.project = project;
     this.comp = comp;
@@ -57,7 +77,7 @@ export class ViewerEngine {
     return !!this.comp && ramCache.has(this.view, frame);
   }
 
-  private render(frame: number): ImageBitmap {
+  private render(frame: number): { bitmap: ImageBitmap; complete: boolean } {
     const project = this.project!;
     const comp = this.comp!;
     const scale = 1 / this.factor;
@@ -71,52 +91,73 @@ export class ViewerEngine {
     }
     this.renderer.present(target, { ...comp, width, height });
     const bitmap = this.surface.transferToImageBitmap();
+    // Unflushed, the bitmap's commands can sit in this context while the display canvas waits on them, and the
+    // page stops getting animation frames until something renders again.
+    this.renderer.gl.flush();
     if (this.last) this.renderer.release(this.last.target);
     this.last = { frame, view: this.view, generation: contentGeneration(), target };
     this.warnings = this.renderer.lastWarnings;
     this.lastRenderMs = performance.now() - started;
-    return bitmap;
+    return { bitmap, complete: this.renderer.lastComplete };
   }
 
-  /** Shows a frame. Returns the milliseconds spent rendering it, 0 when it came from the RAM cache. */
-  show(frame: number): number {
-    if (!this.project || !this.comp) return 0;
-    const view = this.view;
-    const key = `${view}#${frame}`;
-    if (this.shown?.key === key && this.shown.generation === contentGeneration()) return 0;
-    let bitmap = ramCache.get(view, frame);
-    let ms = 0;
-    let fresh = false;
-    if (!bitmap) {
-      bitmap = this.render(frame);
-      ms = this.lastRenderMs;
-      fresh = true;
-    }
+  private draw(bitmap: ImageBitmap, frame: number, complete: boolean): void {
     if (this.display.width !== bitmap.width || this.display.height !== bitmap.height) {
       this.display.width = bitmap.width;
       this.display.height = bitmap.height;
     }
     this.context?.clearRect(0, 0, bitmap.width, bitmap.height);
     this.context?.drawImage(bitmap, 0, 0);
-    if (fresh) ramCache.put(view, frame, bitmap, bitmap.width * bitmap.height * 4);
-    this.shown = { key, generation: contentGeneration() };
-    return ms;
+    this.shown = { view: this.view, frame, generation: contentGeneration(), complete };
+    this.display.dataset.frame = String(frame);
+    this.display.dataset.complete = String(complete);
   }
 
-  /** Renders a frame into the RAM cache without showing it. Returns the milliseconds spent. */
-  prefetch(frame: number): number {
-    if (!this.project || !this.comp || this.cached(frame)) return 0;
-    const bitmap = this.render(frame);
-    ramCache.put(this.view, frame, bitmap, bitmap.width * bitmap.height * 4);
-    return this.lastRenderMs;
+  /**
+   * Shows a frame. One rendered while footage or audio is still loading is drawn only when `partial` is set, the
+   * view has nothing on screen yet, or it is the frame already shown; otherwise the picture on screen stays and
+   * the result is "waiting" until the frame can be rendered complete.
+   */
+  show(frame: number, partial = false): Shown {
+    if (!this.project || !this.comp) return "same";
+    checkFootageFiles();
+    const view = this.view;
+    const on = this.shown;
+    const current = on?.view === view && on.generation === contentGeneration();
+    if (current && on.frame === frame && on.complete) return "same";
+    const hit = ramCache.get(view, frame);
+    if (hit) {
+      this.draw(hit, frame, true);
+      return "cached";
+    }
+    const { bitmap, complete } = this.render(frame);
+    if (complete) {
+      this.draw(bitmap, frame, true);
+      ramCache.put(view, frame, bitmap, bitmap.width * bitmap.height * 4);
+      return "rendered";
+    }
+    if (partial || on?.view !== view || on.frame === frame) this.draw(bitmap, frame, false);
+    bitmap.close();
+    return "waiting";
+  }
+
+  /** Renders a frame into the RAM cache without showing it. False when its footage is still loading, and nothing was cached. */
+  prefetch(frame: number): boolean {
+    if (!this.project || !this.comp) return true;
+    checkFootageFiles();
+    if (this.cached(frame)) return true;
+    const { bitmap, complete } = this.render(frame);
+    if (complete) ramCache.put(this.view, frame, bitmap, bitmap.width * bitmap.height * 4);
+    else bitmap.close();
+    return complete;
   }
 
   /** Straight RGBA of a comp pixel in the frame shown, rendering that frame again if needed. */
   readPixel(frame: number, x: number, y: number): [number, number, number, number] {
     if (!this.project || !this.comp) return [0, 0, 0, 0];
     if (!this.last || this.last.frame !== frame || this.last.view !== this.view || this.last.generation !== contentGeneration()) {
-      const bitmap = this.render(frame);
-      if (!ramCache.has(this.view, frame)) ramCache.put(this.view, frame, bitmap, bitmap.width * bitmap.height * 4);
+      const { bitmap, complete } = this.render(frame);
+      if (complete && !ramCache.has(this.view, frame)) ramCache.put(this.view, frame, bitmap, bitmap.width * bitmap.height * 4);
       else bitmap.close();
     }
     const scale = 1 / this.factor;

@@ -1,0 +1,112 @@
+.dialog.pm-dialog {
+  display: grid;
+  gap: 12px;
+  width: min(560px, calc(100vw - 40px));
+}
+
+.dialog.pm-dialog.pm-wide {
+  width: min(1240px, calc(100vw - 40px));
+}
+
+.dialog.pm-dialog h2 {
+  margin-bottom: 0;
+}
+
+.pm-intro {
+  color: var(--text-dim);
+}
+
+.pm-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.pm-row.pm-window {
+  gap: 20px;
+}
+
+.pm-file {
+  overflow: hidden;
+  color: var(--text-dim);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.pm-group {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding: 6px 12px 12px;
+  border: 1px solid #3c3c3c;
+  border-radius: var(--radius);
+}
+
+.pm-group legend {
+  padding: 0 4px;
+  color: var(--text-dim);
+}
+
+.pm-num {
+  width: 64px;
+}
+
+.pm-progress {
+  display: grid;
+  gap: 6px;
+}
+
+.pm-progress progress {
+  width: 100%;
+  height: 8px;
+  accent-color: var(--accent);
+}
+
+.pm-preview {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.pm-preview figure {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+}
+
+.pm-preview video,
+.pm-preview canvas {
+  width: 100%;
+  height: auto;
+  background: #000;
+}
+
+.pm-preview figcaption {
+  color: var(--text-dim);
+}
+
+.pm-report {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 4px 12px;
+  margin: 0;
+}
+
+.pm-report dt {
+  color: var(--text-dim);
+}
+
+.pm-report dd {
+  margin: 0;
+}
+
+.pm-error {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: #f08a7a;
+}
+
+.pm-actions {
+  gap: 8px;
+}
