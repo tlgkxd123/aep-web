@@ -1,6 +1,7 @@
 // Right-click menus. Any component opens one with `openContextMenu(event, entries)`;
 // `ContextMenuHost` (mounted once by the app) draws it at the pointer, kept inside
-// the window, with submenus, keyboard navigation and AE's menu styling.
+// the window, with submenus, keyboard navigation and AE's menu styling. On compact
+// screens it draws every menu as a bottom sheet whose submenus open in its place.
 import {
   useEffect,
   useLayoutEffect,
@@ -11,6 +12,7 @@ import {
   type MouseEvent as ReactMouseEvent,
 } from "react";
 import { Icon } from "./icons.tsx";
+import { useCompact } from "./responsive.ts";
 
 export interface MenuEntry {
   label: string;
@@ -27,12 +29,15 @@ interface OpenMenu {
   x: number;
   y: number;
   entries: MenuEntries;
+  /** The sheet's heading on compact screens. */
+  title?: string;
 }
 
-let current: OpenMenu | null = null;
+let current: (OpenMenu & { id: number }) | null = null;
+let opened = 0;
 const listeners = new Set<() => void>();
 const set = (menu: OpenMenu | null) => {
-  current = menu;
+  current = menu && { ...menu, id: ++opened };
   for (const listener of listeners) listener();
 };
 
@@ -48,6 +53,11 @@ export function openMenuBelow(anchor: Element, entries: MenuEntries): void {
   set({ x: r.left, y: r.bottom + 2, entries });
 }
 
+/** Opens a menu as a sheet (on desktop screens, at the top left of the window), headed `title`. */
+export function openMenuSheet(title: string, entries: MenuEntries): void {
+  set({ x: 4, y: 28, entries, title });
+}
+
 export function closeContextMenu(): void {
   set(null);
 }
@@ -57,6 +67,8 @@ const enabled = (entry: MenuEntry): boolean => !entry.disabled && (!!entry.onSel
 
 function MenuList({ entries, x, y, depth, onDone }: { entries: MenuEntries; x: number; y: number; depth: number; onDone: () => void }) {
   const ref = useRef<HTMLDivElement>(null);
+  /** A press in the menu; the click ending the long press that opened it lands under the finger and chooses nothing. */
+  const pressed = useRef(false);
   const [pos, setPos] = useState({ left: x, top: y });
   const [openSub, setOpenSub] = useState<number>();
   const [subAnchor, setSubAnchor] = useState({ x: 0, y: 0 });
@@ -91,7 +103,14 @@ function MenuList({ entries, x, y, depth, onDone }: { entries: MenuEntries; x: n
   };
 
   return (
-    <div ref={ref} className="menu-pop context-menu" role="menu" style={{ position: "fixed", left: pos.left, top: pos.top }} onKeyDown={onKeyDown}>
+    <div
+      ref={ref}
+      className="menu-pop context-menu"
+      role="menu"
+      style={{ position: "fixed", left: pos.left, top: pos.top }}
+      onKeyDown={onKeyDown}
+      onPointerDownCapture={() => (pressed.current = true)}
+    >
       {entries.map((entry, i) =>
         entry === "-" ? (
           <div key={i} className="menu-sep" role="separator" />
@@ -121,7 +140,8 @@ function MenuList({ entries, x, y, depth, onDone }: { entries: MenuEntries; x: n
                 setOpenSub(i);
               }
             }}
-            onClick={() => {
+            onClick={(e) => {
+              if (e.detail > 0 && !pressed.current) return;
               if (entry.submenu) {
                 const r = (document.activeElement as HTMLElement).getBoundingClientRect();
                 setSubAnchor({ x: r.right - 2, y: r.top - 5 });
@@ -146,6 +166,81 @@ function MenuList({ entries, x, y, depth, onDone }: { entries: MenuEntries; x: n
   );
 }
 
+/** A menu as a bottom sheet: one level at a time, a submenu replacing its parent until Back. */
+function MenuSheet({ menu }: { menu: OpenMenu }) {
+  const [levels, setLevels] = useState<{ title: string; entries: MenuEntries }[]>(() => [{ title: menu.title ?? "", entries: menu.entries }]);
+  const level = levels[levels.length - 1];
+  const list = useRef<HTMLDivElement>(null);
+  /**
+   * Set by presses that start on the backdrop or in the sheet: the click ending the long press that opened the sheet
+   * lands on whatever the sheet put under the finger, and must neither close it nor choose an item.
+   */
+  const armed = useRef(false);
+  const pressed = useRef(false);
+  useEffect(() => {
+    list.current?.scrollTo?.({ top: 0 });
+    list.current?.querySelector<HTMLButtonElement>("button:not(:disabled)")?.focus({ preventScroll: true });
+  }, [levels]);
+  useEffect(() => {
+    const key = (e: KeyboardEvent) => e.key === "Escape" && closeContextMenu();
+    window.addEventListener("keydown", key);
+    return () => window.removeEventListener("keydown", key);
+  }, []);
+  return (
+    <div className="sheet-host">
+      <div className="sheet-backdrop" aria-hidden="true" onPointerDown={() => (armed.current = true)} onClick={() => armed.current && closeContextMenu()} />
+      <div className="sheet" role="dialog" aria-modal="true" aria-label={level.title || "Menu"} onPointerDownCapture={() => (pressed.current = true)}>
+        <div className="sheet-grip" aria-hidden="true" />
+        <div className="sheet-head">
+          {levels.length > 1 ? (
+            <button type="button" className="sheet-back" onClick={(e) => (e.detail === 0 || pressed.current) && setLevels(levels.slice(0, -1))}>
+              <Icon name="chevronRight" size={12} />
+              <span className="cell-text">{levels[levels.length - 2].title || "Back"}</span>
+            </button>
+          ) : (
+            <span />
+          )}
+          <span className="sheet-title cell-text">{level.title}</span>
+          <button type="button" className="sheet-close" aria-label="Close menu" onClick={(e) => (e.detail === 0 || pressed.current) && closeContextMenu()}>
+            <Icon name="close" size={12} />
+          </button>
+        </div>
+        <div ref={list} className="sheet-items" role="menu" aria-label={level.title || "Menu"}>
+          {level.entries.map((entry, i) =>
+            entry === "-" ? (
+              <div key={i} className="sheet-sep" role="separator" />
+            ) : (
+              <button
+                key={i}
+                type="button"
+                role={entry.checked === undefined ? "menuitem" : "menuitemcheckbox"}
+                className="sheet-item"
+                disabled={!enabled(entry)}
+                aria-haspopup={entry.submenu ? "menu" : undefined}
+                aria-checked={entry.checked}
+                onClick={(e) => {
+                  // A pointer click (detail > 0) counts only from a press in the sheet; keys always do.
+                  if (e.detail > 0 && !pressed.current) return;
+                  if (entry.submenu) {
+                    setLevels([...levels, { title: entry.label, entries: entry.submenu }]);
+                    return;
+                  }
+                  closeContextMenu();
+                  entry.onSelect?.();
+                }}
+              >
+                <span className="sheet-check">{entry.checked && <Icon name="check" size={12} />}</span>
+                <span className="sheet-label">{entry.label}</span>
+                {entry.submenu ? <Icon name="chevronRight" size={12} className="sheet-more" /> : <span className="sheet-shortcut">{entry.shortcut}</span>}
+              </button>
+            ),
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /** Draws the open context menu; mount once near the root. */
 export function ContextMenuHost() {
   const menu = useSyncExternalStore(
@@ -155,9 +250,10 @@ export function ContextMenuHost() {
     },
     () => current,
   );
+  const compact = useCompact();
   const host = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    if (!menu) return;
+    if (!menu || compact) return;
     const outside = (e: PointerEvent) => {
       if (!host.current?.contains(e.target as Node)) closeContextMenu();
     };
@@ -172,8 +268,10 @@ export function ContextMenuHost() {
       window.removeEventListener("blur", closeContextMenu);
       window.removeEventListener("resize", closeContextMenu);
     };
-  }, [menu]);
+  }, [menu, compact]);
   if (!menu) return null;
+  // Keyed by the menu, so a menu opened over another starts at its own top level.
+  if (compact) return <MenuSheet key={menu.id} menu={menu} />;
   return (
     <div ref={host} className="context-host">
       <MenuList entries={menu.entries} x={menu.x} y={menu.y} depth={0} onDone={closeContextMenu} />

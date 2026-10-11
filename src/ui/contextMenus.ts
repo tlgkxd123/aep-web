@@ -27,6 +27,8 @@ export interface AppActions {
   projectCommand?: (command: ProjectItemCommand) => void;
   openCompSettings?: (compId: number) => void;
   addToRenderQueue?: (compId: number) => void;
+  /** Applies an Effects & Presets effect to layers of a comp (by default the active comp's selected layer). */
+  applyEffect?: (matchName: string, target?: { compId: number; layerIds: number[] }) => void;
 }
 
 export type ProjectItemCommand = "rename" | "duplicate" | "delete" | "replace-footage" | "new-folder" | "new-comp" | "import";

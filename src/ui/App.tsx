@@ -1,6 +1,20 @@
-import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type DragEvent, type PointerEvent as ReactPointerEvent } from "react";
+import {
+  lazy,
+  Suspense,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+  type DragEvent,
+  type PointerEvent as ReactPointerEvent,
+  type ReactNode,
+} from "react";
 import { flushSync } from "react-dom";
-import type { CompItem, Layer, Project } from "../aep/model.ts";
+import type { CompItem, Item, Layer, Project } from "../aep/model.ts";
+import { catalogCategories, catalogName } from "../edit/effectCatalog.ts";
+import { applyLibraryEffect, definedEffects, effectSource, projectEffect } from "../edit/effectLibrary.ts";
 import { Editor, type LayerSwitch } from "../edit/editor.ts";
 import { addLayer } from "../edit/layers.ts";
 import { nudgeLayers } from "../edit/transform-ops.ts";
@@ -15,20 +29,26 @@ import { ChunkPanel } from "./ChunkPanel.tsx";
 import { CompositionPanel } from "./CompositionPanel.tsx";
 import { EditingContext, type Editing, type ToolId } from "./editing.tsx";
 import { EffectControlsPanel } from "./EffectControlsPanel.tsx";
+import { EffectsPresetsPanel, useEffectLibrary } from "./EffectsPresetsPanel.tsx";
 import { HomeScreen } from "./HomeScreen.tsx";
 import { Icon } from "./icons.tsx";
 import { canRunLayerCommand, isLayerCommand, layerShortcut, runLayerCommand, type LayerCommand, type LayerTarget } from "./layerCommands.ts";
 import { addDroppedFootage, locateFootageFolder, useFootageVersion } from "./LocateFootage.tsx";
-import { MenuBar, type MenuCommand } from "./MenuBar.tsx";
+import { APPLY_EFFECT, MenuBar, type MenuCommand } from "./MenuBar.tsx";
+import { MobileTabs, MobileWorkspace, Transport, type MobileTab } from "./MobileWorkspace.tsx";
 import { PanelFrame, type PanelTab } from "./Panel.tsx";
 import { droppedHandle, pickProjectHandle, type ProjectHandle } from "./projectFiles.ts";
+import { layerEffects } from "./properties.ts";
 import { ProjectPanel } from "./ProjectPanel.tsx";
 import { RenderQueuePanel } from "./RenderQueuePanel.tsx";
 import { renderQueue } from "../export/queue.ts";
+import { isMobileOS, LANDSCAPE_QUERY, useCompact, useMedia } from "./responsive.ts";
 import { RightPanels } from "./RightPanels.tsx";
 import { SolidSettings } from "./SolidSettings.tsx";
 import { TimelinePanel } from "./TimelinePanel.tsx";
 import { Toolbar, type Workspace } from "./Toolbar.tsx";
+import { followPointer } from "./pointer.ts";
+import { useLongPressMenus } from "./touch.ts";
 
 /** Panel sizes per workspace: left frame share, right column px, Timeline share. */
 const WORKSPACE_LAYOUTS: Record<Workspace, { left: number; right: number; bottom: number }> = {
@@ -79,13 +99,7 @@ function dragDelta(e: ReactPointerEvent, onMove: (dx: number, dy: number) => voi
   e.preventDefault();
   const x = e.clientX;
   const y = e.clientY;
-  const move = (ev: PointerEvent | MouseEvent) => onMove(ev.clientX - x, ev.clientY - y);
-  const up = () => {
-    window.removeEventListener("pointermove", move);
-    window.removeEventListener("pointerup", up);
-  };
-  window.addEventListener("pointermove", move);
-  window.addEventListener("pointerup", up);
+  followPointer(e, (ev) => onMove(ev.clientX - x, ev.clientY - y), undefined, 0);
 }
 
 export function App() {
@@ -118,11 +132,22 @@ export function App() {
   const [editError, setEditError] = useState<string>();
   const [solidFor, setSolidFor] = useState<number>();
   const [particleMatch, setParticleMatch] = useState(false);
+  const effects = useEffectLibrary();
+  const [lastEffect, setLastEffect] = useState<string>();
+  const compact = useCompact();
+  const landscape = useMedia(LANDSCAPE_QUERY);
+  const coarse = useMedia("(pointer: coarse)");
+  /** The panel compact screens show with the viewer; kept in step with the desktop frames' tabs. */
+  const [mobileTab, setMobileTab] = useState<MobileTab>("timeline");
+  const [viewerShare, setViewerShare] = useState(0.45);
+  useLongPressMenus(compact || coarse);
 
   const editor = loaded?.editor;
   useEffect(() => editor?.subscribe(() => setRevision(editor.revision)), [editor]);
   // Panels are memoized on the project: each edit hands them a new snapshot of the editor's model.
   const project = useMemo<Project | undefined>(() => editor && { ...editor.project }, [editor, revision]);
+  const effectCatalog = useMemo(() => catalogCategories(effects), [effects]);
+  const definedEffectTypes = useMemo(() => (editor ? definedEffects(editor.file.root) : new Set<string>()), [editor, revision]);
   const comp = activeCompId !== undefined ? project?.items.get(activeCompId) : undefined;
   const activeComp = comp?.kind === "comp" ? comp : undefined;
   const view = activeComp ? (views[activeComp.id] ?? { time: 0 }) : undefined;
@@ -144,6 +169,7 @@ export function App() {
     setLeftTab("project");
     setCenterTab("composition");
     setBottomTab("comp");
+    setMobileTab(initial ? "timeline" : "project");
     setShowHome(false);
     setPlaying(false);
     audioPreview.reset();
@@ -155,6 +181,7 @@ export function App() {
     setActiveCompId(id);
     setCenterTab("composition");
     setBottomTab("comp");
+    setMobileTab("timeline");
     setPlaying(false);
   }, []);
 
@@ -218,6 +245,12 @@ export function App() {
   );
 
   const pickFile = useCallback(async () => {
+    // Phones and tablets get the file input, unfiltered, opened within the tap: their system pickers offer a file only
+    // when its type matches, which an .aep's does not, and a fallback opened after a failed picker has lost the tap.
+    if (isMobileOS()) {
+      inputRef.current?.click();
+      return;
+    }
     const picked = await pickProjectHandle();
     if (picked === null) inputRef.current?.click();
     else if (picked) void open(picked.file, picked.handle);
@@ -326,6 +359,75 @@ export function App() {
   const runLayerRef = useRef(runLayer);
   runLayerRef.current = runLayer;
 
+  // Effects apply to unlocked layers, by default the active comp's selected one, which then shows in Effect Controls.
+  const effectTarget = (target?: { compId: number; layerIds: number[] }) => {
+    const comp = editor?.project.items.get(target?.compId ?? activeComp?.id ?? -1);
+    if (comp?.kind !== "comp") return undefined;
+    const ids = target?.layerIds ?? (selectedLayer ? [selectedLayer.id] : []);
+    const layerIds = ids.filter((id) => comp.layers.some((l) => l.id === id && !l.locked));
+    return layerIds.length ? { comp, layerIds } : undefined;
+  };
+  // Library effects apply from their templates, other effects the project defines from its definitions.
+  const applyEffect = (matchName: string, target?: { compId: number; layerIds: number[] }) => {
+    const to = effectTarget(target);
+    if (!editor || !to) return;
+    try {
+      const effect = effects?.find((e) => e.matchName === matchName) ?? projectEffect(editor.file.root, matchName);
+      if (!effect) return;
+      applyLibraryEffect(editor, to.comp, to.layerIds, effect);
+    } catch (e) {
+      setEditError((e as Error).message);
+      return;
+    }
+    setLastEffect(matchName);
+    selectLayer(to.comp.id, to.layerIds[0]);
+    setLeftTab("effects");
+    setMobileTab("controls");
+  };
+  const removeAllEffects = () => {
+    const to = effectTarget();
+    if (!editor || !to) return;
+    const { comp, layerIds } = to;
+    try {
+      editor.perform("Remove All Effects", [comp], () => {
+        for (const id of layerIds) {
+          for (let n = layerEffects(comp.layers.find((l) => l.id === id)!).length; n > 0; n--) {
+            const layer = comp.layers.find((l) => l.id === id)!;
+            editor.removeEffect(comp, layer, layerEffects(layer)[n - 1]);
+          }
+        }
+      });
+    } catch (e) {
+      setEditError((e as Error).message);
+    }
+  };
+  /** File > Add Footage to Comp: the selected project items, as layers at the top of the active comp. */
+  const footageToAdd = (): Item[] =>
+    activeComp ? selectedIds.flatMap((id) => project?.items.get(id) ?? []).filter((item) => item.kind !== "folder" && item.id !== activeComp.id) : [];
+  const addFootageToComp = () => {
+    const items = footageToAdd();
+    if (!editor || !activeComp || !items.length) return;
+    try {
+      let added = 0;
+      editor.perform("Add Footage to Comp", [activeComp], () => {
+        for (const item of items) added = addLayer(editor, activeComp, { kind: "item", itemId: item.id });
+      });
+      selectLayer(activeComp.id, added);
+      setBottomTab("comp");
+      setMobileTab("timeline");
+    } catch (e) {
+      setEditError((e as Error).message);
+    }
+  };
+  const addFootageRef = useRef(addFootageToComp);
+  addFootageRef.current = addFootageToComp;
+  const applyEffectRef = useRef(applyEffect);
+  applyEffectRef.current = applyEffect;
+  const removeAllEffectsRef = useRef(removeAllEffects);
+  removeAllEffectsRef.current = removeAllEffects;
+  const lastEffectRef = useRef(lastEffect);
+  lastEffectRef.current = lastEffect;
+
   // The render queue belongs to the open project and follows its edits.
   useEffect(() => renderQueue.attach(loaded ? (editor?.project ?? null) : null), [loaded]);
   useEffect(() => renderQueue.update(project ?? null), [project]);
@@ -334,6 +436,7 @@ export function App() {
     if (!project || comp?.kind !== "comp") return;
     renderQueue.add(project, comp);
     setBottomTab("render-queue");
+    setMobileTab("render");
     setFocused("bottom");
   };
   const addToRenderQueueRef = useRef(addToRenderQueue);
@@ -360,14 +463,17 @@ export function App() {
           break;
         case "show-project":
           setLeftTab("project");
+          setMobileTab("project");
           setFocused("left");
           break;
         case "show-effect-controls":
           setLeftTab("effects");
+          setMobileTab("controls");
           setFocused("left");
           break;
         case "show-render-queue":
           setBottomTab("render-queue");
+          setMobileTab("render");
           setFocused("bottom");
           break;
         case "add-to-render-queue":
@@ -375,6 +481,7 @@ export function App() {
           break;
         case "show-chunks":
           setCenterTab("chunks");
+          setMobileTab("more");
           setFocused("center");
           break;
         case "toggle-sapphire":
@@ -383,11 +490,24 @@ export function App() {
         case "particle-match":
           setParticleMatch(true);
           break;
+        case "add-footage-to-comp":
+          addFootageRef.current();
+          break;
+        case "last-effect":
+          if (lastEffectRef.current) applyEffectRef.current(lastEffectRef.current);
+          break;
+        case "remove-all-effects":
+          removeAllEffectsRef.current();
+          break;
         case "show-composition":
           setCenterTab("composition");
           setFocused("center");
           break;
         default: {
+          if (cmd.startsWith(APPLY_EFFECT)) {
+            applyEffectRef.current(cmd.slice(APPLY_EFFECT.length));
+            break;
+          }
           const layerCmd = layerCommandFor(cmd);
           if (layerCmd) runLayerRef.current(layerCmd);
         }
@@ -407,6 +527,18 @@ export function App() {
       if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === "m") {
         e.preventDefault();
         addToRenderQueueRef.current();
+        return;
+      }
+      if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && e.key === "/") {
+        e.preventDefault();
+        addFootageRef.current();
+        return;
+      }
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === "e" && editor) {
+        // Ctrl+Alt+Shift+E applies the last effect again; Ctrl+Shift+E removes all effects.
+        e.preventDefault();
+        if (!e.altKey) removeAllEffectsRef.current();
+        else if (lastEffectRef.current) applyEffectRef.current(lastEffectRef.current);
         return;
       }
       if (ops.keyDown(e)) return;
@@ -556,6 +688,7 @@ export function App() {
       revealInProject: (id) => {
         setSelectedItemId(id);
         setLeftTab("project");
+        setMobileTab("project");
         setFocused("left");
       },
       selectLayer,
@@ -567,10 +700,12 @@ export function App() {
       showEffectControls: (compId, layerId) => {
         selectLayer(compId, layerId);
         setLeftTab("effects");
+        setMobileTab("controls");
         setFocused("left");
       },
       ...(editor && {
         ...ops.contextMenu,
+        applyEffect: (matchName: string, target?: { compId: number; layerIds: number[] }) => applyEffectRef.current(matchName, target),
         layerCommand: (cmd: LayerCommand) => runLayerRef.current(cmd),
         canLayerCommand: (cmd: LayerCommand, comp: CompItem, layer: Layer | undefined) =>
           canRunLayerCommand(cmd, { editor, comp, layers: layer ? [layer] : [] }),
@@ -593,8 +728,113 @@ export function App() {
     [openItem, selectLayer, project, editor, ops.contextMenu],
   );
 
+  // The panels, docked in frames on desktop screens and one at a time beside the viewer on compact ones.
+  const projectPanel = project && (
+    <ProjectPanel
+      project={project}
+      selectedId={selectedItemId}
+      onSelect={setSelectedItemId}
+      onOpenItem={openItem}
+      selectedIds={selectedIds}
+      onSelectIds={setSelectedIds}
+      ops={ops.panel}
+    />
+  );
+  const effectControls = project && <EffectControlsPanel project={project} comp={activeComp} layer={selectedLayer} time={view?.time ?? 0} />;
+  const viewer =
+    project &&
+    (activeComp ? (
+      <CompositionPanel
+        project={project}
+        comp={activeComp}
+        time={view?.time ?? 0}
+        selectedLayerId={view?.layerId}
+        onSelectLayer={(id) => selectLayer(activeComp.id, id)}
+        onTime={(t) => goTo(activeComp.id, t)}
+      />
+    ) : (
+      <div className="viewer-empty">
+        <Icon name="comp" size={32} />
+        <p>{compact ? "No composition is open. Double-tap a composition in the Project tab." : "No composition is open. Double-click a composition in the Project panel."}</p>
+      </div>
+    ));
+  const timeline = project && activeComp && (
+    <TimelinePanel key={activeComp.id} project={project} comp={activeComp} time={view?.time ?? 0} selectedLayerId={view?.layerId} onTime={goTo} onSelectLayer={selectLayer} />
+  );
+  const renderQueuePanel = project && <RenderQueuePanel project={project} activeComp={activeComp} />;
+  const rightPanels = project && loaded && (
+    <RightPanels
+      project={project}
+      comp={activeComp}
+      file={loaded.file}
+      playing={playing}
+      onPlay={togglePlay}
+      onStep={step}
+      onEdge={edge}
+      preview={preview}
+      onPreview={setPreview}
+      selectedLayer={selectedLayer}
+      time={view?.time ?? 0}
+      compact={compact}
+      showChunks={compact && centerTab === "chunks"}
+    />
+  );
+  const selectCompTab = (id: string) => {
+    if (id === "render-queue") {
+      setBottomTab("render-queue");
+      return;
+    }
+    setBottomTab("comp");
+    setActiveCompId(Number(id.slice(5)));
+    setPlaying(false);
+  };
+  const mobilePanels: Record<MobileTab, ReactNode> = {
+    project: projectPanel,
+    timeline: (
+      <PanelFrame
+        tabs={bottomTabs.filter((t) => t.id !== "render-queue")}
+        active={activeComp ? `comp:${activeComp.id}` : ""}
+        onSelect={selectCompTab}
+        focused={false}
+        onFocus={() => {}}
+        className="frame-mobile"
+      >
+        {timeline || <p className="panel-empty">No composition is open. Double-tap a composition in the Project tab.</p>}
+      </PanelFrame>
+    ),
+    controls: effectControls,
+    effects: project && <EffectsPresetsPanel project={project} target={selectedLayer} />,
+    render: renderQueuePanel,
+    more: rightPanels,
+  };
+
   const workspace = loaded && project && !showHome && (
     <AppActionsContext.Provider value={actions}>
+    {compact ? (
+      <MobileWorkspace
+        viewer={
+          <>
+            {viewer}
+            {activeComp && (
+              <Transport
+                comp={activeComp}
+                time={view?.time ?? 0}
+                playing={playing}
+                onPlay={togglePlay}
+                onStep={step}
+                onEdge={edge}
+                onTime={(t) => goTo(activeComp.id, t)}
+              />
+            )}
+          </>
+        }
+        panel={mobilePanels[mobileTab]}
+        tab={mobileTab}
+        landscape={landscape}
+        share={viewerShare}
+        onShare={setViewerShare}
+      />
+    ) : (
     <div
       ref={workspaceRef}
       className="ws"
@@ -602,19 +842,7 @@ export function App() {
     >
       <div className="ws-top">
         <PanelFrame tabs={leftTabs} active={leftTab} onSelect={setLeftTab} focused={focused === "left"} onFocus={() => setFocused("left")} className="frame-left">
-          {leftTab === "project" ? (
-            <ProjectPanel
-              project={project}
-              selectedId={selectedItemId}
-              onSelect={setSelectedItemId}
-              onOpenItem={openItem}
-              selectedIds={selectedIds}
-              onSelectIds={setSelectedIds}
-              ops={ops.panel}
-            />
-          ) : (
-            <EffectControlsPanel project={project} comp={activeComp} layer={selectedLayer} time={view?.time ?? 0} />
-          )}
+          {leftTab === "project" ? projectPanel : effectControls}
         </PanelFrame>
         <div className="splitter v" role="separator" aria-orientation="vertical" aria-label="Resize Project panel" onPointerDown={resize("left")} />
         <PanelFrame
@@ -625,105 +853,105 @@ export function App() {
           onFocus={() => setFocused("center")}
           className="frame-center"
         >
-          {centerTab === "chunks" ? (
-            <ChunkPanel root={project.file.root} />
-          ) : activeComp ? (
-            <CompositionPanel
-              project={project}
-              comp={activeComp}
-              time={view?.time ?? 0}
-              selectedLayerId={view?.layerId}
-              onSelectLayer={(id) => selectLayer(activeComp.id, id)}
-              onTime={(t) => goTo(activeComp.id, t)}
-            />
-          ) : (
-            <div className="viewer-empty">
-              <Icon name="comp" size={32} />
-              <p>No composition is open. Double-click a composition in the Project panel.</p>
-            </div>
-          )}
+          {centerTab === "chunks" ? <ChunkPanel root={project.file.root} /> : viewer}
         </PanelFrame>
         <div className="splitter v" role="separator" aria-orientation="vertical" aria-label="Resize right panels" onPointerDown={resize("right")} />
         <section className={`frame frame-right ${focused === "right" ? "focused" : ""}`} onPointerDownCapture={() => setFocused("right")}>
-          <RightPanels
-            project={project}
-            comp={activeComp}
-            file={loaded.file}
-            playing={playing}
-            onPlay={togglePlay}
-            onStep={step}
-            onEdge={edge}
-            preview={preview}
-            onPreview={setPreview}
-            selectedLayer={selectedLayer}
-            time={view?.time ?? 0}
-          />
+          {rightPanels}
         </section>
       </div>
       <div className="splitter h" role="separator" aria-orientation="horizontal" aria-label="Resize Timeline" onPointerDown={resize("bottom")} />
       <PanelFrame
         tabs={bottomTabs}
         active={bottomActive}
-        onSelect={(id) => {
-          if (id === "render-queue") {
-            setBottomTab("render-queue");
-            return;
-          }
-          setBottomTab("comp");
-          setActiveCompId(Number(id.slice(5)));
-          setPlaying(false);
-        }}
+        onSelect={selectCompTab}
         focused={focused === "bottom"}
         onFocus={() => setFocused("bottom")}
         className="frame-bottom"
       >
-        {bottomActive === "render-queue" || !activeComp ? (
-          <RenderQueuePanel project={project} activeComp={activeComp} />
-        ) : (
-          <TimelinePanel
-            key={activeComp.id}
-            project={project}
-            comp={activeComp}
-            time={view?.time ?? 0}
-            selectedLayerId={view?.layerId}
-            onTime={goTo}
-            onSelectLayer={selectLayer}
-          />
-        )}
+        {bottomActive === "render-queue" || !activeComp ? renderQueuePanel : timeline}
       </PanelFrame>
     </div>
+    )}
     </AppActionsContext.Provider>
   );
 
   const menuEnabled = (cmd: MenuCommand) => {
     const own = ops.menu.enabled[cmd];
     if (own !== undefined) return own;
+    if (cmd.startsWith(APPLY_EFFECT)) return !!effectTarget() && !!effectSource(cmd.slice(APPLY_EFFECT.length), effects, definedEffectTypes);
+    if (cmd === "add-footage-to-comp") return !!editor && footageToAdd().length > 0;
+    if (cmd === "last-effect") return !!lastEffect && !!effectTarget();
+    if (cmd === "remove-all-effects") return !!selectedLayer && layerEffects(selectedLayer).length > 0 && !!effectTarget();
     const layerCmd = layerCommandFor(cmd);
     return !layerCmd || canRunLayerCommand(layerCmd, layerTarget);
   };
-  const menuLabel = (cmd: MenuCommand) => ops.menu.labels[cmd];
+  const effectName = (matchName: string) =>
+    effects?.find((e) => e.matchName === matchName)?.name ?? catalogName(matchName) ?? project?.effectTypes.get(matchName) ?? matchName;
+  const menuLabel = (cmd: MenuCommand) => (cmd === "last-effect" ? lastEffect && effectName(lastEffect) : ops.menu.labels[cmd]);
   const menuChecked = (cmd: MenuCommand) => (cmd === "toggle-sapphire" ? appRenderOptions.sapphireLookalikes : undefined);
   const solidComp = solidFor !== undefined ? project?.items.get(solidFor) : undefined;
 
+  const menuBar = (
+    <MenuBar
+      hasProject={!!loaded}
+      onCommand={command}
+      enabled={menuEnabled}
+      label={menuLabel}
+      checked={menuChecked}
+      effects={effectCatalog}
+      compact={compact}
+      title={loaded?.file.name ?? "AEP Web"}
+    />
+  );
+  const historyButton = (cmd: "undo" | "redo") => (
+    <button
+      type="button"
+      className="mtop-btn"
+      aria-label={menuLabel(cmd) || (cmd === "undo" ? "Undo" : "Redo")}
+      title={menuLabel(cmd) || (cmd === "undo" ? "Undo" : "Redo")}
+      disabled={!menuEnabled(cmd)}
+      onClick={() => command(cmd)}
+    >
+      <Icon name={cmd} size={18} />
+    </button>
+  );
+
   const app = (
-    <div className={`app ${dragging ? "dragging" : ""}`} {...dropHandlers}>
-      <MenuBar hasProject={!!loaded} onCommand={command} enabled={menuEnabled} label={menuLabel} checked={menuChecked} />
-      <Toolbar
-        onHome={() => setShowHome(true)}
-        workspace={workspaceName}
-        onWorkspace={(w) => {
-          setWorkspaceName(w);
-          setLayout(WORKSPACE_LAYOUTS[w]);
-        }}
-      />
+    <div className={`app ${compact ? "compact" : ""} ${compact && landscape ? "landscape" : ""} ${dragging ? "dragging" : ""}`} {...dropHandlers}>
+      {compact ? (
+        <header className="mtop">
+          {menuBar}
+          {workspace ? <Toolbar compact onHome={() => setShowHome(true)} /> : <span className="mtop-title cell-text">{loaded?.file.name ?? "AEP Web"}</span>}
+          {editor && workspace && (
+            <>
+              {historyButton("undo")}
+              {historyButton("redo")}
+            </>
+          )}
+        </header>
+      ) : (
+        <>
+          {menuBar}
+          <Toolbar
+            onHome={() => setShowHome(true)}
+            workspace={workspaceName}
+            onWorkspace={(w) => {
+              setWorkspaceName(w);
+              setLayout(WORKSPACE_LAYOUTS[w]);
+            }}
+          />
+        </>
+      )}
       {workspace || (
         <HomeScreen onOpen={pickFile} onNew={() => command("new-project")} onDismiss={loaded ? () => setShowHome(false) : undefined} />
       )}
+      {compact && workspace && <MobileTabs tab={mobileTab} onTab={setMobileTab} />}
       <ContextMenuHost />
       <input
         ref={inputRef}
         type="file"
-        accept=".aep"
+        accept={isMobileOS() ? undefined : ".aep"}
         aria-label="Open After Effects project"
         hidden
         onChange={(e) => {
@@ -787,7 +1015,25 @@ export function App() {
       )}
       {particleMatch && (
         <Suspense fallback={null}>
-          <ParticleMatchDialog onClose={() => setParticleMatch(false)} />
+          <ParticleMatchDialog
+            onClose={() => setParticleMatch(false)}
+            project={
+              editor && project
+                ? {
+                    editor,
+                    project,
+                    activeCompId: activeComp?.id,
+                    onAdded: (compId, layerIds) => {
+                      showComp(compId);
+                      selectLayer(compId, layerIds[0]);
+                      setLeftTab("effects");
+                      setMobileTab("controls");
+                      setFocused("left");
+                    },
+                  }
+                : undefined
+            }
+          />
         </Suspense>
       )}
       {editError && (

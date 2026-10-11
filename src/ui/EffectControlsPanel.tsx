@@ -1,5 +1,6 @@
-import { useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from "react";
+import { useContext, useRef, useState, type CSSProperties, type DragEvent, type PointerEvent as ReactPointerEvent } from "react";
 import { openContextMenu } from "./ContextMenu.tsx";
+import { AppActionsContext } from "./contextMenus.ts";
 import { deleteEffect, effectMenu, toggleEffect } from "./effectCommands.ts";
 import { canHaveExpression, propertyMenu, toggleExpression } from "./expressionCommands.ts";
 import { applySoundKeys } from "../media/soundKeysApply.ts";
@@ -20,7 +21,8 @@ import {
 import { PropertyValueView, type ValueContext } from "./values.tsx";
 import { hasNumericValue } from "../edit/editor.ts";
 import { setPropertyValue, toggleStopwatch } from "../edit/stored-property.ts";
-import { attempt, nextDragKey, useEditing } from "./editing.tsx";
+import { attempt, EFFECT_MIME, nextDragKey, useEditing } from "./editing.tsx";
+import { followPointer } from "./pointer.ts";
 import { canEditEffectValue, EffectValue } from "./EffectValue.tsx";
 
 /** Drags of a slider or dial: `onChange` per move with one coalesce key, `onEnd` when released. */
@@ -32,14 +34,7 @@ function drag(e: ReactPointerEvent, read: (ev: PointerEvent | ReactPointerEvent)
   e.stopPropagation();
   const key = nextDragKey("slider");
   onChange(read(e), key);
-  const move = (ev: PointerEvent) => onChange(read(ev), key);
-  const up = () => {
-    window.removeEventListener("pointermove", move);
-    window.removeEventListener("pointerup", up);
-    onEnd?.();
-  };
-  window.addEventListener("pointermove", move);
-  window.addEventListener("pointerup", up);
+  followPointer(e, (ev) => onChange(read(ev), key), () => onEnd?.(), 0);
 }
 
 function SliderTrack({ value, min, max, label, integer, ...handlers }: { value: number; min: number; max: number; label: string; integer?: boolean } & DragHandlers) {
@@ -390,14 +385,36 @@ export function EffectControlsPanel({
   time: number;
 }) {
   const editing = useEditing();
+  const actions = useContext(AppActionsContext);
   // The selected effect by position: edits rebuild the layer's effect objects.
   const [selection, setSelection] = useState<{ layerId: number; index: number }>();
+  const [dropOver, setDropOver] = useState(false);
   if (!comp || !layer) return <p className="panel-empty">Select a layer in the Timeline to see its effects.</p>;
   const effects = layerEffects(layer);
   const ctx = { project, layer, comp };
   const selected = selection?.layerId === layer.id ? effects[selection.index] : undefined;
+  // An Effects & Presets effect dropped here applies to the layer shown.
+  const takesEffect = (e: DragEvent) => !!actions?.applyEffect && !layer.locked && Array.from(e.dataTransfer?.types ?? []).includes(EFFECT_MIME);
   return (
-    <div className="ec">
+    <div
+      className={`ec ${dropOver ? "drop-over" : ""}`}
+      onDragOver={(e) => {
+        if (!takesEffect(e)) return;
+        e.preventDefault();
+        e.dataTransfer.dropEffect = "copy";
+        setDropOver(true);
+      }}
+      onDragLeave={(e) => {
+        if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setDropOver(false);
+      }}
+      onDrop={(e) => {
+        setDropOver(false);
+        if (!takesEffect(e)) return;
+        e.preventDefault();
+        e.stopPropagation();
+        actions?.applyEffect?.(e.dataTransfer.getData(EFFECT_MIME), { compId: comp.id, layerIds: [layer.id] });
+      }}
+    >
       <div className="ec-path">
         {comp.name} <span className="dim">•</span> {layer.name}
       </div>

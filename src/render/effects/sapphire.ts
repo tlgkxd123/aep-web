@@ -234,7 +234,7 @@ export function sapphireBlur(ctx: RenderContext, input: LayerImage, o: SapphireB
 
 function sBlur(input: LayerImage, effect: PropertyGroup, layer: Layer, time: number, ctx: RenderContext): LayerImage {
   const num = (index: number, fallback: number) => effectNumber(effect, index, layer, time, fallback);
-  const amount = Math.max(0, num(50, 0));
+  const amount = Math.max(0, num(50, 0)) * (input.scale ?? 1);
   const bounds = num(59, 0) ? undefined : effectBounds(layer, input);
   return sapphireBlur(ctx, input, {
     widthX: amount * Math.max(0, num(51, 1)),
@@ -384,18 +384,26 @@ function sShake(input: LayerImage, effect: PropertyGroup, layer: Layer, time: nu
   return { target: out, width: bounds.width, height: bounds.height, origin: [bounds.origin[0], bounds.origin[1]] };
 }
 
-const EFFECTS: [string, string, typeof sBlur][] = [
-  ["S_Blur", "Sapphire S_Blur", sBlur],
-  ["S_Shake", "Sapphire S_Shake", sShake],
+/**
+ * Match name, display name, look-alike, and whether it is cacheable and scalable (S_Shake moves with the time
+ * itself, by distances it does not scale).
+ */
+const EFFECTS: [string, string, typeof sBlur, boolean][] = [
+  ["S_Blur", "Sapphire S_Blur", sBlur, true],
+  ["S_Shake", "Sapphire S_Shake", sShake, false],
 ];
 
-for (const [matchName, name, render] of EFFECTS) {
-  registerEffect(matchName, (input, effect, layer, time, ctx) => {
-    if (!ctx.options.sapphireLookalikes) {
-      ctx.warn(`${name} plugin is not installed; After Effects skips it`);
-      return input;
-    }
-    ctx.warn(`${name} plugin is not installed; drawn with a look-alike`);
-    return render(input, effect, layer, time, ctx);
-  });
+for (const [matchName, name, render, pure] of EFFECTS) {
+  registerEffect(
+    matchName,
+    (input, effect, layer, time, ctx) => {
+      if (!ctx.options.sapphireLookalikes) {
+        ctx.warn(`${name} plugin is not installed; After Effects skips it`);
+        return input;
+      }
+      ctx.warn(`${name} plugin is not installed; drawn with a look-alike`);
+      return render(input, effect, layer, time, ctx);
+    },
+    { cacheable: pure, scalable: pure },
+  );
 }

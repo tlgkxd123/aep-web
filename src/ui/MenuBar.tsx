@@ -1,4 +1,6 @@
-import { memo, useEffect, useRef, useState } from "react";
+import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import type { CatalogCategory } from "../edit/effectCatalog.ts";
+import { openMenuSheet, type MenuEntries } from "./ContextMenu.tsx";
 import { Icon } from "./icons.tsx";
 import type { LayerCommand } from "./layerCommands.ts";
 
@@ -24,7 +26,15 @@ export type MenuCommand =
   | "duplicate"
   | "clear"
   | "toggle-sapphire"
-  | "particle-match";
+  | "particle-match"
+  | "add-footage-to-comp"
+  | "last-effect"
+  | "remove-all-effects"
+  | `apply-effect:${string}`;
+
+/** Prefix of the Effect menu commands that apply a library effect, followed by its match name. */
+export const APPLY_EFFECT = "apply-effect:";
+export const applyEffectCommand = (matchName: string): MenuCommand => `${APPLY_EFFECT}${matchName}`;
 
 interface Item {
   label: string;
@@ -88,7 +98,7 @@ const MENUS: { name: string; items: Entry[] }[] = [
       { label: "Export", submenu: true },
       "-",
       { label: "Find...", shortcut: "Ctrl+F" },
-      { label: "Add Footage to Comp", shortcut: "Ctrl+/" },
+      { label: "Add Footage to Comp", shortcut: "Ctrl+/", command: "add-footage-to-comp", needsProject: true },
       { label: "New Comp from Selection", shortcut: "Alt+\\" },
       "-",
       { label: "Dependencies", submenu: true },
@@ -265,14 +275,9 @@ const MENUS: { name: string; items: Entry[] }[] = [
     name: "Effect",
     items: [
       { label: "Effect Controls", shortcut: "F3", command: "show-effect-controls", needsProject: true },
-      { label: "Last Effect", shortcut: "Ctrl+Alt+Shift+E" },
-      { label: "Remove All", shortcut: "Ctrl+Shift+E" },
+      { label: "Last Effect", shortcut: "Ctrl+Alt+Shift+E", command: "last-effect", needsProject: true },
+      { label: "Remove All", shortcut: "Ctrl+Shift+E", command: "remove-all-effects", needsProject: true },
       "-",
-      ...[
-        "3D Channel", "Audio", "Blur & Sharpen", "Channel", "Color Correction", "Distort", "Expression Controls",
-        "Generate", "Immersive Video", "Keying", "Matte", "Noise & Grain", "Obsolete", "Perspective", "Simulation",
-        "Stylize", "Text", "Time", "Transition", "Utility",
-      ].map((label): Item => ({ label, submenu: true })),
     ],
   },
   {
@@ -403,8 +408,16 @@ const runnable = (entry: Item, state: MenuState): boolean =>
 
 function MenuList({ name, entries, state, className }: { name: string; entries: Entry[]; state: MenuState; className?: string }) {
   const [sub, setSub] = useState<number>();
+  const pop = useRef<HTMLDivElement>(null);
+  // A submenu taller than the room below its item (an Effect menu category) moves up to stay in the window.
+  useLayoutEffect(() => {
+    const el = pop.current;
+    if (!el || !className) return;
+    const over = el.getBoundingClientRect().bottom - (window.innerHeight - 4);
+    if (over > 0) el.style.transform = `translateY(${-over}px)`;
+  }, [className]);
   return (
-    <div className={`menu-pop ${className ?? ""}`} role="menu" aria-label={name}>
+    <div className={`menu-pop ${className ?? ""}`} role="menu" aria-label={name} ref={pop}>
       {entries.map((entry, j) => {
         if (entry === "-") return <div key={j} className="menu-sep" role="separator" />;
         const label = (entry.command && state.label?.(entry.command)) || entry.label;
@@ -447,20 +460,58 @@ function MenuList({ name, entries, state, className }: { name: string; entries: 
   );
 }
 
-/** The application menu bar. Only commands this viewer can carry out are enabled. */
+/** The Effect menu's categories, each listing its effects. */
+function effectMenuItems(categories: readonly CatalogCategory[] | undefined): Entry[] {
+  return (categories ?? []).map(({ name, effects }): Item => {
+    const items = effects.map((e): Item => ({ label: e.name, command: applyEffectCommand(e.matchName), needsProject: true }));
+    return items.length ? { label: name, submenu: true, items } : { label: name, submenu: true };
+  });
+}
+
+/** Menu entries as the sheet of compact screens lists them. */
+function sheetEntries(entries: Entry[], state: MenuState): MenuEntries {
+  return entries.map((entry): MenuEntries[number] => {
+    if (entry === "-") return "-";
+    const text = (entry.command && state.label?.(entry.command)) || entry.label;
+    if (entry.submenu) return entry.items ? { label: text, submenu: sheetEntries(entry.items, state) } : { label: text, disabled: true };
+    const command = entry.command;
+    return {
+      label: text,
+      shortcut: entry.shortcut,
+      checked: command ? state.checked?.(command) : undefined,
+      onSelect: command && runnable(entry, state) ? () => state.run(command) : undefined,
+    };
+  });
+}
+
+/**
+ * The application menu bar. Only commands this viewer can carry out are enabled. On compact screens it is one Menu
+ * button whose sheet lists the menus, headed `title`.
+ */
 export const MenuBar = memo(function MenuBar({
   hasProject,
   onCommand,
   enabled,
   label,
   checked,
+  effects,
+  compact = false,
+  title = "Menu",
 }: {
   hasProject: boolean;
   onCommand: (command: MenuCommand) => void;
   enabled?: (command: MenuCommand) => boolean;
   label?: (command: MenuCommand) => string | undefined;
   checked?: (command: MenuCommand) => boolean | undefined;
+  /** The Effects & Presets categories, listed in the Effect menu. */
+  effects?: readonly CatalogCategory[];
+  compact?: boolean;
+  title?: string;
 }) {
+  const menus = useMemo(
+    () => MENUS.map((menu) => (menu.name === "Effect" ? { ...menu, items: [...menu.items, ...effectMenuItems(effects)] } : menu)),
+    [effects],
+  );
   const [open, setOpen] = useState<number>();
   const bar = useRef<HTMLDivElement>(null);
   const state: MenuState = {
@@ -492,9 +543,22 @@ export const MenuBar = memo(function MenuBar({
     };
   }, [open]);
 
+  if (compact) {
+    return (
+      <button
+        type="button"
+        className="mtop-btn"
+        aria-label="Menu"
+        aria-haspopup="menu"
+        onClick={() => openMenuSheet(title, menus.map((menu) => ({ label: menu.name, submenu: sheetEntries(menu.items, state) })))}
+      >
+        <Icon name="menu" size={18} />
+      </button>
+    );
+  }
   return (
     <div className="menubar" role="menubar" aria-label="Application menu" ref={bar}>
-      {MENUS.map((menu, i) => (
+      {menus.map((menu, i) => (
         <div key={menu.name} className="menu-root">
           <button
             type="button"

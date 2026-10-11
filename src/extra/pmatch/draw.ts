@@ -16,7 +16,9 @@ uniform float u_pad;
 uniform float u_reach;
 out vec2 v_local;
 flat out float v_light;
+flat out float v_lod;
 flat out int v_sprite;
+uniform float u_texels;
 void main() {
   // Half a pixel more than the sprite's reach, so its edge is sampled.
   float extent = u_reach * a_particle.z + 0.5;
@@ -24,6 +26,9 @@ void main() {
   vec2 p = a_particle.xy + offset;
   v_local = offset / (u_reach * a_particle.z);
   v_light = a_particle.w;
+  // The templates come from pixel crops, which already hold each pixel's area: one level sharper than
+  // the level that would average over a pixel again.
+  v_lod = max(0.0, log2(u_texels / (2.0 * u_reach * a_particle.z)) - 1.0);
   v_sprite = int(a_sprite + 0.5);
   gl_Position = vec4(vec2(p.x + u_pad, u_size.y - u_pad - p.y) / u_size * 2.0 - 1.0, 0.0, 1.0);
 }`;
@@ -37,6 +42,7 @@ uniform vec3 u_tint[16];
 uniform vec3 u_color;
 in vec2 v_local;
 flat in float v_light;
+flat in float v_lod;
 flat in int v_sprite;
 out vec4 outColor;
 void main() {
@@ -44,7 +50,7 @@ void main() {
   // Template texel centres span [0.5, size - 0.5]; outside them the sprite is dark.
   vec2 st = (0.5 + uv * (u_texels - 1.0)) / u_texels;
   float inside = step(0.0, uv.x) * step(uv.x, 1.0) * step(0.0, uv.y) * step(uv.y, 1.0);
-  float value = texture(u_sprites, vec3(st, float(v_sprite))).r * inside;
+  float value = textureLod(u_sprites, vec3(st, float(v_sprite)), v_lod).r * inside;
   vec3 light = u_tint[v_sprite] * u_color * (v_light * value);
   outColor = vec4(light, max(light.r, max(light.g, light.b)));
 }`;

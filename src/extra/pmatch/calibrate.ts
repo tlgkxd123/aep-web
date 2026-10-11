@@ -1,13 +1,14 @@
 // Calibration by synthesis: the model, rendered over the reference's background
 // and seen by the same detector and tracker, is compared with the reference, and
-// its birth rate, light, size and prototype weights are adjusted until what is
-// seen matches: particles per frame, their median peak and spread, and how
-// outward speed is spread over distance from the emitter. Weights correct for
-// the tracks that could not become prototypes (too short, or lost by the tracker)
-// and for what extrapolating the others adds.
+// its birth rate, light, size, velocities and prototype weights are adjusted until
+// what is seen matches: particles per frame, their median peak and spread, how
+// outward speed is spread over distance from the emitter, and the share of crops
+// that look like each sprite. Weights correct for the tracks that could not become
+// prototypes (too short, or lost by the tracker), for what extrapolating the others
+// adds, and for the sprite classifier, which learned from the few cropped tracks.
 import { DETECTION_FLOATS, D_PEAK, D_SPREAD } from "./detect.ts";
 import { median, type Measures } from "./metrics.ts";
-import { NEAR_Z, P_AMP, P_LIFE, P_OX, P_OY, P_VX, P_VY, P_VZ, PROTO_STRIDE, type ParticleWorldModel } from "./model.ts";
+import { NEAR_Z, P_AMP, P_LIFE, P_OX, P_OY, P_SIZE, P_SPRITE, P_VX, P_VY, P_VZ, PROTO_STRIDE, type ParticleWorldModel } from "./model.ts";
 import { opacityAt } from "./sample.ts";
 import { particleDetection } from "./track.ts";
 
@@ -126,10 +127,10 @@ const SMOOTHING = 1e-4;
 
 /**
  * Multiplies each prototype's weight by the geometric mean, over the frames it spends in each bin, of the
- * reference's share of steps in that bin over the model's; mirrored pairs (prototypes 2k and 2k + 1) move
- * together. Weights are then scaled to a mean of 1.
+ * reference's share of steps in that bin over the model's, raised to `strength`; mirrored pairs (prototypes
+ * 2k and 2k + 1) move together. Weights are then scaled to a mean of 1.
  */
-export function reweight(model: ParticleWorldModel, occupancies: readonly Float32Array[], reference: Float64Array, ours: Float64Array, pairs: boolean): void {
+export function reweight(model: ParticleWorldModel, occupancies: readonly Float32Array[], reference: Float64Array, ours: Float64Array, pairs: boolean, strength = 1): void {
   const logRatio = Array.from(reference, (r, b) => Math.max(-Math.log(MAX_STEP), Math.min(Math.log(MAX_STEP), Math.log((r + SMOOTHING) / (ours[b] + SMOOTHING)))));
   const n = model.weights.length;
   const group = pairs ? 2 : 1;
@@ -143,11 +144,71 @@ export function reweight(model: ParticleWorldModel, occupancies: readonly Float3
       });
     }
     if (!(total > 0)) continue;
-    const factor = Math.exp(sum / total);
+    const factor = Math.exp((strength * sum) / total);
     for (let k = i; k < Math.min(n, i + group); k++) model.weights[k] *= factor;
   }
   let mean = 0;
   for (let i = 0; i < n; i++) mean += model.weights[i];
   mean /= n;
   if (mean > 0) for (let i = 0; i < n; i++) model.weights[i] /= mean;
+}
+
+/** Share added to both sides of a sprite class's share ratio: classes a few crops show stay near. */
+const SHARE_SMOOTHING = 0.005;
+
+/**
+ * Multiplies each prototype's weight by its sprite class's share of the reference's crops over its share of
+ * the model's (within 1 / MAX_STEP .. MAX_STEP); weights are then scaled to a mean of 1. Mirrored pairs
+ * share a class, so they move together.
+ */
+export function reweightSprites(model: ParticleWorldModel, reference: readonly number[], ours: readonly number[]): void {
+  const factors = reference.map((r, k) => Math.max(1 / MAX_STEP, Math.min(MAX_STEP, (r + SHARE_SMOOTHING) / ((ours[k] ?? 0) + SHARE_SMOOTHING))));
+  const n = model.weights.length;
+  let mean = 0;
+  for (let i = 0; i < n; i++) {
+    model.weights[i] *= factors[model.prototypes[i * PROTO_STRIDE + P_SPRITE]] ?? 1;
+    mean += model.weights[i];
+  }
+  mean /= n;
+  if (mean > 0) for (let i = 0; i < n; i++) model.weights[i] /= mean;
+}
+
+/** Multiplies every prototype's size and amplitude. */
+export function scalePrototypes(prototypes: Float32Array, size: number, amplitude: number): void {
+  for (let i = 0; i < prototypes.length; i += PROTO_STRIDE) {
+    prototypes[i + P_SIZE] *= size;
+    prototypes[i + P_AMP] *= amplitude;
+  }
+}
+
+/** Multiplies every prototype's velocity by `speed`, and its approach toward the camera by `approach` more. */
+export function scaleVelocities(prototypes: Float32Array, speed: number, approach: number): void {
+  for (let i = 0; i < prototypes.length; i += PROTO_STRIDE) {
+    prototypes[i + P_VX] *= speed;
+    prototypes[i + P_VY] *= speed;
+    prototypes[i + P_VZ] *= speed * approach;
+  }
+}
+
+/** Median outward speed of the steps in each quarter of the radii split at `edges`. */
+export function quarterSpeeds(steps: readonly Step[], edges: readonly number[]): number[] {
+  const quarters: number[][] = [[], [], [], []];
+  for (const s of steps) quarters[edgeIndex(edges, s.r)].push(s.speed);
+  return quarters.map((q) => median(q));
+}
+
+/**
+ * The velocity steps that bring a model's outward speeds (`ours`, per quarter of the reference's radii) to
+ * the reference's: the inner quarter sets the speed, how speed grows out to the outer quarter the approach
+ * (a particle far out is one that came close to the camera, and moves out faster for it).
+ */
+export function velocitySteps(reference: readonly number[], ours: readonly number[]): { speed: number; approach: number } {
+  if (!(ours[0] > 0 && ours[3] > 0 && reference[0] > 0 && reference[3] > 0)) return { speed: 1, approach: 1 };
+  const inner = reference[0] / ours[0];
+  const outer = reference[3] / ours[3];
+  return { speed: Math.max(0.8, Math.min(1.25, inner)), approach: Math.max(0.7, Math.min(1.4, outer / inner)) };
+}
+
+export function radiusQuarters(steps: readonly Step[]): number[] {
+  return quantileEdges(steps.map((s) => s.r), 4);
 }

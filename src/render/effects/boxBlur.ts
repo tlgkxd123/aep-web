@@ -247,7 +247,8 @@ export function boxBlur(ctx: RenderContext, input: LayerImage, o: BoxBlurOptions
 
 /**
  * The buffer After Effects hands the effect: the layer's rectangle in layer space (its source's, or a shape
- * layer's comp-sized box centred on its origin), grown to whatever an earlier effect spread beyond it.
+ * layer's comp-sized box centred on its origin), grown to whatever an earlier effect spread beyond it. In the
+ * input's pixels when it is at a reduced resolution.
  */
 export function effectBounds(layer: Layer, input: LayerImage): BoxBlurOptions["bounds"] {
   if (layer.width <= 0 || layer.height <= 0) return undefined;
@@ -256,10 +257,13 @@ export function effectBounds(layer: Layer, input: LayerImage): BoxBlurOptions["b
   if (layer.layerType === "ShapeLayer") [x0, y0] = [-Math.floor(layer.width / 2), -Math.floor(layer.height / 2)];
   else if (layer.layerType === "AVLayer") [x0, y0] = [0, 0];
   else return undefined;
+  let [x1, y1] = [x0 + layer.width, y0 + layer.height];
+  const k = input.scale ?? 1;
+  if (k !== 1) [x0, y0, x1, y1] = [Math.floor(x0 * k + 1e-6), Math.floor(y0 * k + 1e-6), Math.ceil(x1 * k - 1e-6), Math.ceil(y1 * k - 1e-6)];
   const left = Math.min(x0, input.origin[0]);
   const top = Math.min(y0, input.origin[1]);
-  const right = Math.max(x0 + layer.width, input.origin[0] + input.width);
-  const bottom = Math.max(y0 + layer.height, input.origin[1] + input.height);
+  const right = Math.max(x1, input.origin[0] + input.width);
+  const bottom = Math.max(y1, input.origin[1] + input.height);
   return { origin: [left, top], width: right - left, height: bottom - top };
 }
 
@@ -268,7 +272,7 @@ function fastBoxBlur(input: LayerImage, effect: PropertyGroup, layer: Layer, tim
   const dims = num(3, Dimensions.BOTH);
   const repeatEdges = num(4, 0) !== 0;
   return boxBlur(ctx, input, {
-    radius: Math.max(0, num(1, 0)),
+    radius: Math.max(0, num(1, 0)) * (input.scale ?? 1),
     iterations: Math.min(50, Math.max(1, Math.round(num(2, 1)))),
     horizontal: dims !== Dimensions.VERTICAL,
     vertical: dims !== Dimensions.HORIZONTAL,
@@ -278,4 +282,4 @@ function fastBoxBlur(input: LayerImage, effect: PropertyGroup, layer: Layer, tim
   });
 }
 
-registerEffect("ADBE Box Blur2", fastBoxBlur);
+registerEffect("ADBE Box Blur2", fastBoxBlur, { cacheable: true, scalable: true });

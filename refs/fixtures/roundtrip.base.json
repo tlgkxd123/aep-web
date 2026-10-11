@@ -1,0 +1,345 @@
+{
+ "project": "roundtrip.base.aep",
+ "comps": [
+  {
+   "comp": "roundtrip_box_blur2",
+   "frames": [
+    0
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "roundtrip_box_blur2_set",
+   "frames": [
+    0
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "roundtrip_minimax",
+   "frames": [
+    0
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "roundtrip_minimax_set",
+   "frames": [
+    0
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "roundtrip_remove_color_matting",
+   "frames": [
+    0
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "roundtrip_remove_color_matting_set",
+   "frames": [
+    0
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "roundtrip_mirror",
+   "frames": [
+    0
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "roundtrip_mirror_set",
+   "frames": [
+    0
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "roundtrip_polar_coordinates",
+   "frames": [
+    0
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "roundtrip_polar_coordinates_set",
+   "frames": [
+    0
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "roundtrip_point3d_control",
+   "frames": [
+    0
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "roundtrip_point3d_control_set",
+   "frames": [
+    0
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "roundtrip_angle_control",
+   "frames": [
+    0
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "roundtrip_angle_control_set",
+   "frames": [
+    0
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "roundtrip_checkbox_control",
+   "frames": [
+    0
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "roundtrip_checkbox_control_set",
+   "frames": [
+    0
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "roundtrip_color_control",
+   "frames": [
+    0
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "roundtrip_color_control_set",
+   "frames": [
+    0
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "roundtrip_layer_control",
+   "frames": [
+    0
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "roundtrip_point_control",
+   "frames": [
+    0
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "roundtrip_point_control_set",
+   "frames": [
+    0
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "roundtrip_slider_control",
+   "frames": [
+    0
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "roundtrip_slider_control_set",
+   "frames": [
+    0
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "roundtrip_audspect",
+   "frames": [
+    0
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "roundtrip_audspect_set",
+   "frames": [
+    0
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "roundtrip_ramp",
+   "frames": [
+    0
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "roundtrip_ramp_set",
+   "frames": [
+    0
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "roundtrip_keylight_906",
+   "frames": [
+    0
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "roundtrip_keylight_906_set",
+   "frames": [
+    0
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "roundtrip_pedg2",
+   "frames": [
+    0
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "roundtrip_pedg2_set",
+   "frames": [
+    0
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "roundtrip_tc_particular",
+   "frames": [
+    0,
+    12
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "roundtrip_tc_particular_set",
+   "frames": [
+    0,
+    12
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "roundtrip_tc_sound_keys",
+   "frames": [
+    0,
+    12
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "roundtrip_tc_sound_keys_set",
+   "frames": [
+    0,
+    12
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "roundtrip_cs_vignette",
+   "frames": [
+    0
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "roundtrip_cs_vignette_set",
+   "frames": [
+    0
+   ],
+   "fps": 24.0
+  }
+ ],
+ "effects": {
+  "ADBE Box Blur2": [
+   "roundtrip_box_blur2",
+   "roundtrip_box_blur2_set"
+  ],
+  "ADBE Minimax": [
+   "roundtrip_minimax",
+   "roundtrip_minimax_set"
+  ],
+  "ADBE Remove Color Matting": [
+   "roundtrip_remove_color_matting",
+   "roundtrip_remove_color_matting_set"
+  ],
+  "ADBE Mirror": [
+   "roundtrip_mirror",
+   "roundtrip_mirror_set"
+  ],
+  "ADBE Polar Coordinates": [
+   "roundtrip_polar_coordinates",
+   "roundtrip_polar_coordinates_set"
+  ],
+  "ADBE Point3D Control": [
+   "roundtrip_point3d_control",
+   "roundtrip_point3d_control_set"
+  ],
+  "ADBE Angle Control": [
+   "roundtrip_angle_control",
+   "roundtrip_angle_control_set"
+  ],
+  "ADBE Checkbox Control": [
+   "roundtrip_checkbox_control",
+   "roundtrip_checkbox_control_set"
+  ],
+  "ADBE Color Control": [
+   "roundtrip_color_control",
+   "roundtrip_color_control_set"
+  ],
+  "ADBE Layer Control": [
+   "roundtrip_layer_control"
+  ],
+  "ADBE Point Control": [
+   "roundtrip_point_control",
+   "roundtrip_point_control_set"
+  ],
+  "ADBE Slider Control": [
+   "roundtrip_slider_control",
+   "roundtrip_slider_control_set"
+  ],
+  "ADBE AudSpect": [
+   "roundtrip_audspect",
+   "roundtrip_audspect_set"
+  ],
+  "ADBE Ramp": [
+   "roundtrip_ramp",
+   "roundtrip_ramp_set"
+  ],
+  "Keylight 906": [
+   "roundtrip_keylight_906",
+   "roundtrip_keylight_906_set"
+  ],
+  "PEDG2": [
+   "roundtrip_pedg2",
+   "roundtrip_pedg2_set"
+  ],
+  "tc Particular": [
+   "roundtrip_tc_particular",
+   "roundtrip_tc_particular_set"
+  ],
+  "tc Sound Keys": [
+   "roundtrip_tc_sound_keys",
+   "roundtrip_tc_sound_keys_set"
+  ],
+  "CS Vignette": [
+   "roundtrip_cs_vignette",
+   "roundtrip_cs_vignette_set"
+  ]
+ }
+}

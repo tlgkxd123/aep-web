@@ -19,7 +19,7 @@ void main() {
 }`;
 
 export class ModelPreview {
-  private readonly gpu: Gpu;
+  readonly gpu: Gpu;
   private readonly synth: Synthesizer;
   private readonly prepared: Prepared;
   private readonly clock: Clock;

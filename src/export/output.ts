@@ -1,4 +1,5 @@
 import type { Sink } from "./pipeline.ts";
+import { saveBlob } from "./saveFile.ts";
 import { FORMATS, type Format } from "./settings.ts";
 
 interface SavePickerWindow {
@@ -45,16 +46,9 @@ export function downloadSink(fileName: string, mime: string): Sink {
       parts.push(bytes as Uint8Array<ArrayBuffer>);
     },
     async close() {
-      const url = URL.createObjectURL(new Blob(parts, { type: mime }));
+      const blob = new Blob(parts, { type: mime });
       parts = [];
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = fileName;
-      a.style.display = "none";
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
-      setTimeout(() => URL.revokeObjectURL(url), 60_000);
+      await saveBlob(blob, fileName);
     },
     async abort() {
       parts = [];

@@ -2,7 +2,7 @@
 // e.g. the Dropdown Menu Control) hold values for expressions and draw nothing.
 import { registerEffect, registerEffectPrefix } from "../registry.ts";
 
-registerEffectPrefix("Pseudo/", (input) => input);
+registerEffectPrefix("Pseudo/", (input) => input, { cacheable: true, scalable: true });
 
 for (const matchName of [
   "ADBE Slider Control",
@@ -14,5 +14,5 @@ for (const matchName of [
   "ADBE Dropdown Control",
   "ADBE Layer Control",
 ]) {
-  registerEffect(matchName, (input) => input);
+  registerEffect(matchName, (input) => input, { cacheable: true, scalable: true });
 }

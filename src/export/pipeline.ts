@@ -1,13 +1,16 @@
 import { Zip, ZipPassThrough } from "fflate";
 import { ArrayBufferTarget, Muxer } from "mp4-muxer";
 import type { CompItem, Project } from "../aep/model.ts";
+import { collectPending, pendingDone } from "../media/pending.ts";
 import { footageStore } from "../media/store.ts";
+import type { Target } from "../render/gl.ts";
 import type { Renderer } from "../render/renderer.ts";
-import { encodeAudio, type EncodedAudio, type MixedAudio } from "./audio.ts";
+import { audioSupported, encodeAudio, type EncodedAudio, type MixedAudio } from "./audio.ts";
 import { chooseEncoder } from "./codecs.ts";
 import { encodePng } from "./png.ts";
 import { autoBitrate, framePlan, outputChannels, outputSize, type FramePlan, type OutputModule, type RenderSettings } from "./settings.ts";
-import { StreamEncoder } from "./video.ts";
+import { SoftwareH264, softwareH264Supported } from "./softwareH264.ts";
+import { StreamEncoder, type PictureEncoder } from "./video.ts";
 import { WebmMuxer } from "./webm.ts";
 import { alphaToI420, BT709_CODES, rgbToI420 } from "./yuv.ts";
 
@@ -41,21 +44,66 @@ export interface RenderSummary {
 /** Straight RGBA of a comp frame, rows top to bottom, at the plan's size. */
 export type FrameSource = (time: number) => Uint8Array | Promise<Uint8Array>;
 
-/** Renders until the footage the frame asked for has finished decoding, so no frame is written with footage missing. */
+/** Frames after the one rendering whose movie frames are asked for, so decoding keeps ahead of rendering. */
+const FOOTAGE_AHEAD = 6;
+/** Renders of one frame at most while something it needs keeps loading. */
+const MAX_RENDERS = 8;
+
+/** Resolves at the footage store's next change, or after a while in case none comes. */
+function footageChange(): Promise<void> {
+  return new Promise((resolve) => {
+    const done = () => {
+      clearTimeout(timer);
+      off();
+      resolve();
+    };
+    const timer = setTimeout(done, 250);
+    const off = footageStore.subscribe(done);
+  });
+}
+
+/**
+ * The comp rendered at `time` once what it shows has loaded, so no frame is written with footage missing. Its movie
+ * frames are asked for and waited on before it renders (and the next frames' asked for meanwhile, so decoding runs
+ * ahead): the frame renders once, instead of again for every decode that lands while it waits. Caller releases.
+ */
+async function renderReady(renderer: Renderer, project: Project, comp: CompItem, plan: FramePlan, time: number, stats?: RenderStats): Promise<Target> {
+  const step = plan.duration / plan.frames;
+  const end = plan.start + plan.duration;
+  let t0 = performance.now();
+  for (let wait = 0; wait < 40; wait++) {
+    const { result: ready, waiting } = collectPending(() => renderer.requestFootage(project, comp, time));
+    for (let k = 1; k <= FOOTAGE_AHEAD && time + k * step < end - 1e-9; k++) renderer.requestFootage(project, comp, time + k * step);
+    if (ready) break;
+    if (waiting) while (!pendingDone(waiting)) await footageChange();
+    else await footageStore.idle();
+  }
+  if (stats) stats.footageWaitMs += performance.now() - t0;
+  for (let attempt = 1; ; attempt++) {
+    t0 = performance.now();
+    const target = renderer.render(project, comp, time, { scale: plan.scale });
+    if (stats) {
+      stats.renders++;
+      stats.renderMs += performance.now() - t0;
+    }
+    if (renderer.lastComplete || attempt >= MAX_RENDERS) return target;
+    // Something else it needs is still loading (audio, an image a layer refers to).
+    renderer.release(target);
+    t0 = performance.now();
+    await footageStore.idle();
+    if (stats) stats.footageWaitMs += performance.now() - t0;
+  }
+}
+
+/** Straight RGBA of each frame once what it shows has loaded (see renderReady). */
 export function rendererSource(renderer: Renderer, project: Project, comp: CompItem, plan: FramePlan, warnings?: Set<string>): FrameSource {
   return async (time) => {
-    for (let attempt = 0; ; attempt++) {
-      const version = footageStore.version;
-      const target = renderer.render(project, comp, time, { scale: plan.scale });
-      try {
-        await footageStore.idle();
-        if (footageStore.version === version || attempt >= 8) {
-          for (const w of renderer.lastWarnings) warnings?.add(w);
-          return renderer.readPixels(target, plan.width, plan.height);
-        }
-      } finally {
-        renderer.release(target);
-      }
+    const target = await renderReady(renderer, project, comp, plan, time);
+    try {
+      for (const w of renderer.lastWarnings) warnings?.add(w);
+      return renderer.readPixels(target, plan.width, plan.height);
+    } finally {
+      renderer.release(target);
     }
   };
 }
@@ -86,32 +134,19 @@ export function statsSummary(s: RenderStats): string {
 export function rendererFrames(renderer: Renderer, project: Project, comp: CompItem, plan: FramePlan, warnings?: Set<string>, stats?: RenderStats): GpuFrameSource | undefined {
   if (typeof VideoFrame === "undefined" || typeof OffscreenCanvas === "undefined" || !(renderer.gl.canvas instanceof OffscreenCanvas)) return undefined;
   return async (time, width, height, timestamp, duration) => {
-    for (let attempt = 0; ; attempt++) {
-      const version = footageStore.version;
-      let t0 = performance.now();
-      const target = renderer.render(project, comp, time, { scale: plan.scale });
+    const target = await renderReady(renderer, project, comp, plan, time, stats);
+    try {
+      for (const w of renderer.lastWarnings) warnings?.add(w);
+      const t0 = performance.now();
+      renderer.presentFrame(target, width, height, comp.bgColor);
+      const frame = new VideoFrame(renderer.gl.canvas as OffscreenCanvas, { timestamp, duration, alpha: "discard" });
       if (stats) {
-        stats.renders++;
-        stats.renderMs += performance.now() - t0;
+        stats.captureMs += performance.now() - t0;
+        stats.frames++;
       }
-      try {
-        t0 = performance.now();
-        await footageStore.idle();
-        if (stats) stats.footageWaitMs += performance.now() - t0;
-        if (footageStore.version === version || attempt >= 8) {
-          for (const w of renderer.lastWarnings) warnings?.add(w);
-          t0 = performance.now();
-          renderer.presentFrame(target, width, height, comp.bgColor);
-          const frame = new VideoFrame(renderer.gl.canvas as OffscreenCanvas, { timestamp, duration, alpha: "discard" });
-          if (stats) {
-            stats.captureMs += performance.now() - t0;
-            stats.frames++;
-          }
-          return frame;
-        }
-      } finally {
-        renderer.release(target);
-      }
+      return frame;
+    } finally {
+      renderer.release(target);
     }
   };
 }
@@ -226,23 +261,26 @@ export async function renderToSink(
   const quality = output.quality ?? "good";
   const bitrate = output.bitrate ?? autoBitrate(width, height, plan.fps, quality);
   const choice = await chooseEncoder(output.format, width, height, plan.fps, bitrate, quality);
-  if (!choice.config) throw new Error(choice.error);
-  const main = new StreamEncoder(choice.config);
-  const alpha = channels === "rgba" ? new StreamEncoder({ ...choice.config, bitrate: Math.round(bitrate / 2) }) : null;
   const stepUs = (plan.duration / plan.frames) * 1e6;
   const keyInterval = Math.max(1, Math.round(plan.fps * 2));
-  const gpu = !alpha && quality !== "high" ? hooks.gpuFrames : undefined;
+  const stream = choice.config ? new StreamEncoder(choice.config) : null;
+  let main: PictureEncoder;
+  if (stream) main = stream;
+  else if (output.format === "h264" && softwareH264Supported()) main = await SoftwareH264.create(width, height, plan.fps, bitrate, keyInterval, quality);
+  else throw new Error(choice.error);
+  const alpha = channels === "rgba" && choice.config ? new StreamEncoder({ ...choice.config, bitrate: Math.round(bitrate / 2) }) : null;
+  const gpu = stream && !alpha && quality !== "high" ? hooks.gpuFrames : undefined;
   try {
     for (let i = 0; i < plan.frames; i++) {
       const timestamp = Math.round(i * stepUs);
       const duration = Math.round((i + 1) * stepUs) - timestamp;
       const key = i % keyInterval === 0;
-      if (gpu) {
+      if (gpu && stream) {
         await hooks.resume?.();
         if (hooks.signal?.aborted) throw stopped();
         const frame = await gpu(plan.time(i), width, height, timestamp, duration);
         const t0 = performance.now();
-        await main.encodeFrame(frame, key);
+        await stream.encodeFrame(frame, key);
         if (hooks.stats) hooks.stats.encodeWaitMs += performance.now() - t0;
       } else {
         const rgba = await frameAt(i);
@@ -263,7 +301,9 @@ export async function renderToSink(
   const durationUs = plan.duration * 1e6;
   let sound: EncodedAudio | null = null;
   if (audio) {
-    sound = await encodeAudio(audio, output.format === "h264" ? "aac" : "opus", hooks.signal);
+    // MP4 carries AAC, or Opus where the browser has no AAC encoder (Android, Linux).
+    const codec = output.format === "h264" && (await audioSupported("aac")) ? "aac" : "opus";
+    sound = await encodeAudio(audio, codec, hooks.signal);
     if (!sound.description) throw new Error("The audio encoder did not report its stream header.");
   }
 
@@ -275,7 +315,7 @@ export async function renderToSink(
       ...(sound ? { audio: { codec: sound.codec, numberOfChannels: sound.numberOfChannels, sampleRate: sound.sampleRate } } : {}),
       fastStart: "in-memory",
     });
-    for (const f of main.frames) muxer.addVideoChunk(f.chunk, f.meta);
+    for (const f of main.frames) muxer.addVideoChunkRaw(f.data, f.type, f.timestamp, f.duration, f.meta);
     // Blocks that start at or after the video's end are not heard.
     for (const a of sound?.chunks ?? []) if (a.chunk.timestamp < durationUs) muxer.addAudioChunk(a.chunk, a.meta);
     muxer.finalize();
@@ -294,13 +334,13 @@ export async function renderToSink(
     });
     main.frames.forEach((f, i) => {
       const a = alpha?.frames[i];
-      muxer.add({ data: f.data, alpha: a?.data, key: f.chunk.type === "key" && (!a || a.chunk.type === "key"), timestamp: f.chunk.timestamp });
+      muxer.add({ data: f.data, alpha: a?.data, key: f.type === "key" && (!a || a.type === "key"), timestamp: f.timestamp });
     });
     for (const a of sound?.chunks ?? []) muxer.addAudio({ data: a.data, timestamp: a.chunk.timestamp, duration: a.chunk.duration ?? 20000 });
     await write(muxer.finish());
   }
   await sink.close();
-  return { frames: plan.frames, width, height, fps: plan.fps, codec: choice.config.codec, audioCodec: sound ? (sound.codec === "aac" ? "mp4a.40.2" : "opus") : undefined, bytes: written };
+  return { frames: plan.frames, width, height, fps: plan.fps, codec: choice.config?.codec ?? main.frames[0]?.meta?.decoderConfig?.codec, audioCodec: sound ? (sound.codec === "aac" ? "mp4a.40.2" : "opus") : undefined, bytes: written };
 }
 
 export function memorySink(): Sink & { bytes(): Uint8Array } {

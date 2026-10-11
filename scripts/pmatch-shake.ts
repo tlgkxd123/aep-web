@@ -1,7 +1,8 @@
 // How Particle Match measures a reference video's shake (src/extra/pmatch/shake.ts):
 //   node scripts/pmatch-shake.ts [from] [to] [video]
-// Prints the fitted S_Shake settings and, per half second, the shake's RMS and the frames whose
+// Prints the measured S_Shake settings and, per half second, the shake's RMS and the frames whose
 // motion was not measured; writes dist-tools/pmatch/shake.f32 (8 floats per frame, see harness.ts).
+// How the Amplitude follows the music is learned with the rest of the world model (ml/pmatch).
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { floats, openPmatch, PMATCH_OUT, REFERENCE } from "./lib/pmatch-browser.ts";
@@ -16,8 +17,8 @@ interface Result {
   first: number;
   frameRate: number;
   msPerFrame: number;
-  shake: { frequency: number; x: number; y: number; tilt: number; bias: number; weights: number[]; lag: number; level: number } | null;
-  report: { rms: number; tiltRms: number; r2: number };
+  shake: { frequency: number; x: number; y: number; tilt: number; level: number } | null;
+  report: { rms: number; tiltRms: number };
 }
 
 const browser = await openPmatch();
@@ -27,10 +28,9 @@ try {
   writeFileSync(join(PMATCH_OUT, "shake.f32"), data);
   const { shake, report, frameRate } = result;
   console.log(`${result.frames} frames from ${(result.first / frameRate).toFixed(2)} s, ${result.msPerFrame.toFixed(1)} ms per frame`);
-  console.log(`shake RMS ${report.rms.toFixed(2)} px, tilt RMS ${report.tiltRms.toFixed(3)} deg, amplitude from the music R² ${report.r2.toFixed(2)}`);
+  console.log(`shake RMS ${report.rms.toFixed(2)} px, tilt RMS ${report.tiltRms.toFixed(3)} deg`);
   if (shake) {
-    console.log(`S_Shake: Frequency ${shake.frequency.toFixed(2)}, X Rand Amp ${shake.x.toFixed(1)}, Y Rand Amp ${shake.y.toFixed(1)}, Tilt Rand Amp ${shake.tilt.toFixed(2)}`);
-    console.log(`Amplitude: ${shake.weights.some((w) => w !== 0) ? `follows the music (lag ${shake.lag.toFixed(3)} s, bias ${shake.bias.toFixed(2)})` : "constant"}, level without music ${shake.level.toFixed(2)}`);
+    console.log(`S_Shake: Frequency ${shake.frequency.toFixed(2)}, X Rand Amp ${shake.x.toFixed(1)}, Y Rand Amp ${shake.y.toFixed(1)}, Tilt Rand Amp ${shake.tilt.toFixed(2)}, mean Amplitude ${shake.level.toFixed(2)}`);
   } else console.log("no shake");
   const per = Math.max(1, Math.round(frameRate / 2));
   const lines: string[] = [];

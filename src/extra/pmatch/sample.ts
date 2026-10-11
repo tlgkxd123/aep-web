@@ -3,7 +3,7 @@
 // follows from the seed and i alone, so a frame is the same however it is reached.
 // Density above or below 100 % adds or thins whole streams, so animating it does
 // not reshuffle the particles that stay.
-import { JITTER_COUNT, LIFE_SAMPLES, NEAR_Z, P_AMP, P_LIFE, P_OX, P_OY, P_OZ, P_SIZE, P_SPRITE, P_VX, P_VY, P_VZ, PROTO_STRIDE, type ParticleWorldModel } from "./model.ts";
+import { LIFE_SAMPLES, NEAR_Z, P_AMP, P_LIFE, P_OX, P_OY, P_OZ, P_SIZE, P_SPRITE, P_VX, P_VY, P_VZ, PROTO_STRIDE, type ParticleWorldModel } from "./model.ts";
 
 /** Deterministic uniform random numbers in [0, 1). */
 export function random(seed: number): () => number {
@@ -21,10 +21,22 @@ function gaussian(rand: () => number): number {
   return Math.sqrt(-2 * Math.log(1 - rand())) * Math.cos(2 * Math.PI * rand());
 }
 
+/** The state of `random`'s sequence for the particle being drawn (particles draw one at a time). */
+let state = 1;
+const next = (): number => {
+  state = (state + 0x6d2b79f5) >>> 0;
+  let t = state;
+  t = Math.imul(t ^ (t >>> 15), t | 1);
+  t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+  return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+};
+
 export interface Prepared {
   model: ParticleWorldModel;
   /** Cumulative prototype weights, ending at 1. */
   cumulative: Float64Array;
+  /** Longest life a particle of each prototype can have (clock seconds). */
+  lifeBound: Float64Array;
   /** Longest life a particle can have (clock seconds). */
   maxLife: number;
 }
@@ -38,9 +50,9 @@ export function prepare(model: ParticleWorldModel): Prepared {
   let total = 0;
   for (let i = 0; i < count; i++) cumulative[i] = total += Math.max(0, model.weights[i]);
   for (let i = 0; i < count; i++) cumulative[i] = total > 0 ? cumulative[i] / total : (i + 1) / count;
-  let longest = 0;
-  for (let i = 0; i < count; i++) longest = Math.max(longest, model.prototypes[i * PROTO_STRIDE + P_LIFE]);
-  return { model, cumulative, maxLife: longest * Math.exp(LIFE_SIGMAS * Math.abs(model.jitter[4])) };
+  const stretch = Math.exp(LIFE_SIGMAS * Math.abs(model.jitter[4]));
+  const lifeBound = Float64Array.from({ length: count }, (_, i) => model.prototypes[i * PROTO_STRIDE + P_LIFE] * stretch);
+  return { model, cumulative, lifeBound, maxLife: lifeBound.reduce((a, b) => Math.max(a, b), 0) };
 }
 
 function pick(cumulative: Float64Array, r: number): number {
@@ -91,24 +103,33 @@ export interface Particle {
   prototype: number;
 }
 
-/** Particle i of a stream (null when density thins it out); `keep` is the stream's keep probability. */
-export function particle(p: Prepared, streamSeed: number, i: number, keep: number): Particle | null {
+/**
+ * Particle i of a stream (null when density thins it out); `keep` is the stream's keep probability. With
+ * `tau`, also null when the particle is not alive at particle time `tau`.
+ */
+export function particle(p: Prepared, streamSeed: number, i: number, keep: number, tau = NaN): Particle | null {
   const { model } = p;
-  const rand = random(Math.imul(streamSeed | 0, 2654435761) ^ Math.imul(i + 1, 0x9e3779b1));
+  state = (Math.imul(streamSeed | 0, 2654435761) ^ Math.imul(i + 1, 0x9e3779b1)) >>> 0 || 1;
+  const rand = next;
   const birth = (i + rand()) / model.rate;
+  if (birth > tau) return null;
   if (rand() >= keep) return null;
   const index = pick(p.cumulative, rand());
+  if (tau - birth > p.lifeBound[index]) return null;
   const proto = model.prototypes.subarray(index * PROTO_STRIDE, (index + 1) * PROTO_STRIDE);
   const j = model.jitter;
-  const g = new Float64Array(JITTER_COUNT);
-  for (let k = 0; k < JITTER_COUNT; k++) g[k] = gaussian(rand);
-  const life = proto[P_LIFE] * Math.exp(j[4] * Math.max(-LIFE_SIGMAS, Math.min(LIFE_SIGMAS, g[4])));
+  const g0 = gaussian(rand);
+  const g1 = gaussian(rand);
+  const g2 = gaussian(rand);
+  const g3 = gaussian(rand);
+  const g4 = gaussian(rand);
+  const life = proto[P_LIFE] * Math.exp(j[4] * Math.max(-LIFE_SIGMAS, Math.min(LIFE_SIGMAS, g4)));
   // Velocity: scaled, then turned by a small angle about a random axis across it.
   let vx = proto[P_VX];
   let vy = proto[P_VY];
   let vz = proto[P_VZ];
   const speed = Math.hypot(vx, vy, vz);
-  const turn = j[1] * g[1];
+  const turn = j[1] * g1;
   const around = 2 * Math.PI * rand();
   if (speed > 0 && turn !== 0) {
     const ux = vx / speed, uy = vy / speed, uz = vz / speed;
@@ -127,14 +148,14 @@ export function particle(p: Prepared, streamSeed: number, i: number, keep: numbe
     vy = speed * (uy * c + (cz * ux - cx * uz) * s);
     vz = speed * (uz * c + (cx * uy - cy * ux) * s);
   }
-  const scale = Math.exp(j[0] * g[0]);
+  const scale = Math.exp(j[0] * g0);
   return {
     birth,
     life,
     position: [proto[P_OX], proto[P_OY], 1 + proto[P_OZ]],
     velocity: [vx * scale, vy * scale, vz * scale],
-    size: proto[P_SIZE] * Math.exp(j[2] * g[2]),
-    amplitude: proto[P_AMP] * Math.exp(j[3] * g[3]),
+    size: proto[P_SIZE] * Math.exp(j[2] * g2),
+    amplitude: proto[P_AMP] * Math.exp(j[3] * g3),
     sprite: proto[P_SPRITE],
     prototype: index,
   };
@@ -166,7 +187,12 @@ export function particlesAt(p: Prepared, tau: number, zoom: number, view: View, 
       grown.set(out.data);
       out.data = grown;
     }
-    out.data.set([x, y, size, light, sprite], out.count * INSTANCE_FLOATS);
+    const at = out.count * INSTANCE_FLOATS;
+    out.data[at] = x;
+    out.data[at + 1] = y;
+    out.data[at + 2] = size;
+    out.data[at + 3] = light;
+    out.data[at + 4] = sprite;
     out.count++;
   };
   const scale = view.scale * zoom;
@@ -174,7 +200,7 @@ export function particlesAt(p: Prepared, tau: number, zoom: number, view: View, 
     const first = Math.floor((tau - p.maxLife) * model.rate) - 1;
     const last = Math.floor(tau * model.rate);
     for (let i = first; i <= last; i++) {
-      const q = particle(p, streamSeed, i, keep);
+      const q = particle(p, streamSeed, i, keep, tau);
       if (!q) continue;
       const age = tau - q.birth;
       if (age < 0 || age > q.life) continue;

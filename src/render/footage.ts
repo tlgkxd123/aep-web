@@ -6,7 +6,7 @@ import { AlphaMode, type CompItem, type FootageItem, type Layer, type Project } 
 import type { FootageFrame } from "../media/frames.ts";
 import { footageStore } from "../media/store.ts";
 import type { GL } from "./gl.ts";
-import { registerContentProvider, type RenderContext } from "./registry.ts";
+import { registerContentProvider, type LayerImage, type RenderContext } from "./registry.ts";
 
 /** Absorbs comp-time and conform-rate floating point error at exact frame boundaries. */
 const FRAME_EPSILON = 1e-6;
@@ -54,6 +54,10 @@ uniform int u_mode;
 uniform bool u_hasAlpha;
 uniform bool u_invert;
 uniform vec3 u_matte;
+// The output's content size, and at a reduced resolution its scale and the taps per axis averaged per pixel.
+uniform ivec2 u_outSize;
+uniform float u_scale;
+uniform int u_taps;
 out vec4 outColor;
 
 // Cb and Cr at chroma texel p: two planes, or one interleaved (NV12) plane in u_cb.
@@ -80,13 +84,8 @@ vec3 toRgb(float y, float cb, float cr, vec2 k) {
   return vec3(y + 2.0 * (1.0 - kr) * cr, y - (2.0 * kb * (1.0 - kb) * cb + 2.0 * kr * (1.0 - kr) * cr) / kg, y + 2.0 * (1.0 - kb) * cb);
 }
 
-void main() {
-  ivec2 p = ivec2(gl_FragCoord.xy) - u_pad;
-  if (any(lessThan(p, ivec2(0))) || any(greaterThanEqual(p, u_size))) {
-    outColor = vec4(0.0);
-    return;
-  }
-  ivec2 at = ivec2(p.x, u_size.y - 1 - p.y);
+// The premultiplied pixel of source pixel \`at\` (rows top first).
+vec4 interpreted(ivec2 at) {
   vec4 c;
   if (u_yuv == 1) {
     // Bilinear chroma, sited at the centre of the luma pixels it covers on both axes.
@@ -110,13 +109,34 @@ void main() {
   }
   float a = u_hasAlpha ? c.a : 1.0;
   if (u_invert) a = 1.0 - a;
-  if (u_mode == 2) {
-    outColor = vec4(c.rgb, 1.0);
-  } else if (u_mode == 1) {
-    outColor = vec4(clamp(c.rgb - u_matte * (1.0 - a), 0.0, a), a);
-  } else {
-    outColor = vec4(c.rgb * a, a);
+  if (u_mode == 2) return vec4(c.rgb, 1.0);
+  if (u_mode == 1) return vec4(clamp(c.rgb - u_matte * (1.0 - a), 0.0, a), a);
+  return vec4(c.rgb * a, a);
+}
+
+void main() {
+  ivec2 p = ivec2(gl_FragCoord.xy) - u_pad;
+  if (any(lessThan(p, ivec2(0))) || any(greaterThanEqual(p, u_outSize))) {
+    outColor = vec4(0.0);
+    return;
   }
+  if (u_taps <= 1) {
+    outColor = interpreted(ivec2(p.x, u_size.y - 1 - p.y));
+    return;
+  }
+  // Reduced: the average of the source pixels the output pixel covers (transparent past the source's edge).
+  vec2 q = vec2(float(p.x), float(u_outSize.y - 1 - p.y)) + 0.5;
+  float n = float(u_taps);
+  vec4 sum = vec4(0.0);
+  for (int j = 0; j < 8; j++) {
+    if (j >= u_taps) break;
+    for (int i = 0; i < 8; i++) {
+      if (i >= u_taps) break;
+      vec2 c = (q + (vec2(float(i), float(j)) + 0.5) / n - 0.5) / u_scale;
+      if (c.x >= 0.0 && c.y >= 0.0 && c.x < float(u_size.x) && c.y < float(u_size.y)) sum += interpreted(ivec2(c));
+    }
+  }
+  outColor = sum / (n * n);
 }`;
 
 const BT601: [number, number] = [0.299, 0.114];
@@ -221,12 +241,16 @@ function frameTextures(gl: GL, frame: FootageFrame): WebGLTexture[] {
   return planes.map((p) => p.texture);
 }
 
-function interpret(item: FootageItem, frame: FootageFrame, ctx: RenderContext) {
+/** The frame as a layer image, at the resolution the render asks for (ctx.scale). */
+function interpret(item: FootageItem, frame: FootageFrame, ctx: RenderContext): LayerImage {
   const gl = ctx.gl;
   const source = item.mainSource;
   const { width, height } = frame;
+  const scale = ctx.scale;
+  const [outWidth, outHeight] = scale < 1 ? [width, height].map((s) => Math.max(1, Math.ceil(s * scale - 1e-6))) : [width, height];
   const textures = frameTextures(gl, frame);
-  const out = ctx.pool.acquire(width + 2 * ctx.pad, height + 2 * ctx.pad);
+  // The pass writes every pixel, the border included.
+  const out = ctx.pool.acquire(outWidth + 2 * ctx.pad, outHeight + 2 * ctx.pad, false);
   const program = ctx.program(INTERPRET_FS);
   ctx.pass(program, out, [], (uniform) => {
     textures.forEach((t, unit) => {
@@ -249,8 +273,12 @@ function interpret(item: FootageItem, frame: FootageFrame, ctx: RenderContext) {
     gl.uniform1i(uniform("u_hasAlpha"), source.hasAlpha ? 1 : 0);
     gl.uniform1i(uniform("u_invert"), source.invertAlpha ? 1 : 0);
     gl.uniform3f(uniform("u_matte"), ...source.premulColor);
+    gl.uniform2i(uniform("u_outSize"), outWidth, outHeight);
+    gl.uniform1f(uniform("u_scale"), scale);
+    gl.uniform1i(uniform("u_taps"), scale < 1 ? Math.min(8, Math.ceil(1 / scale - 1e-6)) : 1);
   });
-  return { target: out, width, height, origin: [0, 0] as [number, number] };
+  const image: LayerImage = { target: out, width: outWidth, height: outHeight, origin: [0, 0] };
+  return scale < 1 ? { ...image, scale } : image;
 }
 
 registerContentProvider((layer, time, ctx) => {

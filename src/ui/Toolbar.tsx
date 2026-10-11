@@ -38,15 +38,23 @@ const TOOL_GROUPS: Tool[][] = [
 export const WORKSPACES = ["Default", "Review", "Learn", "Standard", "Small Screen", "Libraries"] as const;
 export type Workspace = (typeof WORKSPACES)[number];
 
-/** The Tools strip: tool buttons on the left, snapping, and the workspace switcher on the right. */
+/** The tools the Composition viewer carries out, the ones compact screens offer. */
+const WORKING_TOOLS = new Set(["selection", "hand", "zoom", "rotation", "anchor"]);
+
+/**
+ * The Tools strip: tool buttons on the left, snapping, and the workspace switcher on the right. Compact screens get
+ * the working tools and snapping only.
+ */
 export const Toolbar = memo(function Toolbar({
   onHome,
   workspace = "Default",
   onWorkspace,
+  compact = false,
 }: {
   onHome: () => void;
   workspace?: Workspace;
   onWorkspace?: (w: Workspace) => void;
+  compact?: boolean;
 }) {
   const editing = useEditing();
   const [localTool, setLocalTool] = useState("selection");
@@ -55,6 +63,41 @@ export const Toolbar = memo(function Toolbar({
   const [localSnapping, setLocalSnapping] = useState(false);
   const snapping = editing.setSnapping ? editing.snapping : localSnapping;
   const setSnapping = editing.setSnapping ?? setLocalSnapping;
+  const toolButton = (t: Tool) => (
+    <button
+      key={t.id}
+      type="button"
+      className={`tool ${tool === t.id ? "active" : ""}`}
+      title={`${t.name} (${t.shortcut})`}
+      aria-label={t.name}
+      aria-pressed={tool === t.id}
+      onClick={() => setTool(t.id)}
+    >
+      <Icon name={t.icon} />
+      {t.flyout && !compact && <span className="tool-flyout" aria-hidden="true" />}
+    </button>
+  );
+  const snappingToggle = (
+    <label className="snapping">
+      <input type="checkbox" checked={snapping} onChange={(e) => setSnapping(e.target.checked)} />
+      <span className="ae-check-box" aria-hidden="true">
+        {snapping && <Icon name="check" size={10} />}
+      </span>
+      <Icon name="magnet" size={14} />
+      <span>Snapping</span>
+    </label>
+  );
+  if (compact) {
+    return (
+      <div className="toolbar compact" role="toolbar" aria-label="Tools">
+        {TOOL_GROUPS.flat()
+          .filter((t) => WORKING_TOOLS.has(t.id))
+          .map(toolButton)}
+        <span className="tool-sep" />
+        {snappingToggle}
+      </div>
+    );
+  }
   return (
     <div className="toolbar" role="toolbar" aria-label="Tools">
       <button type="button" className="tool" title="Home" aria-label="Home" onClick={onHome}>
@@ -63,31 +106,11 @@ export const Toolbar = memo(function Toolbar({
       <span className="tool-sep" />
       {TOOL_GROUPS.map((group, g) => (
         <div key={g} className="tool-group">
-          {group.map((t) => (
-            <button
-              key={t.id}
-              type="button"
-              className={`tool ${tool === t.id ? "active" : ""}`}
-              title={`${t.name} (${t.shortcut})`}
-              aria-label={t.name}
-              aria-pressed={tool === t.id}
-              onClick={() => setTool(t.id)}
-            >
-              <Icon name={t.icon} />
-              {t.flyout && <span className="tool-flyout" aria-hidden="true" />}
-            </button>
-          ))}
+          {group.map(toolButton)}
         </div>
       ))}
       <span className="tool-sep" />
-      <label className="snapping">
-        <input type="checkbox" checked={snapping} onChange={(e) => setSnapping(e.target.checked)} />
-        <span className="ae-check-box" aria-hidden="true">
-          {snapping && <Icon name="check" size={10} />}
-        </span>
-        <Icon name="magnet" size={14} />
-        <span>Snapping</span>
-      </label>
+      {snappingToggle}
       <nav className="workspaces" aria-label="Workspaces">
         {WORKSPACES.map((w) =>
           onWorkspace ? (

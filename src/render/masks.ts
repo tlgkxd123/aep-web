@@ -173,7 +173,7 @@ export class MaskRenderer {
   }
 
   /** Draws one mask path (white, nonzero fill, plus expansion) into the shape texture, GL row order. */
-  private rasterize(shape: PropertyValue | null, w: number, h: number, pad: number, origin: [number, number], expansion: number): void {
+  private rasterize(shape: PropertyValue | null, w: number, h: number, pad: number, origin: [number, number], expansion: number, scale: number): void {
     if (!this.canvas || this.canvas.width !== w || this.canvas.height !== h) {
       this.canvas = new OffscreenCanvas(w, h);
       this.ctx = this.canvas.getContext("2d")!;
@@ -182,6 +182,7 @@ export class MaskRenderer {
     ctx.setTransform(1, 0, 0, 1, 0, 0);
     ctx.clearRect(0, 0, w, h);
     ctx.translate(pad - origin[0], pad - origin[1]);
+    if (scale !== 1) ctx.scale(scale, scale);
     ctx.fillStyle = "#fff";
     ctx.strokeStyle = "#fff";
     if (isShapeValue(shape)) {
@@ -216,10 +217,11 @@ export class MaskRenderer {
 
   /**
    * Coverage of the layer's enabled masks at `time` over its padded image of
-   * `(width + 2*pad) x (height + 2*pad)`, in the red channel, GL row order.
+   * `(width + 2*pad) x (height + 2*pad)`, in the red channel, GL row order; an image at a reduced resolution
+   * (`scale` image pixels per layer pixel) has its origin in image pixels.
    * Null when the layer has no active mask. Valid until the next call.
    */
-  coverage(layer: Layer, time: number, width: number, height: number, pad: number, origin: [number, number] = [0, 0]): WebGLTexture | null {
+  coverage(layer: Layer, time: number, width: number, height: number, pad: number, origin: [number, number] = [0, 0], scale = 1): WebGLTexture | null {
     const parade = layer.properties.find((n): n is PropertyGroup => n.kind === "group" && n.matchName === "ADBE Mask Parade");
     const masks = (parade?.children ?? []).filter(
       (n): n is PropertyGroup => n.kind === "group" && !!n.mask && n.enabled && n.mask.maskMode !== MaskMode.NONE,
@@ -237,9 +239,9 @@ export class MaskRenderer {
       const opacity = numberAt(child(mask, "ADBE Mask Opacity"), time, layer, 100) / 100;
       const featherProp = child(mask, "ADBE Mask Feather");
       const featherValue = featherProp ? currentValue(featherProp, time, layer) : null;
-      const feather = Array.isArray(featherValue) ? Math.max(featherValue[0] ?? 0, featherValue[1] ?? 0) : 0;
+      const feather = (Array.isArray(featherValue) ? Math.max(featherValue[0] ?? 0, featherValue[1] ?? 0) : 0) * scale;
       const expansion = numberAt(child(mask, "ADBE Mask Offset"), time, layer, 0);
-      this.rasterize(shape, w, h, pad, origin, expansion);
+      this.rasterize(shape, w, h, pad, origin, expansion, scale);
 
       // The two targets not holding the stack: a feather intermediate and the combine output.
       const [scratch, feathered] = targets.filter((t) => t !== stack);

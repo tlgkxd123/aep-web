@@ -1,6 +1,6 @@
 // Mirror (ADBE Mirror) and Gradient Ramp (ADBE Ramp), one GPU pass each, in
 // layer pixel coordinates (pixel centres at +0.5, y down; effect points are in
-// layer pixels).
+// layer pixels, times the image's scale at a reduced resolution).
 //
 // Mirror: the line through Reflection Center at Reflection Angle splits the
 // layer; the side its normal (cos a, sin a) points into shows the other side
@@ -51,16 +51,18 @@ void main() {
 }`;
 
 registerEffect("ADBE Mirror", (input, effect, layer, time, ctx) => {
+  const k = input.scale ?? 1;
   const [cx, cy] = effectVector(effect, 1, layer, time, [layer.width / 2, layer.height / 2]);
   const angle = (effectNumber(effect, 2, layer, time, 0) * Math.PI) / 180;
   return mapPass(ctx, input, MIRROR_FS, (u) => {
     ctx.gl.uniform2f(u("u_origin"), input.origin[0], input.origin[1]);
-    ctx.gl.uniform2f(u("u_center"), cx + 0.5, cy + 0.5);
+    ctx.gl.uniform2f(u("u_center"), (cx + 0.5) * k, (cy + 0.5) * k);
     ctx.gl.uniform2f(u("u_normal"), Math.cos(angle), Math.sin(angle));
   });
-});
+}, { cacheable: true, scalable: true });
 
 registerEffect("ADBE Ramp", (input, effect, layer, time, ctx) => {
+  const k = input.scale ?? 1;
   const start = effectVector(effect, 1, layer, time, [0, 0]);
   const startColor = effectVector(effect, 2, layer, time, [0, 0, 0, 1]);
   const end = effectVector(effect, 3, layer, time, [0, layer.height]);
@@ -70,11 +72,11 @@ registerEffect("ADBE Ramp", (input, effect, layer, time, ctx) => {
   const blend = Math.min(1, Math.max(0, effectNumber(effect, 7, layer, time, 0) / 100));
   return mapPass(ctx, input, RAMP_FS, (u) => {
     ctx.gl.uniform2f(u("u_origin"), input.origin[0], input.origin[1]);
-    ctx.gl.uniform2f(u("u_start"), start[0], start[1]);
-    ctx.gl.uniform2f(u("u_end"), end[0], end[1]);
+    ctx.gl.uniform2f(u("u_start"), start[0] * k, start[1] * k);
+    ctx.gl.uniform2f(u("u_end"), end[0] * k, end[1] * k);
     ctx.gl.uniform3f(u("u_startColor"), startColor[0], startColor[1], startColor[2]);
     ctx.gl.uniform3f(u("u_endColor"), endColor[0], endColor[1], endColor[2]);
     ctx.gl.uniform1i(u("u_radial"), radial ? 1 : 0);
     ctx.gl.uniform1f(u("u_blend"), blend);
   });
-});
+}, { cacheable: true, scalable: true });

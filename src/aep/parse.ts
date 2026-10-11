@@ -32,6 +32,7 @@ import {
   EffectControlType,
   PropertyValueType,
   type CompItem,
+  type EffectParamDef,
   type FolderItem,
   type Gradient,
   type Item,
@@ -1020,6 +1021,30 @@ export function refreshCompositions(project: Project, comps: Iterable<CompItem>)
     parser.compChunks.push([comp, list]);
   }
   parser.parseLayers();
+  keepEffectTypes(project, parser);
+}
+
+/** Adds the effect types an incremental parse met that the project did not have (effects just applied), with their parameters. */
+function keepEffectTypes(project: Project, parser: Parser): void {
+  for (const [matchName, name] of parser.effectTypes) if (!project.effectTypes.has(matchName)) project.effectTypes.set(matchName, name);
+  for (const [matchName, defs] of parser.effectDefs) if (!project.effectParams.has(matchName)) project.effectParams.set(matchName, defs.map(effectParamDef));
+}
+
+function effectParamDef(d: ParamDef): EffectParamDef {
+  return {
+    matchName: d.matchName,
+    name: d.name,
+    controlType: d.pard.controlType,
+    canVaryOverTime: d.pard.canVaryOverTime,
+    invisible: d.pard.invisible,
+    lastValue: d.pard.lastValue,
+    defaultValue: d.pard.defaultValue,
+    min: d.pard.min,
+    max: d.pard.max,
+    sliderMin: d.pard.sliderMin,
+    sliderMax: d.pard.sliderMax,
+    options: d.options,
+  };
 }
 
 function parserFor(project: Project): Parser {
@@ -1075,6 +1100,7 @@ export function refreshProject(project: Project): void {
   for (const [id, item] of canonical) project.items.set(id, item);
   project.rootFolder.items = roots.map(resolve);
   project.warnings.push(...parser.warnings.filter((w) => !project.warnings.includes(w)));
+  keepEffectTypes(project, parser);
 }
 
 export function projectFromRifx(file: RifxFile): Project {
@@ -1121,25 +1147,7 @@ export function projectFromRifx(file: RifxFile): Project {
     rootFolder,
     items: parser.items,
     effectTypes: parser.effectTypes,
-    effectParams: new Map(
-      [...parser.effectDefs].map(([matchName, defs]) => [
-        matchName,
-        defs.map((d) => ({
-          matchName: d.matchName,
-          name: d.name,
-          controlType: d.pard.controlType,
-          canVaryOverTime: d.pard.canVaryOverTime,
-          invisible: d.pard.invisible,
-          lastValue: d.pard.lastValue,
-          defaultValue: d.pard.defaultValue,
-          min: d.pard.min,
-          max: d.pard.max,
-          sliderMin: d.pard.sliderMin,
-          sliderMax: d.pard.sliderMax,
-          options: d.options,
-        })),
-      ]),
-    ),
+    effectParams: new Map([...parser.effectDefs].map(([matchName, defs]) => [matchName, defs.map(effectParamDef)])),
     warnings: parser.warnings,
     file,
   };

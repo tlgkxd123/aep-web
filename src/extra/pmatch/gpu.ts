@@ -144,6 +144,97 @@ export function uploadFrame(gl: GL, texture: WebGLTexture, source: TexImageSourc
   gl.pixelStorei(gl.UNPACK_COLORSPACE_CONVERSION_WEBGL, gl.BROWSER_DEFAULT_WEBGL);
 }
 
+interface PendingRead<T> {
+  tag: T;
+  buffers: { buffer: WebGLBuffer; floats: number }[];
+  fence: WebGLSync;
+}
+
+/**
+ * Reads float RGBA framebuffer attachments back without waiting for the GPU: each read goes into pixel-pack
+ * buffers behind a fence, and `collect` hands back, in issue order, the reads the GPU has finished. WebGL
+ * cannot block on a fence, so a full queue (or `drain`) finishes its oldest read with a stalling read. Each
+ * read gets buffers of its own: Chrome drops the copy that makes a fenced read fast when a buffer it made
+ * one for is written again.
+ */
+export class ReadbackQueue<T> {
+  private readonly gl: GL;
+  private readonly depth: number;
+  private readonly pending: PendingRead<T>[] = [];
+
+  constructor(gl: GL, depth = 3) {
+    this.gl = gl;
+    this.depth = depth;
+  }
+
+  /** Queues reads of `attachments` of `framebuffer` (`width` × `height` RGBA floats each), tagged `tag`. */
+  read(tag: T, framebuffer: WebGLFramebuffer, attachments: number[], width: number, height: number): { tag: T; data: Float32Array[] }[] {
+    const { gl } = this;
+    const done = this.pending.length >= this.depth ? [this.finish(this.pending.shift()!)] : [];
+    const floats = width * height * 4;
+    gl.bindFramebuffer(gl.READ_FRAMEBUFFER, framebuffer);
+    const buffers = attachments.map((attachment) => {
+      const slot = { buffer: gl.createBuffer()!, floats };
+      gl.bindBuffer(gl.PIXEL_PACK_BUFFER, slot.buffer);
+      gl.bufferData(gl.PIXEL_PACK_BUFFER, floats * 4, gl.STREAM_READ);
+      gl.readBuffer(gl.COLOR_ATTACHMENT0 + attachment);
+      gl.readPixels(0, 0, width, height, gl.RGBA, gl.FLOAT, 0);
+      return slot;
+    });
+    gl.bindBuffer(gl.PIXEL_PACK_BUFFER, null);
+    gl.readBuffer(gl.COLOR_ATTACHMENT0);
+    gl.bindFramebuffer(gl.READ_FRAMEBUFFER, null);
+    this.pending.push({ tag, buffers, fence: gl.fenceSync(gl.SYNC_GPU_COMMANDS_COMPLETE, 0)! });
+    gl.flush();
+    return done;
+  }
+
+  /** The reads the GPU has finished, oldest first. */
+  collect(): { tag: T; data: Float32Array[] }[] {
+    const { gl } = this;
+    const out: { tag: T; data: Float32Array[] }[] = [];
+    while (this.pending.length) {
+      const status = gl.clientWaitSync(this.pending[0].fence, 0, 0);
+      if (status !== gl.ALREADY_SIGNALED && status !== gl.CONDITION_SATISFIED) break;
+      out.push(this.finish(this.pending.shift()!));
+    }
+    return out;
+  }
+
+  /** Every queued read, oldest first. */
+  drain(): { tag: T; data: Float32Array[] }[] {
+    const out = this.collect();
+    while (this.pending.length) out.push(this.finish(this.pending.shift()!));
+    return out;
+  }
+
+  get size(): number {
+    return this.pending.length;
+  }
+
+  private finish(read: PendingRead<T>): { tag: T; data: Float32Array[] } {
+    const { gl } = this;
+    gl.deleteSync(read.fence);
+    const data = read.buffers.map((slot) => {
+      const out = new Float32Array(slot.floats);
+      gl.bindBuffer(gl.PIXEL_PACK_BUFFER, slot.buffer);
+      gl.getBufferSubData(gl.PIXEL_PACK_BUFFER, 0, out);
+      gl.deleteBuffer(slot.buffer);
+      return out;
+    });
+    gl.bindBuffer(gl.PIXEL_PACK_BUFFER, null);
+    return { tag: read.tag, data };
+  }
+
+  dispose(): void {
+    for (const read of this.pending) {
+      this.gl.deleteSync(read.fence);
+      for (const slot of read.buffers) this.gl.deleteBuffer(slot.buffer);
+    }
+    this.pending.length = 0;
+  }
+}
+
 /** Reads a float RGBA framebuffer attachment. */
 export function readFloats(gl: GL, framebuffer: WebGLFramebuffer, attachment: number, width: number, height: number, into?: Float32Array): Float32Array {
   const out = into && into.length >= width * height * 4 ? into : new Float32Array(width * height * 4);

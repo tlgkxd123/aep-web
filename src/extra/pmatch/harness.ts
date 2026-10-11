@@ -1,16 +1,19 @@
 // window.pmatch: Particle Match entry points for the headless checks in
 // scripts/pmatch-*.ts. Files come from the page's server; bulky results are
-// POSTed back to it (/upload/<key>) instead of going through evaluate().
+// POSTed back to it (/upload/<key>) instead of going through evaluate(), and
+// analyses are POSTed to its PyTorch trainer (/train).
 import { DEFAULT_DETECTOR, DETECTION_FLOATS, Detector, type DetectorOptions } from "./detect.ts";
 import { Clock } from "./dynamics.ts";
 import { evaluateModel } from "./evaluate.ts";
-import type { PopulationOptions } from "./fit.ts";
 import { decodeWindow, videoInfo } from "./frames.ts";
 import { createGpu, frameTexture, uploadFrame, type Gpu } from "./gpu.ts";
 import { decodeModel, encodeModel } from "./model.ts";
-import { analyseVideo, findMirror, referenceView, Synthesizer, trainModel, videoAudioFeatures } from "./pipeline.ts";
-import { prepare } from "./sample.ts";
-import { fitShake, ShakeMeter, shakeTrack, type FrameMotion } from "./shake.ts";
+import { analyseVideo, exportDataset, findMirror, referenceView, synthesize, Synthesizer, trainModel, videoAudioFeatures, type Trainer } from "./pipeline.ts";
+import { ModelPreview } from "./preview.ts";
+import { particlesAt, prepare } from "./sample.ts";
+import { DEFAULT_TRACKER, particleDetection, track } from "./track.ts";
+import { measureShake, ShakeMeter, shakeTrack, type FrameMotion } from "./shake.ts";
+import { streamTraining } from "./trainer.ts";
 
 async function upload(key: string, data: BlobPart): Promise<void> {
   const response = await fetch(`/upload/${encodeURIComponent(key)}`, { method: "POST", body: new Blob([data]) });
@@ -139,36 +142,35 @@ const api = {
   /**
    * Measures how the picture moves over [from, to) and uploads it as `key`: per frame dx, dy (frame
    * pixels), angle (radians), log scale and agreement (NaN for unmeasured frames), then the shake track's
-   * x, y and tilt. Returns the S_Shake settings fitted to it and the time spent per frame.
+   * x, y and tilt. Returns the S_Shake settings measured from it and the time spent per frame.
    */
   async shake(url: string, from: number, to: number, key: string) {
     const blob = await fetchBlob(url);
     const info = await videoInfo(blob);
-    const features = await videoAudioFeatures(blob);
     const gpu = createGpu();
     const texture = frameTexture(gpu.gl, info.width, info.height);
     const meter = new ShakeMeter(gpu, info.width, info.height);
-    const motions: (FrameMotion | null)[] = [];
     let first = -1;
     let ms = 0;
     await decodeWindow(blob, info, from, to, (frame, index) => {
       if (first < 0) first = index;
       const started = performance.now();
       uploadFrame(gpu.gl, texture, frame);
-      motions.push(meter.measure(texture));
+      meter.capture(texture);
       ms += performance.now() - started;
     });
+    const motions: (FrameMotion | null)[] = await meter.finish();
     meter.dispose();
     gpu.dispose();
     const track = shakeTrack(motions, info.frameRate);
-    const fit = fitShake(track, info.frameRate, first / info.frameRate, features);
+    const measured = measureShake(track, info.frameRate);
     const out = new Float32Array(motions.length * 8);
     motions.forEach((m, k) => {
       out.set(m ? [m.dx, m.dy, m.angle, m.logScale, m.agreement] : [NaN, NaN, NaN, NaN, NaN], k * 8);
       out.set([track.x[k], track.y[k], track.tilt[k]], k * 8 + 5);
     });
     await upload(key, out);
-    return { frames: motions.length, first, frameRate: info.frameRate, msPerFrame: ms / Math.max(1, motions.length), ...fit };
+    return { frames: motions.length, first, frameRate: info.frameRate, msPerFrame: ms / Math.max(1, motions.length), shake: measured.shake, report: measured.report };
   },
 
   /** Uploads `key`-<i>.png, the video's first frame at or after each of `times`. */
@@ -207,20 +209,37 @@ const api = {
     return result;
   },
 
-  /** Trains a model on [from, to) of the video and uploads it (encoded) as `key`; returns its report. */
-  async train(url: string, from: number, to: number, key: string, population: Partial<PopulationOptions> = {}) {
+  /**
+   * Trains a model on [from, to) of the video (PyTorch through the server's /train, or the trained model
+   * served at `rawUrl` when given, so that only calibration runs) and uploads it (encoded) as `key`;
+   * returns its report, what trained it and the stages it went through.
+   */
+  async train(url: string, from: number, to: number, key: string, rawUrl?: string, calibration?: number) {
     const blob = await fetchBlob(url);
     const stages: string[] = [];
+    const trainer: Trainer = rawUrl
+      ? async () => new Uint8Array(await (await fetchBlob(rawUrl)).arrayBuffer())
+      : (dataset, onProgress, signal) => streamTraining("/train", dataset, onProgress, signal);
     const { model } = await trainModel(blob, url.split("/").pop() ?? "reference", {
       from,
       to,
-      population,
+      trainer,
+      calibration,
       onProgress: (p) => {
         if (stages[stages.length - 1] !== p.stage) stages.push(p.stage);
       },
     });
     await upload(key, encodeModel(model) as Uint8Array<ArrayBuffer>);
-    return { report: model.report, stages };
+    return { report: model.report, trainer: model.trainer, stages };
+  },
+
+  /** Uploads as `key` the analysis of [from, to) of the video that the PyTorch trainer learns from. */
+  async dataset(url: string, from: number, to: number, key: string) {
+    const blob = await fetchBlob(url);
+    const started = performance.now();
+    const dataset = await exportDataset(blob, url.split("/").pop() ?? "reference", from, to);
+    await upload(key, dataset);
+    return { bytes: dataset.length, seconds: (performance.now() - started) / 1000 };
   },
 
   /**
@@ -252,6 +271,167 @@ const api = {
       gpu.gl.deleteTexture(texture);
     } finally {
       gpu.dispose();
+    }
+  },
+
+  /**
+   * Seconds per frame of the analysis' parts over [from, to): decoding alone, then with the upload, the shake
+   * meter, the detector's passes (synchronised by a one-pixel read at the end) and its per-frame read, and the
+   * whole analysis.
+   */
+  async profile(url: string, from: number, to: number) {
+    const blob = await fetchBlob(url);
+    const info = await videoInfo(blob);
+    const gpu = createGpu();
+    const gl = gpu.gl;
+    const texture = frameTexture(gl, info.width, info.height);
+    const sync = () => {
+      gl.bindFramebuffer(gl.READ_FRAMEBUFFER, null);
+      gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array(4));
+    };
+    const timed = async (each: (frame: VideoFrame) => void) => {
+      const started = performance.now();
+      const frames = await decodeWindow(blob, info, from, to, each);
+      sync();
+      return { frames, ms: (performance.now() - started) / Math.max(1, frames) };
+    };
+    const decode = await timed(() => {});
+    const upload = await timed((frame) => uploadFrame(gl, texture, frame));
+    const meter = new ShakeMeter(gpu, info.width, info.height);
+    const shakeStarted = performance.now();
+    const captured = await timed((frame) => {
+      uploadFrame(gl, texture, frame);
+      meter.capture(texture);
+    });
+    await meter.finish();
+    const shake = { frames: captured.frames, ms: (performance.now() - shakeStarted) / Math.max(1, captured.frames) };
+    meter.dispose();
+    const detector = new Detector(gpu, { ...DEFAULT_DETECTOR, region: [0, 0, info.width, info.height] });
+    const passes = await timed((frame) => {
+      uploadFrame(gl, texture, frame);
+      detector.process(texture, info.width, info.height);
+    });
+    const reads = await timed((frame) => {
+      uploadFrame(gl, texture, frame);
+      detector.process(texture, info.width, info.height);
+      detector.read();
+    });
+    const later = await timed((frame) => {
+      uploadFrame(gl, texture, frame);
+      detector.process(texture, info.width, info.height);
+      detector.readLater(0);
+      detector.collect();
+    });
+    detector.drain();
+    detector.dispose();
+    const started = performance.now();
+    const analysis = await analyseVideo(gpu, blob, info, from, to);
+    const whole = (performance.now() - started) / analysis.frames.length;
+    gpu.release(analysis.background);
+    gpu.dispose();
+    return { decode, upload, shake, passes, reads, later, analysis: { frames: analysis.frames.length, ms: whole } };
+  },
+
+  /**
+   * Milliseconds per frame of calibration's parts for a model (served at `modelUrl`) over `seconds` from the
+   * middle of [from, to): sampling its particles, rendering them over the background, rendering and detecting,
+   * the whole synthesis, and the tracker on what it found.
+   */
+  async profileSynthesis(url: string, modelUrl: string, from: number, to: number, seconds = 3) {
+    const blob = await fetchBlob(url);
+    const info = await videoInfo(blob);
+    const model = decodeModel(new Uint8Array(await (await fetchBlob(modelUrl)).arrayBuffer()));
+    const gpu = createGpu();
+    const gl = gpu.gl;
+    const sync = () => {
+      gl.bindFramebuffer(gl.READ_FRAMEBUFFER, null);
+      gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array(4));
+    };
+    try {
+      const analysis = await analyseVideo(gpu, blob, info, from, to);
+      const prepared = prepare(model);
+      const clock = new Clock(model.dynamics, await videoAudioFeatures(blob), model.preRun, { reactivity: 1, speed: 1 });
+      const view = referenceView(model);
+      const a = Math.round(((from + to) / 2) * info.frameRate);
+      const b = a + Math.round(seconds * info.frameRate);
+      const frames = b - a;
+      const time = (run: () => void) => {
+        const started = performance.now();
+        run();
+        sync();
+        return (performance.now() - started) / frames;
+      };
+      let particles = 0;
+      const sampling = time(() => {
+        for (let k = a; k < b; k++) particles += particlesAt(prepared, clock.timeAt(k / info.frameRate), 1, view).count;
+      });
+      const synth = new Synthesizer(gpu, info.width, info.height);
+      const render = time(() => {
+        for (let k = a; k < b; k++) synth.render(prepared, clock, k / info.frameRate, view, analysis.background.texture);
+      });
+      const detector = new Detector(gpu, analysis.options);
+      const detect = time(() => {
+        for (let k = a; k < b; k++) {
+          detector.process(synth.render(prepared, clock, k / info.frameRate, view, analysis.background.texture), info.width, info.height);
+          detector.readLater(k);
+          detector.collect();
+        }
+        detector.drain();
+      });
+      detector.dispose();
+      synth.dispose();
+      let started = performance.now();
+      const synthesis = await synthesize(gpu, analysis, prepared, clock, view, [[a, b]]);
+      const whole = (performance.now() - started) / frames;
+      started = performance.now();
+      track(synthesis.frames, { ...DEFAULT_TRACKER, accept: particleDetection });
+      const tracking = (performance.now() - started) / frames;
+      gpu.release(analysis.background);
+      return { particles: particles / frames, sampling, render, detect, synthesis: whole, tracking };
+    } finally {
+      gpu.dispose();
+    }
+  },
+
+  /**
+   * Milliseconds per frame of the dialog's learned-particles preview (preview.ts) at the reference's full
+   * resolution, playing `frames` frames from `from` seconds; each frame is waited for on the GPU.
+   */
+  async inference(url: string, modelUrl: string, from: number, frames = 120) {
+    const blob = await fetchBlob(url);
+    const info = await videoInfo(blob);
+    const model = decodeModel(new Uint8Array(await (await fetchBlob(modelUrl)).arrayBuffer()));
+    const canvas = document.createElement("canvas");
+    canvas.width = info.width;
+    canvas.height = info.height;
+    const preview = new ModelPreview(canvas, model, await videoAudioFeatures(blob));
+    const gl = preview.gpu.gl;
+    const sync = () => {
+      gl.bindFramebuffer(gl.READ_FRAMEBUFFER, null);
+      gl.readPixels(0, 0, 1, 1, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array(4));
+    };
+    try {
+      const warmup = 10;
+      for (let k = 0; k < warmup; k++) preview.draw(from + k / info.frameRate);
+      sync();
+      const times: number[] = [];
+      for (let k = 0; k < frames; k++) {
+        const started = performance.now();
+        preview.draw(from + (warmup + k) / info.frameRate);
+        sync();
+        times.push(performance.now() - started);
+      }
+      const sorted = times.slice().sort((a, b) => a - b);
+      return {
+        width: canvas.width,
+        height: canvas.height,
+        frames,
+        median: sorted[Math.floor((sorted.length - 1) / 2)],
+        p95: sorted[Math.floor(0.95 * (sorted.length - 1))],
+        mean: times.reduce((s, v) => s + v, 0) / times.length,
+      };
+    } finally {
+      preview.dispose();
     }
   },
 

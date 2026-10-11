@@ -66,6 +66,31 @@ export class AudioPreview {
   private readonly buffers = new Map<FootageItem, Promise<AudioBuffer | null>>();
   private nodes: AudioScheduledSourceNode[] = [];
   private session = 0;
+  /** The comp time the sound started from and the context time it corresponds to, while playing. */
+  private timeline: { from: number; contextTime: number } | null = null;
+  /** How often the sound started and was stopped while playing, for checking that previews play it unbroken. */
+  readonly stats = { starts: 0, stops: 0 };
+
+  resetStats(): void {
+    this.stats.starts = 0;
+    this.stats.stops = 0;
+  }
+
+  /**
+   * The comp time being heard now, by the audio device's clock; null when nothing plays or the context is not
+   * running (its clock stands still then). Follows the output timestamp, so it moves smoothly between the audio
+   * thread's updates and includes the output latency.
+   */
+  position(): number | null {
+    const context = this.context;
+    const timeline = this.timeline;
+    if (!context || !timeline || context.state !== "running") return null;
+    const stamp = context.getOutputTimestamp?.();
+    let heard: number;
+    if (stamp?.contextTime && stamp.performanceTime) heard = stamp.contextTime + (performance.now() - stamp.performanceTime) / 1000;
+    else heard = context.currentTime - (context.outputLatency || context.baseLatency || 0);
+    return timeline.from + Math.max(0, heard - timeline.contextTime);
+  }
 
   private audioContext(): AudioContext {
     this.context ??= new AudioContext({ latencyHint: "interactive" });
@@ -105,6 +130,8 @@ export class AudioPreview {
     const session = this.session;
     const context = this.audioContext();
     const startedAt = context.currentTime;
+    this.timeline = { from, contextTime: startedAt };
+    this.stats.starts++;
     const leaves: AudioLeaf[] = [];
     collect(project, comp, 1, 0, from, to, leaves, 0);
     for (const leaf of leaves) {
@@ -133,6 +160,8 @@ export class AudioPreview {
 
   stop(): void {
     this.session++;
+    if (this.timeline) this.stats.stops++;
+    this.timeline = null;
     for (const node of this.nodes) {
       try {
         node.stop();
@@ -151,3 +180,8 @@ export class AudioPreview {
 }
 
 export const audioPreview = new AudioPreview();
+
+// Dev server pages only: lets scripts/check-video-playback.ts follow the preview audio.
+if (typeof document !== "undefined" && document.querySelector('meta[name="aep-local-footage"]')) {
+  (window as unknown as { aepAudio: AudioPreview }).aepAudio = audioPreview;
+}

@@ -1,11 +1,13 @@
-// Particle Match against its reference video (gates/pmatch.md P5, P6, P12):
-//   node scripts/pmatch-report.ts [--check match,mirror,time] [--model <file>] [--train a,b] [--eval a,b] [--video <path>] [--population key=value,...]
-// Trains on the training window in headless Edge (real GPU) unless --model names a trained model, then
-// compares the model with the held-out window and prints the statistics; each --check prints its
-// verdict and the script exits non-zero when one fails.
+// Particle Match against its reference video (gates/pmatch-torch.md T4):
+//   node scripts/pmatch-report.ts [--check torch,match,mirror,detail,time] [--model <file>] [--raw <file>] [--rounds n] [--train a,b] [--eval a,b] [--video <path>]
+// Trains on the training window (the browser's analysis in headless Edge, the PyTorch trainer, the browser's
+// calibration) unless --model names a finished model or --raw a model PyTorch trained that only needs
+// calibrating, then compares the model with the held-out window and prints the statistics; each --check
+// prints its verdict and the script exits non-zero when one fails.
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Evaluation } from "../src/extra/pmatch/evaluate.ts";
+import { decodeModel } from "../src/extra/pmatch/model.ts";
 import { openPmatch, PMATCH_OUT, REFERENCE } from "./lib/pmatch-browser.ts";
 
 const args = process.argv.slice(2);
@@ -23,17 +25,9 @@ const checks = new Set((option("--check") ?? "").split(",").filter(Boolean));
 const train = pair(option("--train"), [50, 80]);
 const held = pair(option("--eval"), [136, 166]);
 const modelPath = option("--model");
-// Population options for training, e.g. --population maxBack=0,maxAhead=0.
-const population = Object.fromEntries(
-  (option("--population") ?? "")
-    .split(",")
-    .filter(Boolean)
-    .map((kv) => {
-      const [k, v] = kv.split("=");
-      return [k, v === "true" ? true : v === "false" ? false : Number(v)];
-    }),
-);
-if (checks.has("time") && modelPath) throw new Error("--check time needs a training run (leave out --model)");
+const rawPath = option("--raw");
+const rounds = option("--rounds") === undefined ? undefined : Number(option("--rounds"));
+if (checks.has("time") && (modelPath || rawPath)) throw new Error("--check time needs a training run (leave out --model and --raw)");
 
 const fixed = (v: number, digits = 3) => (Number.isFinite(v) ? v.toFixed(digits) : String(v));
 const failures: string[] = [];
@@ -49,15 +43,27 @@ try {
   if (modelPath) model = readFileSync(modelPath);
   else {
     const started = Date.now();
-    const trained = await browser.call<{ report: Record<string, number> }>("train", url, train[0], train[1], "model", population);
+    await browser.call("train", url, train[0], train[1], "model", rawPath ? browser.serve(rawPath, "model-raw.pmwm") : undefined, rounds);
     trainSeconds = (Date.now() - started) / 1000;
     model = browser.uploaded("model");
     writeFileSync(join(PMATCH_OUT, "model.pmwm"), model);
-    const r = trained.report;
-    console.log(`trained on ${train[0]}-${train[1]} s in ${fixed(trainSeconds, 1)} s (in the page ${fixed(r.seconds, 1)} s: detection ${fixed(r.detectSeconds, 1)}, fitting ${fixed(r.fitSeconds, 1)}, calibration ${fixed(r.calibrateSeconds, 1)})`);
-    console.log(`  ${r.tracks} tracks (${r.links} joined), ${r.used} used (${r.emerged} emerged, ${r.censored} censored), ${r.prototypes} prototypes, ${r.sprites} sprites`);
-    console.log(`  clock R2 ${fixed(r.clockR2, 2)} at lag ${fixed(r.clockLag)} s, mirror axis ${fixed(r.mirrorAxis, 2)} (score ${fixed(r.mirrorScore)}), depth exponents size ${fixed(r.sizeDepth)} light ${fixed(r.lightDepth)} over ${r.depthTracks} tracks`);
-    console.log(`  calibration: rate x${fixed(r.rateGain)}, light x${fixed(r.lightGain)}, size x${fixed(r.sizeGain)}; distance/speed histogram distance ${fixed(r.stepDistanceFirst)} -> ${fixed(r.stepDistance)}`);
+  }
+  const decoded = decodeModel(new Uint8Array(model));
+  const r = decoded.report;
+  const t = decoded.trainer;
+  console.log(`trained by ${t.framework} ${t.version} on ${t.device} (${t.deviceName})${Number.isFinite(trainSeconds) ? ` in ${fixed(trainSeconds, 1)} s` : ""}`);
+  console.log(`  in the page ${fixed(r.seconds, 1)} s: detection ${fixed(r.detectSeconds, 1)}, PyTorch ${fixed(r.torchSeconds, 1)} (${fixed(r.trainSeconds, 1)} training), calibration ${fixed(r.calibrateSeconds, 1)}`);
+  console.log(`  ${r.tracks} tracks (${r.links} joined), ${r.used} used (${r.emerged} emerged, ${r.censored} censored), ${r.prototypes} particles in the bank, ${r.sprites} sprites`);
+  console.log(`  audio network: clock R2 ${fixed(r.clockR2, 3)} held back (${fixed(r.clockR2Train, 3)} on the window) after ${r.clockSteps} steps; shake R2 ${fixed(r.shakeR2, 2)}`);
+  console.log(`  particle flow: NLL ${fixed(r.flowNll, 3)} train, ${fixed(r.flowNllValid, 3)} held back, after ${r.flowSteps} steps; sprite classes ${fixed(r.spriteAccuracy, 3)} right`);
+  console.log(`  appearance: depth exponents size ${fixed(r.sizeDepth)} light ${fixed(r.lightDepth)}; mirror axis ${fixed(r.mirrorAxis, 2)} (score ${fixed(r.mirrorScore)})`);
+  console.log(`  calibration (round ${r.calibrationRound} kept): rate x${fixed(r.rateGain)}, light x${fixed(r.lightGain)}, size x${fixed(r.sizeGain)}, speed x${fixed(r.speedGain)}, approach x${fixed(r.approachGain)}; distance/speed histogram distance ${fixed(r.stepDistanceFirst)} -> ${fixed(r.stepDistance)}; sprite share distance ${fixed(r.spriteShareDistanceFirst)} -> ${fixed(r.spriteShareDistance)}; inner/outer speed ${fixed(r.innerSpeedRatio)}/${fixed(r.outerSpeedRatio)} of the reference's`);
+  console.log(`  on the training stretches: particles/frame ${fixed(r.countModel, 1)} (reference ${fixed(r.countReference, 1)}), median peak ${fixed(r.peakModel)} (${fixed(r.peakReference)}), spread ${fixed(r.spreadModel)} (${fixed(r.spreadReference)})`);
+  if (checks.has("torch")) {
+    const before = failures.length;
+    require(t.framework === "pytorch", `the model was trained by "${t.framework}", not PyTorch`);
+    require(t.device === "cuda", `PyTorch trained on "${t.device}", not CUDA`);
+    if (failures.length === before) console.log(`PMATCH-TORCH-CUDA (${t.deviceName})`);
   }
   const e = await browser.call<Evaluation>("evaluate", url, browser.serveBytes(model, "model.pmwm"), held[0], held[1]);
   const c = e.comparison;
@@ -73,6 +79,12 @@ try {
   console.log(`  quarter-second speed series correlation ${fixed(c.speedSeries)} over ${c.bins} bins`);
   console.log(`  sprites (template vs held-out crops most like it): ${e.sprites.map((s) => `${fixed(s.correlation)} (${s.crops} crops)`).join(", ")}; mean crop ${fixed(e.meanSprite)} (${e.crops[0]} / ${e.crops[1]} crops)`);
   console.log(`  mirror correlation about x = ${fixed(e.mirror.axis, 2)}: reference ${fixed(e.mirror.reference)}, model ${fixed(e.mirror.model)}`);
+  const p = e.profiles;
+  p.reference.forEach((profile, k) =>
+    console.log(`  light / peak at r = 0..16 px, brightness third ${k + 1}: reference ${profile.map((v) => v.toFixed(2)).join(" ")} | model ${p.model[k].map((v) => v.toFixed(2)).join(" ")} | distance ${fixed(p.distance[k])}`),
+  );
+  console.log(`  median size by brightness third, reference / model: ${e.spreadByThird.reference.map((r, k) => `${fixed(r, 2)}/${fixed(e.spreadByThird.model[k], 2)}`).join("  ")}`);
+  console.log(`  sprite shares, reference / model: ${e.shares.reference.map((r, k) => `${fixed(r, 2)}/${fixed(e.shares.model[k], 2)}`).join("  ")}; total variation ${fixed(e.shares.distance)}`);
 
   if (checks.has("match")) {
     const before = failures.length;
@@ -90,6 +102,12 @@ try {
     require(e.mirror.model <= 0.2, `model mirror correlation ${fixed(e.mirror.model)} (needs <= 0.2)`);
     require(e.mirror.reference >= 0.9, `reference mirror correlation ${fixed(e.mirror.reference)} (needs >= 0.9)`);
     if (failures.length === before) console.log("PMATCH-UNMIRRORED");
+  }
+  if (checks.has("detail")) {
+    const before = failures.length;
+    p.distance.forEach((v, k) => require(v <= 0.25, `brightness third ${k + 1} light profile distance ${fixed(v)} (needs <= 0.25)`));
+    require(e.shares.distance <= 0.15, `sprite share total variation ${fixed(e.shares.distance)} (needs <= 0.15)`);
+    if (failures.length === before) console.log("PMATCH-DETAIL-PASSED");
   }
   if (checks.has("time")) {
     const before = failures.length;

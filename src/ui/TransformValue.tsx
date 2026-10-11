@@ -3,6 +3,7 @@ import type { CompItem, Layer, Property, PropertyValue } from "../aep/model.ts";
 import { setTransformValue } from "../edit/transform-ops.ts";
 import { attempt, nextDragKey, useEditing } from "./editing.tsx";
 import { fixed } from "./format.ts";
+import { followPointer } from "./pointer.ts";
 import { Icon } from "./icons.tsx";
 import { is3D } from "./properties.ts";
 
@@ -45,21 +46,21 @@ export function ScrubNumber({
     const start = value;
     const key = nextDragKey("scrub");
     let scrubbing = false;
-    const move = (ev: PointerEvent | MouseEvent) => {
-      const distance = ev.clientX - x;
-      if (!Number.isFinite(distance) || (!scrubbing && Math.abs(distance) <= SCRUB_SLOP)) return;
-      scrubbing = true;
-      const factor = ev.shiftKey ? 10 : ev.ctrlKey || ev.metaKey ? 0.1 : 1;
-      latest.current(start + distance * step * factor, key);
-    };
-    const up = () => {
-      window.removeEventListener("pointermove", move);
-      window.removeEventListener("pointerup", up);
-      if (scrubbing) onEnd();
-      else setEditing(true);
-    };
-    window.addEventListener("pointermove", move);
-    window.addEventListener("pointerup", up);
+    followPointer(
+      e,
+      (ev) => {
+        const distance = ev.clientX - x;
+        if (!Number.isFinite(distance) || (!scrubbing && Math.abs(distance) <= SCRUB_SLOP)) return;
+        scrubbing = true;
+        const factor = ev.shiftKey ? 10 : ev.ctrlKey || ev.metaKey ? 0.1 : 1;
+        latest.current(start + distance * step * factor, key);
+      },
+      (_ev, cancelled) => {
+        if (scrubbing) onEnd();
+        else if (!cancelled) setEditing(true);
+      },
+      0,
+    );
   };
 
   if (editing) {

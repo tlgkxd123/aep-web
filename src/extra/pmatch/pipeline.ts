@@ -1,23 +1,37 @@
-// Trains a Particle Match world model from a reference video in the browser:
-// decode a window of the video and find particles in every frame on the GPU (only
-// detections, tile masks and a few hundred sprite crops come back), link them into
-// tracks, fit the clock and how it follows the music, the particle population and
-// the sprites, then calibrate by synthesis: render the model over the video's own
-// background, find its particles with the same detector through the same masks,
-// and scale birth rate, light and size until what is found matches the video.
-import { audioFeatures, channelReader, type AudioFeatures } from "./audio.ts";
-import { detectionStats, occupancy, reweight, stepBins, stepHistogram, type DetectionStats } from "./calibrate.ts";
-import { DEFAULT_DETECTOR, Detector, DETECTION_FLOATS, D_PEAK, D_X, D_Y, HISTORY, type DetectorOptions } from "./detect.ts";
+// Trains a Particle Match world model from a reference video: the browser decodes a
+// window of the video and finds particles in every frame on the GPU (only
+// detections, tile masks and a few hundred sprite crops come back), links them into
+// tracks and measures the picture's shake; the PyTorch trainer (ml/pmatch, reached
+// through a Trainer) learns the model from that; then the browser calibrates it by
+// synthesis: it renders the model over the video's own background, finds its
+// particles with the same detector through the same masks, and scales birth rate,
+// light, size and the bank's weights until what is found matches the video.
+import { audioFeatures, channelReader, decodeSoundTrack, type AudioFeatures } from "./audio.ts";
+import {
+  detectionStats,
+  occupancy,
+  quarterSpeeds,
+  radiusQuarters,
+  reweight,
+  reweightSprites,
+  scalePrototypes,
+  scaleVelocities,
+  stepBins,
+  stepHistogram,
+  velocitySteps,
+  type DetectionStats,
+} from "./calibrate.ts";
+import { encodeDataset } from "./dataset.ts";
+import { DEFAULT_DETECTOR, Detector, DETECTION_FLOATS, D_PEAK, D_X, D_Y, HISTORY, type DetectorOptions, type DetectorOutput } from "./detect.ts";
 import { drawParticles } from "./draw.ts";
 import { Clock } from "./dynamics.ts";
-import { buildPopulation, DEFAULT_POPULATION, depthExponents, fitClock, fitDynamics, scalePrototypes, stitchTracks, type PopulationOptions, type Visibility } from "./fit.ts";
 import { decodeWindow, videoInfo, type VideoInfo } from "./frames.ts";
 import { createGpu, frameTexture, readFloats, uploadFrame, type Gpu, type Surface } from "./gpu.ts";
-import { measure } from "./metrics.ts";
-import { MODEL_VERSION, type ParticleWorldModel } from "./model.ts";
-import { INSTANCE_FLOATS, particlesAt, prepare, type Instances, type Prepared, type View } from "./sample.ts";
-import { fitShake, ShakeMeter, shakeTrack, type FrameMotion } from "./shake.ts";
-import { CropGatherer, learnSprites, type Crop } from "./sprites.ts";
+import { classShares, measure } from "./metrics.ts";
+import { decodeModel, type ParticleWorldModel } from "./model.ts";
+import { INSTANCE_FLOATS, particlesAt, prepare, random, type Instances, type Prepared, type View } from "./sample.ts";
+import { measureShake, ShakeMeter, shakeTrack, type FrameMotion, type MeasuredShake } from "./shake.ts";
+import { CROP, CROP_PEAK, CropGatherer, type Crop } from "./sprites.ts";
 import { DEFAULT_TRACKER, focusOfExpansion, MIN_PEAK, particleDetection, track, type FrameDetections, type Track } from "./track.ts";
 
 export interface TrainProgress {
@@ -26,22 +40,56 @@ export interface TrainProgress {
   share: number;
 }
 
+/**
+ * Trains the PyTorch world model on a window's analysis (dataset.ts) and gives the model encoded
+ * (model.ts), before calibration; `onProgress` shares run from 0 to 1.
+ */
+export type Trainer = (dataset: Uint8Array<ArrayBuffer>, onProgress: (stage: string, share: number) => void, signal?: AbortSignal) => Promise<Uint8Array>;
+
 export interface TrainOptions {
   /** Training window, seconds of the video. */
   from: number;
   to: number;
+  /** The video's sound features when already computed (videoAudioFeatures); read from the video otherwise. */
+  features?: AudioFeatures | null;
+  trainer: Trainer;
   onProgress?: (p: TrainProgress) => void;
   signal?: AbortSignal;
   /** Calibration rounds (each renders and analyses a few seconds of the model). */
   calibration?: number;
-  population?: Partial<PopulationOptions>;
 }
 
 const BACKGROUND_SAMPLES = HISTORY;
-/** Frames between crops, crops per frame and in all. */
+/** Frames between cropped frames, most crops per frame, and crops in all (spread over the window). */
 const CROP_EVERY = 4;
 const CROPS_PER_FRAME = 16;
 const MAX_CROPS = 1500;
+
+/** Crops a cropped frame may take: an even share of what is left, so every part of a window is cropped. */
+class CropBudget {
+  private left: number;
+  private taken = 0;
+
+  /** `frames`: the frames the crops are spread over. */
+  constructor(frames: number) {
+    this.left = Math.max(1, Math.ceil(frames / CROP_EVERY));
+  }
+
+  get spent(): boolean {
+    return this.taken >= MAX_CROPS;
+  }
+
+  /** The centres the next cropped frame takes of `centres` (its candidates, in the order they are worth taking). */
+  take<T>(centres: (limit: number) => T[]): T[] {
+    const share = Math.ceil((MAX_CROPS - this.taken) / Math.max(1, this.left));
+    this.left--;
+    const taken = centres(Math.max(0, Math.min(CROPS_PER_FRAME, share)));
+    this.taken += taken.length;
+    return taken;
+  }
+}
+/** Pixels a cropped particle keeps clear of other particles (its halo's reach). */
+const ISOLATION = 20;
 /** Pixels kept clear of a mirror axis. */
 const AXIS_MARGIN = 20;
 /** Frames the detector needs before its median background is complete. */
@@ -223,23 +271,35 @@ export function maskDetections(data: Float32Array, mask: Uint8Array, options: De
   return out;
 }
 
-/** Bright, isolated detections on analysed tiles: the ones worth cropping for sprites. */
-function cropCentres(frame: number, detections: Float32Array, mask: Uint8Array, options: DetectorOptions, columns: number, width: number, height: number): { frame: number; x: number; y: number }[] {
+/**
+ * Bright detections on analysed tiles with no other particle within their halo: the ones worth cropping for
+ * sprites, visited in an order shuffled per frame so that every part of the picture is cropped.
+ */
+function cropCentres(frame: number, detections: Float32Array, mask: Uint8Array, options: DetectorOptions, columns: number, width: number, height: number, limit: number): { frame: number; x: number; y: number }[] {
   const centres: { frame: number; x: number; y: number }[] = [];
   const n = detections.length / DETECTION_FLOATS;
-  for (let i = 0; i < n && centres.length < CROPS_PER_FRAME; i++) {
+  const margin = (CROP + 1) / 2;
+  const tiles = Math.ceil((CROP - 1) / 2 / options.tile);
+  const order = Int32Array.from({ length: n }, (_, i) => i);
+  const rand = random(Math.imul(frame + 1, 0x9e3779b1));
+  for (let i = n - 1; i > 0; i--) {
+    const j = Math.floor(rand() * (i + 1));
+    [order[i], order[j]] = [order[j], order[i]];
+  }
+  for (let k = 0; k < n && centres.length < limit; k++) {
+    const i = order[k];
     const at = i * DETECTION_FLOATS;
     const x = detections[at + D_X];
     const y = detections[at + D_Y];
-    if (detections[at + D_PEAK] < 30 / 255 || x < 13 || y < 13 || x > width - 13 || y > height - 13) continue;
+    if (detections[at + D_PEAK] < CROP_PEAK || x < margin || y < margin || x > width - margin || y > height - margin) continue;
     let isolated = true;
     for (let j = 0; j < n && isolated; j++) {
-      if (j !== i && Math.hypot(detections[j * DETECTION_FLOATS + D_X] - x, detections[j * DETECTION_FLOATS + D_Y] - y) < 14) isolated = false;
+      if (j !== i && Math.hypot(detections[j * DETECTION_FLOATS + D_X] - x, detections[j * DETECTION_FLOATS + D_Y] - y) < ISOLATION) isolated = false;
     }
     const tx = Math.floor((x - options.region[0]) / options.tile);
     const ty = Math.floor((y - options.region[1]) / options.tile);
-    let clear = true;
-    for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) if (!mask[(ty + dy) * columns + tx + dx]) clear = false;
+    let clear = tx >= tiles && tx + tiles < columns;
+    for (let dy = -tiles; dy <= tiles && clear; dy++) for (let dx = -tiles; dx <= tiles && clear; dx++) if (!mask[(ty + dy) * columns + tx + dx]) clear = false;
     if (isolated && clear) centres.push({ frame, x, y });
   }
   return centres;
@@ -264,6 +324,55 @@ export interface VideoAnalysis {
   background: Surface;
 }
 
+/**
+ * Frames kept for their sprite crops until their detections come back from the GPU, a few frames later:
+ * each frame with the median of the detector's past frames as its background, which moving particles
+ * (halos included) are not part of.
+ */
+class CropFrames {
+  private readonly gpu: Gpu;
+  private readonly size: [number, number];
+  private readonly free: { frame: Surface; back: Surface }[] = [];
+  private readonly kept = new Map<number, { frame: Surface; back: Surface }>();
+
+  constructor(gpu: Gpu, width: number, height: number) {
+    this.gpu = gpu;
+    this.size = [width, height];
+  }
+
+  keep(index: number, frame: WebGLTexture, history: WebGLTexture[]): void {
+    if (history.length !== HISTORY) return;
+    const { gpu } = this;
+    const gl = gpu.gl;
+    const slot = this.free.pop() ?? { frame: gpu.surface(this.size[0], this.size[1], gl.RGBA8), back: gpu.surface(this.size[0], this.size[1], gl.RGBA8) };
+    gpu.pass(gpu.program(COPY_FS), slot.frame, [frame], (u) => gl.uniform1i(u("u_src"), 0));
+    gpu.pass(gpu.program(MEDIAN_FS), slot.back, history, (u) => gl.uniform1iv(u("u_h[0]"), history.map((_, i) => i)));
+    this.kept.set(index, slot);
+  }
+
+  holds(index: number): boolean {
+    return this.kept.has(index);
+  }
+
+  /** Crops of kept frame `index` at `centres`, forgetting the frame; none when it was not kept. */
+  gather(gatherer: CropGatherer, index: number, centres: { frame: number; x: number; y: number }[]): Crop[] {
+    const slot = this.kept.get(index);
+    if (!slot) return [];
+    this.kept.delete(index);
+    this.free.push(slot);
+    return gatherer.gather(slot.frame.texture, this.size, slot.back.texture, [0, 0], this.size, centres);
+  }
+
+  dispose(): void {
+    for (const slot of [...this.free, ...this.kept.values()]) {
+      this.gpu.release(slot.frame);
+      this.gpu.release(slot.back);
+    }
+    this.free.length = 0;
+    this.kept.clear();
+  }
+}
+
 /** Runs the detector over [from, to) of a video (the first frame decides the mirror and region). */
 export async function analyseVideo(gpu: Gpu, blob: Blob, info: VideoInfo, from: number, to: number, onShare?: (share: number) => void, signal?: AbortSignal): Promise<VideoAnalysis> {
   const gl = gpu.gl;
@@ -273,13 +382,16 @@ export async function analyseVideo(gpu: Gpu, blob: Blob, info: VideoInfo, from: 
   // Set from the first decoded frame (the mirror decides the region).
   let detector = null as Detector | null;
   let gatherer = null as CropGatherer | null;
+  let cropFrames = null as CropFrames | null;
   let meter = null as ShakeMeter | null;
   let mirror = null as Mirror | null;
   let mirrorScore = 0;
   let options = null as DetectorOptions | null;
   const frames: FrameDetections[] = [];
   const masks: Uint8Array[] = [];
-  const motions: (FrameMotion | null)[] = [];
+  /** The shake meter's capture of each recorded frame. */
+  const captureOf = new Map<number, number>();
+  const recordedCaptures: number[] = [];
   const crops: Crop[] = [];
   const backgrounds: Surface[] = [];
   const sampleTimes = Array.from({ length: BACKGROUND_SAMPLES }, (_, k) => from + ((k + 0.5) * (to - from)) / BACKGROUND_SAMPLES);
@@ -288,8 +400,23 @@ export async function analyseVideo(gpu: Gpu, blob: Blob, info: VideoInfo, from: 
     gpu.pass(gpu.program(COPY_FS), s, [texture], (u) => gl.uniform1i(u("u_src"), 0));
     backgrounds.push(s);
   };
-  let recorded = 0;
+  let captures = 0;
+  let queued = 0;
   const expected = Math.max(1, Math.round((to - from) * info.frameRate));
+  const budget = new CropBudget(expected);
+  const record = (reads: { tag: number; output: DetectorOutput }[]) => {
+    for (const { tag: index, output } of reads) {
+      frames.push({ index, data: output.detections });
+      masks.push(output.mask);
+      recordedCaptures.push(captureOf.get(index)!);
+      captureOf.delete(index);
+      if (cropFrames!.holds(index)) {
+        const centres = budget.take((limit) => cropCentres(index, output.detections, output.mask, options!, detector!.grid[0], W, H, limit));
+        crops.push(...cropFrames!.gather(gatherer!, index, centres));
+      }
+      if (frames.length % 30 === 0) onShare?.(Math.min(1, frames.length / expected));
+    }
+  };
   try {
     await decodeWindow(
       blob,
@@ -305,26 +432,27 @@ export async function analyseVideo(gpu: Gpu, blob: Blob, info: VideoInfo, from: 
           options = { ...DEFAULT_DETECTOR, ...regionFor(W, H, mirror) };
           detector = new Detector(gpu, options);
           gatherer = new CropGatherer(gpu);
+          cropFrames = new CropFrames(gpu, W, H);
           meter = new ShakeMeter(gpu, W, H);
         }
-        const motion = meter!.measure(texture);
+        meter!.capture(texture);
+        const capture = captures++;
         detector.process(texture, W, H);
         if (backgrounds.length < BACKGROUND_SAMPLES && time >= sampleTimes[backgrounds.length]) copy();
         if (time < from - 1e-6 || !detector.warm) return;
-        const { detections, mask } = detector.read();
-        frames.push({ index, data: detections });
-        masks.push(mask);
-        motions.push(motion);
-        if (recorded++ % CROP_EVERY === 0 && crops.length < MAX_CROPS) {
-          const [rx, ry, rw, rh] = options!.region;
-          const centres = cropCentres(index, detections, mask, options!, detector.grid[0], W, H);
-          crops.push(...gatherer!.gather(texture, [W, H], detector.openingTexture, [rx, ry], [rw, rh], centres));
-        }
-        if (recorded % 30 === 0) onShare?.(Math.min(1, recorded / expected));
+        captureOf.set(index, capture);
+        if (queued++ % CROP_EVERY === 0 && !budget.spent) cropFrames!.keep(index, texture, detector.historyTextures);
+        record(detector.readLater(index));
+        record(detector.collect());
+        crops.push(...gatherer!.collect());
       },
       signal,
     );
+    if (detector) record(detector.drain());
+    if (gatherer) crops.push(...gatherer.drain());
     if (!detector || !options || frames.length < 30) throw new Error("The window has too few frames to analyse.");
+    const measured = await meter!.finish();
+    const motions = recordedCaptures.map((c) => measured[c] ?? null);
     while (backgrounds.length < BACKGROUND_SAMPLES) copy();
     const background = gpu.surface(W, H, gl.RGBA8);
     gpu.pass(gpu.program(MEDIAN_FS), background, backgrounds.map((s) => s.texture), (u) => gl.uniform1iv(u("u_h[0]"), backgrounds.map((_, i) => i)));
@@ -338,6 +466,7 @@ export async function analyseVideo(gpu: Gpu, blob: Blob, info: VideoInfo, from: 
   } finally {
     detector?.dispose();
     gatherer?.dispose();
+    cropFrames?.dispose();
     meter?.dispose();
     for (const s of backgrounds) gpu.release(s);
     gl.deleteTexture(texture);
@@ -391,45 +520,52 @@ export async function synthesize(gpu: Gpu, analysis: VideoAnalysis, model: Prepa
   const first = analysis.frames[0].index;
   const synth = new Synthesizer(gpu, info.width, info.height);
   const gatherer = withCrops ? new CropGatherer(gpu) : null;
+  const cropFrames = withCrops ? new CropFrames(gpu, info.width, info.height) : null;
   const frames: FrameDetections[] = [];
   const crops: Crop[] = [];
+  const budget = new CropBudget(ranges.reduce((sum, [a, b]) => sum + (b - a), 0));
+  const record = (reads: { tag: number; output: DetectorOutput }[]) => {
+    for (const { tag: index, output } of reads) {
+      const mask = analysis.masks[index - first];
+      const detections = maskDetections(output.detections, mask, options, columns);
+      frames.push({ index, data: detections });
+      if (!gatherer || !cropFrames?.holds(index)) continue;
+      const centres = budget.take((limit) => cropCentres(index, detections, mask, options, columns, info.width, info.height, limit));
+      crops.push(...cropFrames.gather(gatherer, index, centres));
+    }
+  };
   try {
     for (const [a, b] of ranges) {
       const detector = new Detector(gpu, options);
-      let recorded = 0;
+      let queued = 0;
       for (let index = a - WARMUP; index < b; index++) {
         const texture = synth.render(model, clock, index / info.frameRate, view, analysis.background.texture);
         detector.process(texture, info.width, info.height);
-        const mask = analysis.masks[index - first];
-        if (index < a || !detector.warm || !mask) continue;
-        const detections = maskDetections(detector.read().detections, mask, options, columns);
-        frames.push({ index, data: detections });
-        if (gatherer && recorded++ % CROP_EVERY === 0 && crops.length < MAX_CROPS) {
-          const [rx, ry, rw, rh] = options.region;
-          const centres = cropCentres(index, detections, mask, options, columns, info.width, info.height);
-          crops.push(...gatherer.gather(texture, [info.width, info.height], detector.openingTexture, [rx, ry], [rw, rh], centres));
-        }
+        if (index < a || !detector.warm || !analysis.masks[index - first]) continue;
+        if (cropFrames && queued++ % CROP_EVERY === 0 && !budget.spent) cropFrames.keep(index, texture, detector.historyTextures);
+        record(detector.readLater(index));
+        record(detector.collect());
+        if (gatherer) crops.push(...gatherer.collect());
       }
+      record(detector.drain());
       detector.dispose();
       await new Promise((r) => setTimeout(r, 0));
     }
+    if (gatherer) crops.push(...gatherer.drain());
   } finally {
     synth.dispose();
     gatherer?.dispose();
+    cropFrames?.dispose();
   }
   return { frames, crops };
 }
 
 /** Audio features of a video's sound track (null when it has none the browser can decode). */
 export async function videoAudioFeatures(blob: Blob): Promise<AudioFeatures | null> {
-  try {
-    const context = new OfflineAudioContext(1, 1, 48000);
-    const audio = await context.decodeAudioData(await blob.arrayBuffer());
-    const channels = Array.from({ length: audio.numberOfChannels }, (_, c) => audio.getChannelData(c));
-    return audioFeatures(channelReader(channels), audio.sampleRate, audio.length / audio.sampleRate);
-  } catch {
-    return null;
-  }
+  const audio = await decodeSoundTrack(blob);
+  if (!audio) return null;
+  const channels = Array.from({ length: audio.numberOfChannels }, (_, c) => audio.getChannelData(c));
+  return audioFeatures(channelReader(channels), audio.sampleRate, audio.length / audio.sampleRate);
 }
 
 /** The view a model is rendered in to compare with its reference: the reference's emitter and scale. */
@@ -445,189 +581,228 @@ export interface TrainResult {
   features: AudioFeatures | null;
 }
 
+/** A window analysed for training: what the trainer learns from, and what calibration compares the model with. */
+export interface TrainingWindow {
+  info: VideoInfo;
+  from: number;
+  to: number;
+  analysis: VideoAnalysis;
+  tracks: Track[];
+  /** Where the particles stream out of (the tracks' focus of expansion), frame pixels. */
+  center: [number, number];
+  features: AudioFeatures | null;
+  shake: MeasuredShake;
+  dataset: Uint8Array<ArrayBuffer>;
+  /** Seconds spent reading the sound and finding particles. */
+  soundSeconds: number;
+  detectSeconds: number;
+}
+
+/** Analyses [from, to) of a video for training (the caller releases `analysis.background`). */
+export async function analyseForTraining(
+  gpu: Gpu,
+  blob: Blob,
+  name: string,
+  window: { from: number; to: number; features?: AudioFeatures | null },
+  progress: (stage: string, share: number) => void,
+  signal?: AbortSignal,
+): Promise<TrainingWindow> {
+  let mark = performance.now();
+  progress("Reading the video", 0);
+  const info = await videoInfo(blob);
+  const from = Math.max(0, Math.min(window.from, info.duration - 1));
+  const to = Math.max(from + 1, Math.min(window.to, info.duration));
+  progress("Reading the sound", 0.03);
+  const features = window.features !== undefined ? window.features : await videoAudioFeatures(blob);
+  const soundSeconds = (performance.now() - mark) / 1000;
+  mark = performance.now();
+  progress("Finding particles", 0.08);
+  const analysis = await analyseVideo(gpu, blob, info, from, to, (share) => progress("Finding particles", 0.08 + 0.87 * share), signal);
+  const detectSeconds = (performance.now() - mark) / 1000;
+  progress("Following particles", 0.95);
+  await new Promise((r) => setTimeout(r, 0));
+  const tracks = track(analysis.frames, { ...DEFAULT_TRACKER, accept: particleDetection });
+  const [rx, ry, rw, rh] = analysis.options.region;
+  const center: [number, number] = focusOfExpansion(tracks.filter((t) => t.points.length >= 12)) ?? [rx + rw / 2, ry + rh / 2];
+  const shake = measureShake(shakeTrack(analysis.motions, info.frameRate), info.frameRate);
+  const dataset = encodeDataset({ name, from, to, analysis, tracks, center, features, shake });
+  return { info, from, to, analysis, tracks, center, features, shake, dataset, soundSeconds, detectSeconds };
+}
+
+/** The analysis of [from, to) of a video as the trainer reads it (dataset.ts). */
+export async function exportDataset(blob: Blob, name: string, from: number, to: number): Promise<Uint8Array<ArrayBuffer>> {
+  const gpu = createGpu();
+  try {
+    const window = await analyseForTraining(gpu, blob, name, { from, to }, () => {});
+    gpu.release(window.analysis.background);
+    return window.dataset;
+  } finally {
+    gpu.dispose();
+  }
+}
+
+/**
+ * Share of the measured correction a calibration round applies to the bank's velocities and weights: both
+ * move the outward speeds (as brightening does, by showing more of the slow, distant particles), so full
+ * steps of each overshoot.
+ */
+const SPEED_STEP = 0.5;
+
+const logOff = (a: number, b: number) => (a > 0 && b > 0 ? Math.abs(Math.log(a / b)) : 10);
+
+/**
+ * Calibration by synthesis over a few short stretches of the window: rounds of rendering the model over the
+ * window's background and scaling its birth rate, light, size and velocities and reweighting its bank by
+ * what the detector finds and by the sprites its crops look like. Keeps the round that came closest to the
+ * reference and returns what it found.
+ */
+async function calibrateModel(gpu: Gpu, window: TrainingWindow, model: ParticleWorldModel, rounds: number, onRound: (round: number) => void): Promise<Record<string, number>> {
+  const { analysis, tracks, center, features, from, to } = window;
+  const { frames, options: opts } = analysis;
+  const fps = window.info.frameRate;
+  const stretch = Math.min(3, (to - from) / 3);
+  const ranges = [1 / 6, 1 / 2, 5 / 6].map((share) => {
+    const start = Math.max(from, from + share * (to - from) - stretch / 2);
+    return [Math.round(start * fps), Math.round((start + stretch) * fps)] as const;
+  });
+  const inRanges = (frame: number) => ranges.some(([a, b]) => frame >= a && frame < b);
+  const reference = detectionStats(frames.filter((f) => inRanges(f.index)));
+  const tracker = { ...DEFAULT_TRACKER, accept: particleDetection };
+  const referenceSteps = measure(frames, tracks, center).steps.filter((s) => inRanges(s.frame));
+  const bins = stepBins(referenceSteps);
+  const referenceHistogram = stepHistogram(bins, referenceSteps);
+  const quarters = radiusQuarters(referenceSteps);
+  const referenceSpeeds = quarterSpeeds(referenceSteps, quarters);
+  const referenceShares = classShares(model.sprites, analysis.crops);
+  const occupancyView = { x: center[0], y: center[1], scale: window.info.height, region: opts.region, frameRate: fps };
+  const pairs = (model.report.bankPairs ?? 1) === 1;
+  const view = referenceView(model);
+  const gains = { rate: 1, light: 1, size: 1, speed: 1, approach: 1 };
+  interface Round {
+    round: number;
+    error: number;
+    prototypes: Float32Array;
+    weights: Float32Array;
+    rate: number;
+    gains: typeof gains;
+    ours: DetectionStats;
+    speeds: number[];
+    distance: number;
+    shareDistance: number;
+  }
+  let best: Round | undefined;
+  let firstDistance = NaN;
+  let firstShareDistance = NaN;
+  for (let round = 0; round <= rounds; round++) {
+    onRound(round);
+    const clock = new Clock(model.dynamics, features, model.preRun, { reactivity: 1, speed: 1 });
+    const synthesis = await synthesize(gpu, analysis, prepare(model), clock, view, ranges, true);
+    const ours = detectionStats(synthesis.frames);
+    const ourSteps = measure(synthesis.frames, track(synthesis.frames, tracker), center).steps;
+    const ourHistogram = stepHistogram(bins, ourSteps);
+    const ourSpeeds = quarterSpeeds(ourSteps, quarters);
+    const ourShares = classShares(model.sprites, synthesis.crops);
+    const distance = 0.5 * ourHistogram.reduce((s, v, b) => s + Math.abs(v - referenceHistogram[b]), 0);
+    const shareDistance = 0.5 * referenceShares.reduce((s, v, k) => s + Math.abs(v - ourShares[k]), 0);
+    if (round === 0) {
+      firstDistance = distance;
+      firstShareDistance = shareDistance;
+    }
+    const error =
+      distance +
+      shareDistance +
+      logOff(ours.count, reference.count) +
+      logOff(ours.peak, reference.peak) +
+      logOff(ours.spread, reference.spread) +
+      ourSpeeds.reduce((s, v, q) => s + logOff(v, referenceSpeeds[q]), 0) / ourSpeeds.length;
+    if (!best || error < best.error) {
+      best = { round, error, prototypes: model.prototypes.slice(), weights: model.weights.slice(), rate: model.rate, gains: { ...gains }, ours, speeds: ourSpeeds, distance, shareDistance };
+    }
+    if (round === rounds) break;
+    const lightStep = ours.peak > 0 ? Math.max(0.5, Math.min(2, reference.peak / ours.peak)) : 2;
+    const sizeStep = ours.spread > 0 ? Math.max(0.5, Math.min(2, reference.spread / ours.spread)) : 1;
+    const velocity = velocitySteps(referenceSpeeds, ourSpeeds);
+    const speedStep = velocity.speed ** SPEED_STEP;
+    const approachStep = velocity.approach ** SPEED_STEP;
+    // Reweighting, brightening and speeding up change how long the drawn particles stay visible: the rate
+    // makes up for it, so that the count it is stepped to is the count the next round finds.
+    const occupancies = occupancy(model, occupancyView, bins, MIN_PEAK);
+    const visible = (o: Float32Array[]) => o.reduce((s, counts, i) => s + model.weights[i] * counts.reduce((a, b) => a + b, 0), 0);
+    const before = visible(occupancies);
+    reweight(model, occupancies, referenceHistogram, ourHistogram, pairs, SPEED_STEP);
+    reweightSprites(model, referenceShares, ourShares);
+    scalePrototypes(model.prototypes, sizeStep, lightStep);
+    scaleVelocities(model.prototypes, speedStep, approachStep);
+    const after = visible(occupancy(model, occupancyView, bins, MIN_PEAK));
+    const rateStep = (ours.count > 0 ? Math.max(0.25, Math.min(4, reference.count / ours.count)) : 4) * (after > 0 && before > 0 ? before / after : 1);
+    model.rate *= rateStep;
+    gains.rate *= rateStep;
+    gains.light *= lightStep;
+    gains.size *= sizeStep;
+    gains.speed *= speedStep;
+    gains.approach *= approachStep;
+  }
+  const kept = best!;
+  model.prototypes.set(kept.prototypes);
+  model.weights.set(kept.weights);
+  model.rate = kept.rate;
+  return {
+    calibrationRound: kept.round,
+    rateGain: kept.gains.rate,
+    lightGain: kept.gains.light,
+    sizeGain: kept.gains.size,
+    speedGain: kept.gains.speed,
+    approachGain: kept.gains.approach,
+    outerSpeedRatio: kept.speeds[3] / referenceSpeeds[3],
+    innerSpeedRatio: kept.speeds[0] / referenceSpeeds[0],
+    countReference: reference.count,
+    countModel: kept.ours.count,
+    peakReference: reference.peak,
+    peakModel: kept.ours.peak,
+    spreadReference: reference.spread,
+    spreadModel: kept.ours.spread,
+    stepDistanceFirst: firstDistance,
+    stepDistance: kept.distance,
+    spriteShareDistanceFirst: firstShareDistance,
+    spriteShareDistance: kept.shareDistance,
+  };
+}
+
 export async function trainModel(blob: Blob, name: string, options: TrainOptions): Promise<TrainResult> {
   const started = performance.now();
   const progress = (stage: string, share: number) => options.onProgress?.({ stage, share: Math.max(0, Math.min(1, share)) });
   const check = () => {
     if (options.signal?.aborted) throw new DOMException("Training was cancelled.", "AbortError");
   };
-  progress("Reading the video", 0);
-  const info = await videoInfo(blob);
-  const from = Math.max(0, Math.min(options.from, info.duration - 1));
-  const to = Math.max(from + 1, Math.min(options.to, info.duration));
-  const fps = info.frameRate;
-  const W = info.width;
-  const H = info.height;
-  progress("Reading the sound", 0.02);
-  const features = await videoAudioFeatures(blob);
-  const timing = { sound: performance.now() - started, detect: 0, fit: 0, calibrate: 0 };
-  let mark = performance.now();
-  check();
   const gpu = createGpu();
   try {
-    progress("Finding particles", 0.05);
-    const analysis = await analyseVideo(gpu, blob, info, from, to, (share) => progress("Finding particles", 0.05 + 0.55 * share), options.signal);
+    const window = await analyseForTraining(gpu, blob, name, options, (stage, share) => progress(stage, 0.5 * share), options.signal);
     check();
-    const { frames, masks, crops, mirror, options: opts, columns, rows } = analysis;
-    timing.detect = performance.now() - mark;
+    let mark = performance.now();
+    progress("Training the PyTorch model", 0.5);
+    const raw = await options.trainer(window.dataset, (stage, share) => progress(stage, 0.5 + 0.25 * share), options.signal);
+    const model = decodeModel(raw);
+    const torchSeconds = (performance.now() - mark) / 1000;
+    check();
     mark = performance.now();
-
-    progress("Following particles", 0.6);
-    await new Promise((r) => setTimeout(r, 0));
-    const tracks = track(frames, { ...DEFAULT_TRACKER, accept: particleDetection });
-    const long = tracks.filter((t) => t.points.length >= 12);
-    const [rx, ry, rw, rh] = opts.region;
-    const center: [number, number] = focusOfExpansion(long) ?? [rx + rw / 2, ry + rh / 2];
-    check();
-    progress("Learning the motion", 0.64);
-    await new Promise((r) => setTimeout(r, 0));
-    const first = frames[0].index;
-    const count = frames[frames.length - 1].index - first + 1;
-    const clock = fitClock(tracks, first, count, center, fps);
-    const fitted = fitDynamics(features, clock.speed, first / fps, fps);
-    const shaking = fitShake(shakeTrack(analysis.motions, fps), fps, first / fps, features);
-    const stitched = stitchTracks(tracks, clock, center);
-    check();
-    progress("Learning the sprites", 0.68);
-    await new Promise((r) => setTimeout(r, 0));
-    const sprites = learnSprites(crops);
-    // Sprite class per track: its own crop's, else the nearest cropped track's by size and light.
-    const byPoint = new Map<string, Track>();
-    for (const t of stitched.tracks) for (const p of t.points) byPoint.set(`${p.frame}:${p.x}:${p.y}`, t);
-    const classOf = new Map<Track, number>();
-    crops.forEach((c, i) => {
-      const t = byPoint.get(`${c.frame}:${c.x}:${c.y}`);
-      if (t && sprites.labels[i] >= 0 && !classOf.has(t)) classOf.set(t, sprites.labels[i]);
-    });
-    const signature = (t: Track) => {
-      const spreads = t.points.map((p) => p.spread).sort((a, b) => a - b);
-      const peaks = t.points.map((p) => p.peak).sort((a, b) => a - b);
-      return [Math.log(Math.max(0.3, spreads[spreads.length >> 1])), Math.log(Math.max(1e-3, peaks[peaks.length >> 1]))];
-    };
-    const labelled = [...classOf.entries()].map(([t, c]) => [signature(t), c] as const);
-    const spriteOf = (t: Track) => {
-      const known = classOf.get(t);
-      if (known !== undefined) return known;
-      if (!labelled.length) return 0;
-      const [a, b] = signature(t);
-      let best = 0;
-      let bestD = Infinity;
-      for (const [[x, y], c] of labelled) {
-        const d = (x - a) ** 2 + (y - b) ** 2;
-        if (d < bestD) {
-          bestD = d;
-          best = c;
-        }
-      }
-      return best;
-    };
-    const visibility: Visibility = { width: W, height: H, region: opts.region, tile: opts.tile, columns, rows, first, masks };
-    const population = buildPopulation(stitched.tracks, clock, center, visibility, spriteOf, { ...DEFAULT_POPULATION, ...options.population });
-    const depth = depthExponents(stitched.tracks, population.fits, clock);
-    const model: ParticleWorldModel = {
-      version: MODEL_VERSION,
-      rate: population.rate,
-      preRun: population.maxLife,
-      sizeDepth: depth.size,
-      lightDepth: depth.light,
-      prototypes: population.prototypes,
-      weights: population.weights,
-      jitter: Float32Array.of(0.08, 0.05, 0.1, 0.1, 0.1),
-      opacityOverLife: population.opacityOverLife,
-      sprites: sprites.bank,
-      dynamics: fitted.dynamics,
-      shake: shaking.shake,
-      source: { name, width: W, height: H, frameRate: fps, mirrorAxis: mirror?.axis ?? null, center, train: [from, to] },
-      report: {},
-    };
-    check();
-    timing.fit = performance.now() - mark;
-    mark = performance.now();
-
-    // Calibration by synthesis over a few short stretches of the window.
-    const rounds = options.calibration ?? 6;
-    const stretch = Math.min(3, (to - from) / 3);
-    const ranges = [1 / 6, 1 / 2, 5 / 6].map((share) => {
-      const start = Math.max(from, from + share * (to - from) - stretch / 2);
-      return [Math.round(start * fps), Math.round((start + stretch) * fps)] as const;
-    });
-    const inRanges = (frame: number) => ranges.some(([a, b]) => frame >= a && frame < b);
-    const reference = detectionStats(frames.filter((f) => inRanges(f.index)));
-    const tracker = { ...DEFAULT_TRACKER, accept: particleDetection };
-    const referenceSteps = measure(frames, tracks, center).steps.filter((s) => inRanges(s.frame));
-    const bins = stepBins(referenceSteps);
-    const referenceHistogram = stepHistogram(bins, referenceSteps);
-    const occupancyView = { x: center[0], y: center[1], scale: H, region: opts.region, frameRate: fps };
-    const mirroredPopulation = options.population?.mirror ?? DEFAULT_POPULATION.mirror;
-    const view = referenceView(model);
-    const gains = { rate: 1, light: 1, size: 1 };
-    let ours: DetectionStats = { frames: 0, count: 0, peak: 0, spread: 0 };
-    const stepDistance: number[] = [];
-    for (let round = 0; round <= rounds; round++) {
+    const rounds = options.calibration ?? 3;
+    const calibration = await calibrateModel(gpu, window, model, rounds, (round) => {
       check();
-      progress("Calibrating", 0.7 + (0.3 * round) / (rounds + 1));
-      const modelClock = new Clock(model.dynamics, features, model.preRun, { reactivity: 1, speed: 1 });
-      const synthesis = await synthesize(gpu, analysis, prepare(model), modelClock, view, ranges);
-      ours = detectionStats(synthesis.frames);
-      const ourHistogram = stepHistogram(bins, measure(synthesis.frames, track(synthesis.frames, tracker), center).steps);
-      stepDistance.push(0.5 * ourHistogram.reduce((s, v, b) => s + Math.abs(v - referenceHistogram[b]), 0));
-      if (round === rounds) break;
-      const rateStep = ours.count > 0 ? Math.max(0.25, Math.min(4, reference.count / ours.count)) : 4;
-      const lightStep = ours.peak > 0 ? Math.max(0.5, Math.min(2, reference.peak / ours.peak)) : 2;
-      const sizeStep = ours.spread > 0 ? Math.max(0.5, Math.min(2, reference.spread / ours.spread)) : 1;
-      model.rate *= rateStep;
-      gains.rate *= rateStep;
-      gains.light *= lightStep;
-      gains.size *= sizeStep;
-      reweight(model, occupancy(model, occupancyView, bins, MIN_PEAK), referenceHistogram, ourHistogram, mirroredPopulation);
-      scalePrototypes(model.prototypes, sizeStep, lightStep);
-    }
-    gpu.release(analysis.background);
-    timing.calibrate = performance.now() - mark;
+      progress("Calibrating", 0.75 + (0.25 * round) / (rounds + 1));
+    });
+    gpu.release(window.analysis.background);
     model.report = {
+      ...model.report,
+      ...calibration,
       seconds: (performance.now() - started) / 1000,
-      soundSeconds: timing.sound / 1000,
-      detectSeconds: timing.detect / 1000,
-      fitSeconds: timing.fit / 1000,
-      calibrateSeconds: timing.calibrate / 1000,
-      frames: frames.length,
-      tracks: tracks.length,
-      links: stitched.links,
-      used: population.stats.used,
-      emerged: population.stats.emerged,
-      censored: population.stats.censored,
-      prototypes: model.weights.length,
-      sprites: model.sprites.count,
-      mirrored: mirror ? 1 : 0,
-      mirrorAxis: mirror?.axis ?? -1,
-      mirrorScore: mirror?.score ?? 0,
-      emitterX: center[0],
-      emitterY: center[1],
-      clockLag: fitted.report.lag,
-      clockR2: fitted.report.r2Valid,
-      audio: features ? 1 : 0,
-      shaken: shaking.shake ? 1 : 0,
-      shakeRms: shaking.report.rms,
-      shakeTiltRms: shaking.report.tiltRms,
-      shakeR2: shaking.report.r2,
-      shakeFrequency: shaking.shake?.frequency ?? 0,
-      rateGain: gains.rate,
-      lightGain: gains.light,
-      sizeGain: gains.size,
-      countReference: reference.count,
-      countModel: ours.count,
-      peakReference: reference.peak,
-      peakModel: ours.peak,
-      spreadReference: reference.spread,
-      spreadModel: ours.spread,
-      sizeDepth: model.sizeDepth,
-      lightDepth: model.lightDepth,
-      depthTracks: depth.tracks,
-      stepDistanceFirst: stepDistance[0],
-      stepDistance: stepDistance[stepDistance.length - 1],
+      soundSeconds: window.soundSeconds,
+      detectSeconds: window.detectSeconds,
+      torchSeconds,
+      calibrateSeconds: (performance.now() - mark) / 1000,
+      frames: window.analysis.frames.length,
     };
     progress("Done", 1);
-    return { model, tracks, features };
+    return { model, tracks: window.tracks, features: window.features };
   } finally {
     gpu.dispose();
   }

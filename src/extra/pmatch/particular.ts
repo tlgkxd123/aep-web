@@ -203,6 +203,51 @@ interface SpriteFit {
   peak: number;
 }
 
+/** Glow Sphere fits by model and speed class, valid while the model arrays they were fitted to hash to `fingerprint`. */
+const fitCache = new WeakMap<ParticleWorldModel, { fingerprint: number; profiles: Float64Array[]; fits: Map<string, SpriteFit> }>();
+
+function fingerprint(model: ParticleWorldModel): number {
+  let h = 0x811c9dc5;
+  for (const array of [model.prototypes, model.weights, model.sprites.data]) {
+    const bits = new Int32Array(array.buffer, array.byteOffset, array.length);
+    for (let i = 0; i < bits.length; i++) h = Math.imul(h ^ bits[i], 0x01000193);
+  }
+  return h;
+}
+
+/**
+ * The Glow Sphere fit to the light of a speed class's sprites, with its size in units of the class's typical
+ * size: radii and sizes scale together, so one fit serves every comp size.
+ */
+function classFit(model: ParticleWorldModel, key: string, members: readonly { seen: number; amp: number; sprite: number }[]): SpriteFit {
+  const print = fingerprint(model);
+  let cache = fitCache.get(model);
+  if (cache?.fingerprint !== print) {
+    cache = { fingerprint: print, profiles: Array.from({ length: model.sprites.count }, (_, k) => spriteProfile(model, k, 64)), fits: new Map() };
+    fitCache.set(model, cache);
+  }
+  const cached = cache.fits.get(key);
+  if (cached) return cached;
+  const bins = 48;
+  const radii = Float64Array.from({ length: bins }, (_, i) => ((i + 0.5) / bins) * model.sprites.reach);
+  const light = new Float64Array(bins);
+  let lightWeight = 0;
+  for (const r of members) {
+    const profile = cache.profiles[r.sprite];
+    const weight = r.seen * r.amp;
+    lightWeight += r.seen;
+    for (let i = 0; i < bins; i++) {
+      const x = ((i + 0.5) / bins) * (profile.length - 1);
+      const k = Math.min(profile.length - 2, Math.floor(x));
+      light[i] += weight * (profile[k] + (profile[k + 1] - profile[k]) * (x - k));
+    }
+  }
+  for (let i = 0; i < bins; i++) light[i] /= Math.max(lightWeight, 1e-9);
+  const fit = fitGlowSphere(radii, light, 1);
+  cache.fits.set(key, fit);
+  return fit;
+}
+
 /** Glow Sphere settings whose light profile is closest (area-weighted least squares) to `target` sampled at `radii`. */
 function fitGlowSphere(radii: Float64Array, target: Float64Array, typical: number): SpriteFit {
   let best: SpriteFit & { error: number } = { size: typical, feather: 0.5, glowSize: 3, glowOpacity: 0.25, peak: 1, error: Infinity };
@@ -300,12 +345,13 @@ export function particularSettings(model: ParticleWorldModel, target: Particular
     const p = model.prototypes.subarray(i * PROTO_STRIDE, (i + 1) * PROTO_STRIDE);
     const births = Math.max(0, model.weights[i]);
     const life = Math.max(1e-3, p[P_LIFE]);
-    const approach = Math.max(0, -p[P_VZ]) * zoom;
+    const speed = Math.max(0, -p[P_VZ]);
     return {
       births,
       seen: births * life,
       life,
-      approach,
+      speed,
+      approach: speed * zoom,
       across: Math.hypot(p[P_VX], p[P_VY]) * H,
       x: p[P_OX] * H,
       y: p[P_OY] * H,
@@ -315,7 +361,7 @@ export function particularSettings(model: ParticleWorldModel, target: Particular
     };
   });
   const totalBirths = rows.reduce((s, r) => s + r.births, 0) || 1;
-  rows.sort((a, b) => a.approach - b.approach);
+  rows.sort((a, b) => a.speed - b.speed);
   const classCount = Math.max(1, Math.min(3, Math.floor(count / MIN_CLASS)));
   const totalSeen = rows.reduce((s, r) => s + r.seen, 0) || 1;
   const classes: (typeof rows)[] = Array.from({ length: classCount }, () => []);
@@ -325,8 +371,6 @@ export function particularSettings(model: ParticleWorldModel, target: Particular
     seen += r.seen;
   }
 
-  const profiles = Array.from({ length: model.sprites.count }, (_, k) => spriteProfile(model, k, 64));
-  const reach = model.sprites.reach;
   const j = model.jitter;
   const layers: ParticularLayerSettings[] = [];
   classes.forEach((members, c) => {
@@ -362,23 +406,13 @@ export function particularSettings(model: ParticleWorldModel, target: Particular
     const amp = mean(bySeen((r) => r.amp));
     const ampSpread = Math.hypot(spread(bySeen((r) => r.amp)) / Math.max(amp, 1e-6), j[3]);
     const opacityRandom = Math.min(1, ampSpread / (1 / Math.sqrt(12) + ampSpread / 2));
-    const radii = Float64Array.from({ length: 48 }, (_, i) => ((i + 0.5) / 48) * reach * typical);
-    const light = new Float64Array(radii.length);
-    let lightWeight = 0;
+    const fit = classFit(model, `${classCount}:${c}`, members);
+    let seenWeight = 0;
     const tint = [0, 0, 0];
     for (const r of members) {
-      const profile = profiles[r.sprite];
-      const weight = r.seen * r.amp;
-      lightWeight += r.seen;
-      for (let i = 0; i < radii.length; i++) {
-        const x = (radii[i] / typical / reach) * (profile.length - 1);
-        const k = Math.min(profile.length - 2, Math.floor(x));
-        light[i] += weight * (profile[k] + (profile[k + 1] - profile[k]) * (x - k));
-      }
+      seenWeight += r.seen;
       for (let ch = 0; ch < 3; ch++) tint[ch] += r.seen * model.sprites.tint[r.sprite * 3 + ch];
     }
-    for (let i = 0; i < light.length; i++) light[i] /= Math.max(lightWeight, 1e-9);
-    const fit = fitGlowSphere(radii, light, typical);
 
     // Over Life, for the class's mean approach: depth z = 1 - approach · u.
     const approach = Math.min(MAX_APPROACH, (velocity * LIFE_MEAN * life) / zoom);
@@ -402,7 +436,7 @@ export function particularSettings(model: ParticleWorldModel, target: Particular
       [P.life, round(life * stretch, 2)],
       [P.lifeRandom, 100],
       [P.particleType, GLOW_SPHERE],
-      [P.size, round(fit.size * sizeCurve.peak, 2)],
+      [P.size, round(fit.size * typical * sizeCurve.peak, 2)],
       [P.sizeRandom, Math.round(sizeRandom * 100)],
       [P.feather, Math.round(fit.feather * 100)],
       [P.opacity, round(opacity * 100, 1)],
@@ -425,7 +459,7 @@ export function particularSettings(model: ParticleWorldModel, target: Particular
     layers.push({
       name: name ? `Particles (${name})` : "Particles",
       numbers,
-      color: tint.map((v) => Math.min(1, v / Math.max(lightWeight, 1e-9))) as [number, number, number],
+      color: tint.map((v) => Math.min(1, v / Math.max(seenWeight, 1e-9))) as [number, number, number],
       sizeOverLife: sizeCurve.points,
       opacityOverLife: opacityCurve.points,
       share,

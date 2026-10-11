@@ -1,9 +1,11 @@
-// A particle world model learned from a reference video (train.ts). Particles are
-// born at an emitter one unit in front of a pinhole camera and fly in straight
-// lines through particle space; a global clock driven by the music sets how fast
+// A particle world model learned from a reference video, trained in PyTorch
+// (ml/pmatch) on the browser's analysis of it (pipeline.ts). Particles are born
+// at an emitter one unit in front of a pinhole camera and fly in straight lines
+// through particle space; a global clock driven by the music sets how fast
 // particle time passes, and a zoom driven by the music scales the picture. What a
 // particle is (its velocity, birth offset, size, brightness, life and sprite) is
-// drawn from a bank of prototypes fitted to tracked particles, with kernel jitter.
+// drawn from a bank of prototypes sampled from the model's particle flow, with a
+// little jitter.
 //
 // Screen coordinates are the reference's, relative to the emitter and in units of
 // the frame height (y down): a particle at (x, y, z) is seen at (x, y) / z. Its
@@ -12,7 +14,7 @@
 // The whole picture may also shake, as Sapphire S_Shake shakes it (shake.ts).
 import type { ShakeModel } from "./shake.ts";
 
-export const MODEL_VERSION = 1;
+export const MODEL_VERSION = 2;
 const MAGIC = 0x4d574d50; // "PMWM", little endian
 
 /** Floats per prototype. */
@@ -48,18 +50,42 @@ export interface SpriteBank {
   tint: Float32Array;
 }
 
+/** Outputs of the dynamics network per feature frame. */
+export const D_LOG_SPEED = 0;
+export const D_LOG_ZOOM = 1;
+export const D_SHAKE = 2;
+export const DYNAMICS_OUTPUTS = 3;
+
+/**
+ * The audio network (ml/pmatch/pmatch/nets.py AudioTCN, evaluated by tcn.ts): a 1×1 input projection,
+ * residual blocks of a dilated centred convolution, SiLU and a 1×1 mix, then a 1×1 head plus a linear skip
+ * from the features. Its outputs per feature frame are the log clock speed, the log zoom and S_Shake's
+ * Amplitude.
+ */
 export interface Dynamics {
   /** Audio feature rate (frames per second) and features per frame (audio.ts). */
   rate: number;
   inputs: number;
-  hidden: number;
-  /** Seconds the picture follows the audio by. */
-  lag: number;
+  channels: number;
+  /** Taps of each block's convolution (odd) and its dilation per block. */
+  kernel: number;
+  dilations: number[];
+  outputs: number;
   /**
-   * W1 (hidden × inputs), b1 (hidden), W2 (2 × hidden), b2 (2), skip (2 × inputs):
-   * out = W2 tanh(W1 f + b1) + b2 + skip f, giving log clock speed and log zoom.
+   * Input W (channels × inputs) and b; per block the convolution W (channels × channels × kernel) and b and
+   * the mix W (channels × channels) and b; the head W (outputs × channels) and b; the skip W (outputs × inputs).
    */
   weights: Float32Array;
+}
+
+/** What trained a model. */
+export interface TrainerInfo {
+  framework: string;
+  version: string;
+  /** "cuda" or "cpu", and the device's name. */
+  device: string;
+  deviceName: string;
+  seconds: number;
 }
 
 export interface ModelSource {
@@ -90,9 +116,10 @@ export interface ParticleWorldModel {
   opacityOverLife: Float32Array;
   sprites: SpriteBank;
   dynamics: Dynamics;
-  /** How the reference's picture shakes; null when it does not (or the model predates shakes). */
+  /** How the reference's picture shakes; null when it does not. */
   shake: ShakeModel | null;
   source: ModelSource;
+  trainer: TrainerInfo;
   /** Training measurements shown to the user. */
   report: Record<string, number>;
 }
@@ -101,8 +128,9 @@ export function prototypeCount(model: ParticleWorldModel): number {
   return model.prototypes.length / PROTO_STRIDE;
 }
 
-export function dynamicsWeightCount(inputs: number, hidden: number): number {
-  return hidden * inputs + hidden + 2 * hidden + 2 + 2 * inputs;
+export function dynamicsWeightCount(d: Pick<Dynamics, "inputs" | "channels" | "kernel" | "dilations" | "outputs">): number {
+  const { inputs: i, channels: c, kernel: k, outputs: o } = d;
+  return c * i + c + d.dilations.length * (c * c * k + c + c * c + c) + o * c + o + o * i;
 }
 
 function base64(bytes: Uint8Array): string {
@@ -148,6 +176,7 @@ export function encodeModel(model: ParticleWorldModel): Uint8Array {
     dynamics: { ...model.dynamics, weights: packFloats(model.dynamics.weights) },
     shake: model.shake,
     source: model.source,
+    trainer: model.trainer,
     report: model.report,
   });
   const text = new TextEncoder().encode(json);
@@ -165,20 +194,39 @@ const finite = (v: unknown, what: string): number => {
 };
 
 function decodeShake(raw: Record<string, unknown>): ShakeModel {
-  const weights = raw.weights;
-  if (!Array.isArray(weights) || weights.length > 64) throw new Error("model shake is malformed");
   const shake: ShakeModel = {
     frequency: finite(raw.frequency, "shake frequency"),
     x: finite(raw.x, "shake x"),
     y: finite(raw.y, "shake y"),
     tilt: finite(raw.tilt, "shake tilt"),
-    bias: finite(raw.bias, "shake bias"),
-    weights: weights.map((w) => finite(w, "shake weight")),
-    lag: finite(raw.lag, "shake lag"),
     level: finite(raw.level, "shake level"),
   };
   if (shake.frequency <= 0 || shake.x < 0 || shake.y < 0 || shake.tilt < 0) throw new Error("model shake is malformed");
   return shake;
+}
+
+function decodeDynamics(raw: Record<string, unknown>): Dynamics {
+  const count = (v: unknown, what: string, max: number) => {
+    const n = finite(v, what);
+    if (!Number.isInteger(n) || n < 1 || n > max) throw new Error(`model ${what} is malformed`);
+    return n;
+  };
+  const dilations = raw.dilations;
+  if (!Array.isArray(dilations) || dilations.length > 16) throw new Error("model dynamics are malformed");
+  const shape = {
+    inputs: count(raw.inputs, "dynamics inputs", 256),
+    channels: count(raw.channels, "dynamics channels", 256),
+    kernel: count(raw.kernel, "dynamics kernel", 15),
+    dilations: dilations.map((d) => count(d, "dynamics dilation", 4096)),
+    outputs: count(raw.outputs, "dynamics outputs", 16),
+  };
+  if (shape.kernel % 2 !== 1 || shape.outputs < DYNAMICS_OUTPUTS) throw new Error("model dynamics are malformed");
+  return { rate: finite(raw.rate, "feature rate"), ...shape, weights: unpackFloats(raw.weights, dynamicsWeightCount(shape)) };
+}
+
+function decodeTrainer(raw: Record<string, unknown> | undefined): TrainerInfo {
+  const text = (v: unknown) => (typeof v === "string" ? v : "");
+  return { framework: text(raw?.framework), version: text(raw?.version), device: text(raw?.device), deviceName: text(raw?.deviceName), seconds: typeof raw?.seconds === "number" ? raw.seconds : 0 };
 }
 
 /** Reads a stored model; throws on anything that is not a well-formed model of this version. */
@@ -196,9 +244,6 @@ export function decodeModel(bytes: Uint8Array): ParticleWorldModel {
   const spriteSize = finite(s.size, "sprite size");
   const spriteCount = finite(s.count, "sprite count");
   if (spriteSize < 1 || spriteSize > 256 || spriteCount < 1 || spriteCount > 64) throw new Error("model sprites are malformed");
-  const d = raw.dynamics ?? {};
-  const inputs = finite(d.inputs, "dynamics inputs");
-  const hidden = finite(d.hidden, "dynamics size");
   const model: ParticleWorldModel = {
     version,
     rate: finite(raw.rate, "rate"),
@@ -216,15 +261,10 @@ export function decodeModel(bytes: Uint8Array): ParticleWorldModel {
       data: unpackFloats(s.data, spriteCount * spriteSize * spriteSize),
       tint: unpackFloats(s.tint, spriteCount * 3),
     },
-    dynamics: {
-      rate: finite(d.rate, "feature rate"),
-      inputs,
-      hidden,
-      lag: finite(d.lag, "lag"),
-      weights: unpackFloats(d.weights, dynamicsWeightCount(inputs, hidden)),
-    },
+    dynamics: decodeDynamics(raw.dynamics ?? {}),
     shake: raw.shake ? decodeShake(raw.shake) : null,
     source: raw.source,
+    trainer: decodeTrainer(raw.trainer),
     report: raw.report ?? {},
   };
   for (let i = 0; i < count; i++) {

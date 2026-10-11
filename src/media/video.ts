@@ -22,6 +22,11 @@ export interface VideoReader {
 
 /** Samples decoded past the requested one in a single run, so playback does not restart from the key frame every frame. */
 const LOOKAHEAD = 12;
+/**
+ * Pictures a reader keeps as decoded, unread, for the requests that follow: only requested ones are read out
+ * (a copy of their planes), which matters when time remapping shows every few frames of a movie.
+ */
+const RAW_KEEP = 16;
 
 /** Decoder work counters, for profiling playback and exports. */
 export const videoStats = { resets: 0, fed: 0, frames: 0, convertMs: 0, waitMs: 0 };
@@ -98,6 +103,12 @@ export class WebCodecsReader implements VideoReader {
   private began = -1;
   /** Presentation indices delivered since the last reset, with the number of requests finished at the time. */
   private readonly delivered = new Map<number, number>();
+  /** Presentation indices that came out of the decoder since its last reset, delivered or not. */
+  private readonly seen = new Set<number>();
+  /** Pictures decoded on the way to a requested one, not read out yet. */
+  private readonly raw = new Map<number, VideoFrame>();
+  /** No picture is shown before the key frame of its GOP: decoding can skip ahead to any key frame. */
+  private readonly closedGops: boolean;
   private completed = 0;
   private sink: FrameSink | undefined;
   private failure: Error | undefined;
@@ -116,6 +127,51 @@ export class WebCodecsReader implements VideoReader {
       .map(({ i }) => i);
     this.times = this.order.map((i) => track.samples[i].time);
     this.presentationIndex = new Map(this.order.map((sample, p) => [sample, p]));
+    let key = -1;
+    this.closedGops = track.samples.every((s, i) => {
+      if (s.isSync) key = i;
+      return key >= 0 && s.time >= track.samples[key].time - 1e-9;
+    });
+  }
+
+  /** Reads the picture's samples out and hands them to the current request's sink. */
+  private deliver(p: number, frame: VideoFrame): void {
+    const sink = this.sink;
+    const started = performance.now();
+    this.conversions.push(
+      toFootageFrame(frame).then((f) => {
+        videoStats.frames++;
+        videoStats.convertMs += performance.now() - started;
+        this.delivered.set(p, this.completed);
+        sink?.(p, f);
+        this.waiting.get(p)?.();
+      }),
+    );
+  }
+
+  /**
+   * Keeps a picture nobody waits for as it came out, the earliest ones closed beyond RAW_KEEP. A hardware
+   * decoder stalls when its few output pictures are held, so its pictures are read out at once instead.
+   */
+  private keep(p: number, frame: VideoFrame): void {
+    if (this.config.hardwareAcceleration !== "prefer-software") {
+      this.deliver(p, frame);
+      return;
+    }
+    this.raw.get(p)?.close();
+    this.raw.set(p, frame);
+    while (this.raw.size > RAW_KEEP) {
+      const oldest = Math.min(...this.raw.keys());
+      this.raw.get(oldest)!.close();
+      this.raw.delete(oldest);
+    }
+  }
+
+  private forgetDecoded(): void {
+    for (const frame of this.raw.values()) frame.close();
+    this.raw.clear();
+    this.seen.clear();
+    this.delivered.clear();
   }
 
   private ensureDecoder(): VideoDecoder {
@@ -123,17 +179,9 @@ export class WebCodecsReader implements VideoReader {
     this.decoder = new VideoDecoder({
       output: (frame) => {
         const p = frame.timestamp;
-        const sink = this.sink;
-        const started = performance.now();
-        this.conversions.push(
-          toFootageFrame(frame).then((f) => {
-            videoStats.frames++;
-            videoStats.convertMs += performance.now() - started;
-            this.delivered.set(p, this.completed);
-            sink?.(p, f);
-            this.waiting.get(p)?.();
-          }),
-        );
+        this.seen.add(p);
+        if (this.waiting.has(p)) this.deliver(p, frame);
+        else this.keep(p, frame);
       },
       error: (e) => {
         this.failure = e instanceof Error ? e : new Error(String(e));
@@ -177,21 +225,35 @@ export class WebCodecsReader implements VideoReader {
 
     this.sink = sink;
     this.failure = undefined;
+    const kept = this.raw.get(wanted);
+    if (kept) {
+      // Decoded on the way to an earlier request.
+      this.raw.delete(wanted);
+      this.deliver(wanted, kept);
+      await this.settle();
+      return;
+    }
     let decoder = this.ensureDecoder();
     // Continue when the decoder has been fed through the target's GOP from its key frame on and the target's
     // picture is still to come: either not fed yet, or fed and on its way out.
     const live = this.fed >= 0 && this.began >= 0 && this.began <= start && start <= this.fed;
-    const continues = live && (this.fed <= target || !this.delivered.has(wanted));
+    const continues = live && (this.fed <= target || !this.seen.has(wanted));
     // Delivered after the previous request finished: the caller decided it was missing before the frame reached
     // it (from a worker, frames still coming out of the decoder arrive after the reply), so it is on its way.
     if (live && this.delivered.get(wanted) === this.completed) return;
-    if (!continues) {
+    // Ahead of everything fed, in a later GOP: feeding goes on from its key frame without restarting the decoder
+    // (a restart costs tens of milliseconds), skipping the samples between, which a request for them restarts.
+    const skips = !continues && this.closedGops && this.fed >= 0 && this.began >= 0 && start > this.fed;
+    if (skips) {
+      this.fed = start;
+      this.began = start;
+    } else if (!continues) {
       videoStats.resets++;
       decoder.reset();
       decoder.configure(this.config);
       this.fed = start;
       this.began = start;
-      this.delivered.clear();
+      this.forgetDecoded();
     }
     const from = this.fed;
     const arrived = new Promise<void>((resolve) => this.waiting.set(wanted, resolve));
@@ -203,7 +265,7 @@ export class WebCodecsReader implements VideoReader {
         const s = samples[i];
         decoder.decode(
           new EncodedVideoChunk({
-            type: (i === from && !continues) || s.isSync ? "key" : "delta",
+            type: (i === from && !continues && !skips) || s.isSync ? "key" : "delta",
             timestamp: this.presentationIndex.get(i) ?? -1,
             data: bytes.subarray(s.offset - first, s.offset - first + s.size),
           }),
@@ -223,6 +285,11 @@ export class WebCodecsReader implements VideoReader {
       this.fed = -1;
     }
     this.waiting.delete(wanted);
+    await this.settle();
+  }
+
+  /** Waits for the pictures being read out; throws the decoder's error, if any. */
+  private async settle(): Promise<void> {
     const conversions = this.conversions;
     this.conversions = [];
     await Promise.all(conversions);
@@ -232,7 +299,27 @@ export class WebCodecsReader implements VideoReader {
   close(): void {
     if (this.decoder && this.decoder.state !== "closed") this.decoder.close();
     this.decoder = undefined;
+    this.forgetDecoded();
   }
+}
+
+/**
+ * Whether an H.264 sample is a picture no other picture references (nal_ref_idc 0 on its slices): a decoder can
+ * leave it out when it is not shown. False for other codecs (HEVC's non-reference pictures may still serve
+ * higher temporal layers).
+ */
+export function isNonReference(track: Pick<VideoTrack, "codec" | "description">, sample: Uint8Array): boolean {
+  if (!track.codec.startsWith("avc")) return false;
+  const lengthSize = track.description && track.description.length > 4 ? (track.description[4] & 3) + 1 : 4;
+  for (let at = 0; at + lengthSize < sample.length; ) {
+    let size = 0;
+    for (let i = 0; i < lengthSize; i++) size = size * 256 + sample[at + i];
+    const header = sample[at + lengthSize];
+    const type = header & 0x1f;
+    if (type === 1 || type === 5) return (header & 0x60) === 0;
+    at += lengthSize + size;
+  }
+  return false;
 }
 
 /** Presentation index of the sample shown at `time`, tolerating timestamps rounded to the media timescale. */

@@ -1,0 +1,4121 @@
+{
+ "project": "ae2025-effects.aep",
+ "skipped": [
+  "ADBE Apply Color LUT2"
+ ],
+ "effects": [
+  {
+   "matchName": "PEDG2",
+   "name": "Deep Glow 2",
+   "category": "Plugin Everything",
+   "version": "1.1x1",
+   "added": true,
+   "params": 160,
+   "defined": true
+  },
+  {
+   "matchName": "SP_Superpose",
+   "name": "Superpose2",
+   "category": "Superpose",
+   "version": "2.3",
+   "added": true,
+   "params": 6,
+   "defined": true
+  },
+  {
+   "matchName": "CINEMA 4D Effect",
+   "name": "Cineware",
+   "category": "Cinema 4D",
+   "version": "5.1.1",
+   "added": false,
+   "error": "Error: Error de After Effects: Error during event PF_Cmd_SEQUENCE_SETUP Code (A_Err_GENERIC) : Cinema 4D 2024 must be installed in order to use \"Cineware by Maxon\". To install from the Creative Cloud app, go to After Effects, choose the \"...\" button next to \"Open\" and select 'Add-ons'.  (1)",
+   "defined": false
+  },
+  {
+   "matchName": "Cryptomatte",
+   "name": "Cryptomatte",
+   "category": "Canal 3D",
+   "version": "2.6.5",
+   "added": true,
+   "params": 4,
+   "defined": true
+  },
+  {
+   "matchName": "EXtractoR",
+   "name": "EXtractoR",
+   "category": "Canal 3D",
+   "version": "2.6.5",
+   "added": true,
+   "params": 7,
+   "defined": true
+  },
+  {
+   "matchName": "IDentifier",
+   "name": "IDentifier",
+   "category": "Canal 3D",
+   "version": "2.6.5",
+   "added": true,
+   "params": 4,
+   "defined": true
+  },
+  {
+   "matchName": "CC Ball Action",
+   "name": "CC Ball Action",
+   "category": "Simulación",
+   "version": "2.4",
+   "added": true,
+   "params": 13,
+   "defined": true
+  },
+  {
+   "matchName": "CC Bender",
+   "name": "CC Bender",
+   "category": "Distorsionar",
+   "version": "1.6",
+   "added": true,
+   "params": 6,
+   "defined": true
+  },
+  {
+   "matchName": "CC Bend It",
+   "name": "CC Bend It",
+   "category": "Distorsionar",
+   "version": "1.6",
+   "added": true,
+   "params": 6,
+   "defined": true
+  },
+  {
+   "matchName": "CC Blobbylize",
+   "name": "CC Blobbylize",
+   "category": "Distorsionar",
+   "version": "1.10",
+   "added": true,
+   "params": 23,
+   "defined": true
+  },
+  {
+   "matchName": "CS BlockLoad",
+   "name": "CC Block Load",
+   "category": "Estilizar",
+   "version": "1.3",
+   "added": true,
+   "params": 5,
+   "defined": true
+  },
+  {
+   "matchName": "CC Bubbles",
+   "name": "CC Bubbles",
+   "category": "Simulación",
+   "version": "2.5",
+   "added": true,
+   "params": 8,
+   "defined": true
+  },
+  {
+   "matchName": "CC Burn Film",
+   "name": "CC Burn Film",
+   "category": "Estilizar",
+   "version": "1.8",
+   "added": true,
+   "params": 4,
+   "defined": true
+  },
+  {
+   "matchName": "CS Color Neutralizer",
+   "name": "CC Color Neutralizer",
+   "category": "Corrección de color",
+   "version": "1.3",
+   "added": true,
+   "params": 26,
+   "defined": true
+  },
+  {
+   "matchName": "CC Color Offset",
+   "name": "CC Color Offset",
+   "category": "Corrección de color",
+   "version": "1.9",
+   "added": true,
+   "params": 5,
+   "defined": true
+  },
+  {
+   "matchName": "CS Composite",
+   "name": "CC Composite",
+   "category": "Canal",
+   "version": "2.0",
+   "added": true,
+   "params": 5,
+   "defined": true
+  },
+  {
+   "matchName": "CC Composite",
+   "name": "CC Composite (obsolete)",
+   "category": "_Obsolete",
+   "version": "1.10",
+   "added": true,
+   "params": 4,
+   "defined": true
+  },
+  {
+   "matchName": "CS CrossBlur",
+   "name": "CC Cross Blur",
+   "category": "Desenfocar y enfocar",
+   "version": "1.5",
+   "added": true,
+   "params": 5,
+   "defined": true
+  },
+  {
+   "matchName": "CC Cylinder",
+   "name": "CC Cylinder",
+   "category": "Perspectiva",
+   "version": "1.10",
+   "added": true,
+   "params": 27,
+   "defined": true
+  },
+  {
+   "matchName": "CC Drizzle",
+   "name": "CC Drizzle",
+   "category": "Simulación",
+   "version": "1.9",
+   "added": true,
+   "params": 23,
+   "defined": true
+  },
+  {
+   "matchName": "CC Environment",
+   "name": "CC Environment",
+   "category": "Perspectiva",
+   "version": "1.6",
+   "added": true,
+   "params": 6,
+   "defined": true
+  },
+  {
+   "matchName": "CC Flo Motion",
+   "name": "CC Flo Motion",
+   "category": "Distorsionar",
+   "version": "1.10",
+   "added": true,
+   "params": 9,
+   "defined": true
+  },
+  {
+   "matchName": "CC Force Motion Blur",
+   "name": "CC Force Motion Blur",
+   "category": "Tiempo",
+   "version": "2.1",
+   "added": true,
+   "params": 6,
+   "defined": true
+  },
+  {
+   "matchName": "CC Glass",
+   "name": "CC Glass",
+   "category": "Estilizar",
+   "version": "1.9",
+   "added": true,
+   "params": 24,
+   "defined": true
+  },
+  {
+   "matchName": "CC Glass Wipe",
+   "name": "CC Glass Wipe",
+   "category": "Transición",
+   "version": "1.11",
+   "added": true,
+   "params": 6,
+   "defined": true
+  },
+  {
+   "matchName": "CC Glue Gun",
+   "name": "CC Glue Gun",
+   "category": "Generar",
+   "version": "1.10",
+   "added": true,
+   "params": 29,
+   "defined": true
+  },
+  {
+   "matchName": "CC Griddler",
+   "name": "CC Griddler",
+   "category": "Distorsionar",
+   "version": "2.3",
+   "added": true,
+   "params": 6,
+   "defined": true
+  },
+  {
+   "matchName": "CC Grid Wipe",
+   "name": "CC Grid Wipe",
+   "category": "Transición",
+   "version": "1.7",
+   "added": true,
+   "params": 8,
+   "defined": true
+  },
+  {
+   "matchName": "CC Hair",
+   "name": "CC Hair",
+   "category": "Simulación",
+   "version": "1.7",
+   "added": true,
+   "params": 28,
+   "defined": true
+  },
+  {
+   "matchName": "CS HexTile",
+   "name": "CC HexTile",
+   "category": "Estilizar",
+   "version": "1.2",
+   "added": true,
+   "params": 7,
+   "defined": true
+  },
+  {
+   "matchName": "CC Image Wipe",
+   "name": "CC Image Wipe",
+   "category": "Transición",
+   "version": "1.8",
+   "added": true,
+   "params": 10,
+   "defined": true
+  },
+  {
+   "matchName": "CC Jaws",
+   "name": "CC Jaws",
+   "category": "Transición",
+   "version": "1.7",
+   "added": true,
+   "params": 7,
+   "defined": true
+  },
+  {
+   "matchName": "CC Kaleida",
+   "name": "CC Kaleida",
+   "category": "Estilizar",
+   "version": "1.10",
+   "added": true,
+   "params": 6,
+   "defined": true
+  },
+  {
+   "matchName": "CS Kernel",
+   "name": "CC Kernel",
+   "category": "Corrección de color",
+   "version": "1.2",
+   "added": true,
+   "params": 19,
+   "defined": true
+  },
+  {
+   "matchName": "CC Lens",
+   "name": "CC Lens",
+   "category": "Distorsionar",
+   "version": "2.2",
+   "added": true,
+   "params": 4,
+   "defined": true
+  },
+  {
+   "matchName": "CC Light Burst 2.5",
+   "name": "CC Light Burst 2.5",
+   "category": "Generar",
+   "version": "3.6",
+   "added": true,
+   "params": 8,
+   "defined": true
+  },
+  {
+   "matchName": "CC Light Rays",
+   "name": "CC Light Rays",
+   "category": "Generar",
+   "version": "1.10",
+   "added": true,
+   "params": 11,
+   "defined": true
+  },
+  {
+   "matchName": "CC Light Sweep",
+   "name": "CC Light Sweep",
+   "category": "Generar",
+   "version": "1.9",
+   "added": true,
+   "params": 10,
+   "defined": true
+  },
+  {
+   "matchName": "CC Light Wipe",
+   "name": "CC Light Wipe",
+   "category": "Transición",
+   "version": "1.7",
+   "added": true,
+   "params": 9,
+   "defined": true
+  },
+  {
+   "matchName": "CS LineSweep",
+   "name": "CC Line Sweep",
+   "category": "Transición",
+   "version": "1.2",
+   "added": true,
+   "params": 6,
+   "defined": true
+  },
+  {
+   "matchName": "CC Mr. Mercury",
+   "name": "CC Mr. Mercury",
+   "category": "Simulación",
+   "version": "1.11",
+   "added": true,
+   "params": 33,
+   "defined": true
+  },
+  {
+   "matchName": "CC Mr. Smoothie",
+   "name": "CC Mr. Smoothie",
+   "category": "Estilizar",
+   "version": "1.6",
+   "added": true,
+   "params": 8,
+   "defined": true
+  },
+  {
+   "matchName": "CC Overbrights",
+   "name": "CC Overbrights",
+   "category": "Utilidad",
+   "version": "1.3",
+   "added": true,
+   "params": 3,
+   "defined": true
+  },
+  {
+   "matchName": "CC Page Turn",
+   "name": "CC Page Turn",
+   "category": "Distorsionar",
+   "version": "2.4",
+   "added": true,
+   "params": 10,
+   "defined": true
+  },
+  {
+   "matchName": "CC PS Classic",
+   "name": "CC PS Classic (obsolete)",
+   "category": "_Obsolete",
+   "version": "1.7",
+   "added": true,
+   "params": 10,
+   "defined": true
+  },
+  {
+   "matchName": "CC Particle Systems II",
+   "name": "CC Particle Systems II",
+   "category": "Simulación",
+   "version": "2.2",
+   "added": true,
+   "params": 31,
+   "defined": true
+  },
+  {
+   "matchName": "CC PS LE Classic",
+   "name": "CC PS LE Classic (obsolete)",
+   "category": "_Obsolete",
+   "version": "1.7",
+   "added": true,
+   "params": 13,
+   "defined": true
+  },
+  {
+   "matchName": "CC Pixel Polly",
+   "name": "CC Pixel Polly",
+   "category": "Simulación",
+   "version": "1.11",
+   "added": true,
+   "params": 10,
+   "defined": true
+  },
+  {
+   "matchName": "CC Plastic",
+   "name": "CC Plastic",
+   "category": "Estilizar",
+   "version": "1.5",
+   "added": true,
+   "params": 27,
+   "defined": true
+  },
+  {
+   "matchName": "CC Power Pin",
+   "name": "CC Power Pin",
+   "category": "Distorsionar",
+   "version": "1.13",
+   "added": true,
+   "params": 13,
+   "defined": true
+  },
+  {
+   "matchName": "CC Particle World",
+   "name": "CC Particle World",
+   "category": "Simulación",
+   "version": "1.14",
+   "added": true,
+   "params": 104,
+   "defined": true
+  },
+  {
+   "matchName": "CC Radial Blur",
+   "name": "CC Radial Blur",
+   "category": "Desenfocar y enfocar",
+   "version": "1.7",
+   "added": true,
+   "params": 5,
+   "defined": true
+  },
+  {
+   "matchName": "CC Radial Fast Blur",
+   "name": "CC Radial Fast Blur",
+   "category": "Desenfocar y enfocar",
+   "version": "1.7",
+   "added": true,
+   "params": 4,
+   "defined": true
+  },
+  {
+   "matchName": "CC Radial ScaleWipe",
+   "name": "CC Radial ScaleWipe",
+   "category": "Transición",
+   "version": "1.10",
+   "added": true,
+   "params": 4,
+   "defined": true
+  },
+  {
+   "matchName": "CC Rain",
+   "name": "CC Rain (obsolete)",
+   "category": "_Obsolete",
+   "version": "2.2",
+   "added": true,
+   "params": 8,
+   "defined": true
+  },
+  {
+   "matchName": "CSRainfall",
+   "name": "CC Rainfall",
+   "category": "Simulación",
+   "version": "1.3",
+   "added": true,
+   "params": 24,
+   "defined": true
+  },
+  {
+   "matchName": "CC RepeTile",
+   "name": "CC RepeTile",
+   "category": "Estilizar",
+   "version": "1.10",
+   "added": true,
+   "params": 7,
+   "defined": true
+  },
+  {
+   "matchName": "CC Ripple Pulse",
+   "name": "CC Ripple Pulse",
+   "category": "Distorsionar",
+   "version": "1.8",
+   "added": true,
+   "params": 6,
+   "defined": true
+  },
+  {
+   "matchName": "CC Scale Wipe",
+   "name": "CC Scale Wipe",
+   "category": "Transición",
+   "version": "1.8",
+   "added": true,
+   "params": 4,
+   "defined": true
+  },
+  {
+   "matchName": "CC Scatterize",
+   "name": "CC Scatterize",
+   "category": "Simulación",
+   "version": "1.10",
+   "added": true,
+   "params": 5,
+   "defined": true
+  },
+  {
+   "matchName": "CC Simple Wire Removal",
+   "name": "CC Simple Wire Removal",
+   "category": "Clave",
+   "version": "1.10",
+   "added": true,
+   "params": 8,
+   "defined": true
+  },
+  {
+   "matchName": "CC Slant",
+   "name": "CC Slant",
+   "category": "Distorsionar",
+   "version": "2.2",
+   "added": true,
+   "params": 7,
+   "defined": true
+  },
+  {
+   "matchName": "CC Smear",
+   "name": "CC Smear",
+   "category": "Distorsionar",
+   "version": "1.11",
+   "added": true,
+   "params": 6,
+   "defined": true
+  },
+  {
+   "matchName": "CC Snow",
+   "name": "CC Snow (obsolete)",
+   "category": "_Obsolete",
+   "version": "2.2",
+   "added": true,
+   "params": 8,
+   "defined": true
+  },
+  {
+   "matchName": "CSSnowfall",
+   "name": "CC Snowfall",
+   "category": "Simulación",
+   "version": "1.3",
+   "added": true,
+   "params": 33,
+   "defined": true
+  },
+  {
+   "matchName": "CC Sphere",
+   "name": "CC Sphere",
+   "category": "Perspectiva",
+   "version": "2.5",
+   "added": true,
+   "params": 27,
+   "defined": true
+  },
+  {
+   "matchName": "CC Split",
+   "name": "CC Split",
+   "category": "Distorsionar",
+   "version": "1.6",
+   "added": true,
+   "params": 4,
+   "defined": true
+  },
+  {
+   "matchName": "CC Split 2",
+   "name": "CC Split 2",
+   "category": "Distorsionar",
+   "version": "1.10",
+   "added": true,
+   "params": 5,
+   "defined": true
+  },
+  {
+   "matchName": "CC Spotlight",
+   "name": "CC Spotlight",
+   "category": "Perspectiva",
+   "version": "1.10",
+   "added": true,
+   "params": 10,
+   "defined": true
+  },
+  {
+   "matchName": "CC Star Burst",
+   "name": "CC Star Burst",
+   "category": "Simulación",
+   "version": "2.4",
+   "added": true,
+   "params": 8,
+   "defined": true
+  },
+  {
+   "matchName": "CS Threads",
+   "name": "CC Threads",
+   "category": "Generar",
+   "version": "1.2",
+   "added": true,
+   "params": 9,
+   "defined": true
+  },
+  {
+   "matchName": "CC Threshold",
+   "name": "CC Threshold",
+   "category": "Estilizar",
+   "version": "1.8",
+   "added": true,
+   "params": 5,
+   "defined": true
+  },
+  {
+   "matchName": "CC Threshold RGB",
+   "name": "CC Threshold RGB",
+   "category": "Estilizar",
+   "version": "1.8",
+   "added": true,
+   "params": 8,
+   "defined": true
+  },
+  {
+   "matchName": "CC Tiler",
+   "name": "CC Tiler",
+   "category": "Distorsionar",
+   "version": "1.9",
+   "added": true,
+   "params": 4,
+   "defined": true
+  },
+  {
+   "matchName": "CC Time Blend",
+   "name": "CC Time Blend",
+   "category": "_Obsolete",
+   "version": "1.8",
+   "added": true,
+   "params": 4,
+   "defined": true
+  },
+  {
+   "matchName": "CC Time Blend FX",
+   "name": "CC Time Blend FX",
+   "category": "_Obsolete",
+   "version": "1.7",
+   "added": true,
+   "params": 5,
+   "defined": true
+  },
+  {
+   "matchName": "CC Toner",
+   "name": "CC Toner",
+   "category": "Corrección de color",
+   "version": "1.7",
+   "added": true,
+   "params": 8,
+   "defined": true
+  },
+  {
+   "matchName": "CC Twister",
+   "name": "CC Twister",
+   "category": "Transición",
+   "version": "1.8",
+   "added": true,
+   "params": 6,
+   "defined": true
+  },
+  {
+   "matchName": "CC Vector Blur",
+   "name": "CC Vector Blur",
+   "category": "Desenfocar y enfocar",
+   "version": "1.7",
+   "added": true,
+   "params": 8,
+   "defined": true
+  },
+  {
+   "matchName": "CS Vignette",
+   "name": "CC Vignette",
+   "category": "Estilizar",
+   "version": "1.3",
+   "added": true,
+   "params": 5,
+   "defined": true
+  },
+  {
+   "matchName": "CC WarpoMatic",
+   "name": "CC WarpoMatic",
+   "category": "Transición",
+   "version": "1.5",
+   "added": true,
+   "params": 8,
+   "defined": true
+  },
+  {
+   "matchName": "CC Wide Time",
+   "name": "CC Wide Time",
+   "category": "Tiempo",
+   "version": "1.9",
+   "added": true,
+   "params": 4,
+   "defined": true
+  },
+  {
+   "matchName": "Keylight 906",
+   "name": "Keylight (1.2)",
+   "category": "Clave",
+   "version": "1.2",
+   "added": true,
+   "params": 80,
+   "defined": true
+  },
+  {
+   "matchName": "ISL MochaShapeImporter",
+   "name": "mocha shape",
+   "category": "Obsolete",
+   "version": "1.0x1",
+   "added": true,
+   "params": 19,
+   "defined": true
+  },
+  {
+   "matchName": "mochaAECC",
+   "name": "Mocha AE",
+   "category": "Boris FX Mocha",
+   "version": "10.0.6",
+   "added": true,
+   "params": 50,
+   "defined": true
+  },
+  {
+   "matchName": "tc Echospace",
+   "name": "Echospace",
+   "category": "RG Trapcode",
+   "version": "1.1.10",
+   "added": true,
+   "params": 25,
+   "defined": true
+  },
+  {
+   "matchName": "tc Form",
+   "name": "Form",
+   "category": "RG Trapcode",
+   "version": "4.0",
+   "added": true,
+   "params": 2822,
+   "defined": true
+  },
+  {
+   "matchName": "tc Trapcode Horizon",
+   "name": "Horizon",
+   "category": "RG Trapcode",
+   "version": "1.1.11",
+   "added": true,
+   "params": 72,
+   "defined": true
+  },
+  {
+   "matchName": "tc Lux",
+   "name": "Lux",
+   "category": "RG Trapcode",
+   "version": "1.4.1",
+   "added": true,
+   "params": 29,
+   "defined": true
+  },
+  {
+   "matchName": "rg Mir",
+   "name": "Mir 3",
+   "category": "RG Trapcode",
+   "version": "3.0",
+   "added": true,
+   "params": 162,
+   "defined": true
+  },
+  {
+   "matchName": "tc Particular",
+   "name": "Particular",
+   "category": "RG Trapcode",
+   "version": "4.0",
+   "added": true,
+   "params": 1989,
+   "defined": true
+  },
+  {
+   "matchName": "tc Sound Keys",
+   "name": "Sound Keys",
+   "category": "RG Trapcode",
+   "version": "1.4.1",
+   "added": true,
+   "params": 65,
+   "defined": true
+  },
+  {
+   "matchName": "tc Tao",
+   "name": "Tao",
+   "category": "RG Trapcode",
+   "version": "1.2.3x0",
+   "added": true,
+   "params": 285,
+   "defined": true
+  },
+  {
+   "matchName": "VIDEOCOPILOT LightSaber",
+   "name": "Saber",
+   "category": "Video Copilot",
+   "version": "1.0x40",
+   "added": true,
+   "params": 94,
+   "defined": true
+  },
+  {
+   "matchName": "Red Giant GrowBounds",
+   "name": "RGS Grow Bounds",
+   "category": "Red Giant",
+   "version": "1.1",
+   "added": true,
+   "params": 2,
+   "defined": true
+  },
+  {
+   "matchName": "tc 3DStrokePath",
+   "name": "3D Stroke",
+   "category": "RG Trapcode",
+   "version": "2.7.3",
+   "added": true,
+   "params": 91,
+   "defined": true
+  },
+  {
+   "matchName": "tc Shine",
+   "name": "Shine",
+   "category": "RG Trapcode",
+   "version": "2.0.4",
+   "added": true,
+   "params": 58,
+   "defined": true
+  },
+  {
+   "matchName": "tc Starglow",
+   "name": "Starglow",
+   "category": "RG Trapcode",
+   "version": "1.7.4",
+   "added": true,
+   "params": 68,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE 3D Tracker",
+   "name": "Rastreador de cámara 3D",
+   "category": "Perspectiva",
+   "version": "25.0",
+   "added": true,
+   "params": 21,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE 3D Glasses2",
+   "name": "Gafas 3D",
+   "category": "Perspectiva",
+   "version": "25.0",
+   "added": true,
+   "params": 9,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE 3D Glasses",
+   "name": "Gafas 3D (obsoleto)",
+   "category": "_Obsolete",
+   "version": "25.0",
+   "added": true,
+   "params": 9,
+   "defined": true
+  },
+  {
+   "matchName": "VISINF Grain Implant",
+   "name": "Añadir granulado",
+   "category": "Ruido y granulado",
+   "version": "25.0",
+   "added": true,
+   "params": 72,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE Alpha Levels2",
+   "name": "Niveles alfa",
+   "category": "_Obsolete",
+   "version": "25.0",
+   "added": true,
+   "params": 6,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE Alpha Levels3",
+   "name": "Niveles alfa",
+   "category": "_Obsolete",
+   "version": "25.0",
+   "added": true,
+   "params": 6,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE Apply Color LUT2",
+   "name": "Aplicar tabla de búsq. de color",
+   "category": "Utilidad",
+   "version": "25.0",
+   "added": false,
+   "error": "skipped: applying it does not return without the UI",
+   "defined": false
+  },
+  {
+   "matchName": "ADBE Apply Color LUT",
+   "name": "Aplicar tabla de búsq. de color",
+   "category": "_Obsolete",
+   "version": "25.0",
+   "added": true,
+   "params": 3,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE Arithmetic",
+   "name": "Aritmética",
+   "category": "Canal",
+   "version": "25.0",
+   "added": true,
+   "params": 6,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE AudSpect",
+   "name": "Espectro de audio",
+   "category": "Generar",
+   "version": "25.0",
+   "added": false,
+   "error": "audio effect",
+   "defined": false
+  },
+  {
+   "matchName": "ADBE AudWave",
+   "name": "Forma de onda de audio",
+   "category": "Generar",
+   "version": "25.0",
+   "added": false,
+   "error": "audio effect",
+   "defined": false
+  },
+  {
+   "matchName": "ADBE Aud BT",
+   "name": "Graves y agudos",
+   "category": "Audio",
+   "version": "25.0",
+   "added": false,
+   "error": "audio effect",
+   "defined": false
+  },
+  {
+   "matchName": "ADBE Aud Delay",
+   "name": "Retardo",
+   "category": "Audio",
+   "version": "25.0",
+   "added": false,
+   "error": "audio effect",
+   "defined": false
+  },
+  {
+   "matchName": "ADBE Aud_Flange",
+   "name": "Desdoblamiento y coro",
+   "category": "Audio",
+   "version": "25.0",
+   "added": false,
+   "error": "audio effect",
+   "defined": false
+  },
+  {
+   "matchName": "ADBE Aud HiLo",
+   "name": "Recorrido alto-bajo",
+   "category": "Audio",
+   "version": "25.0",
+   "added": false,
+   "error": "audio effect",
+   "defined": false
+  },
+  {
+   "matchName": "ADBE Aud Stereo Mixer",
+   "name": "Mezclador estéreo",
+   "category": "Audio",
+   "version": "25.0",
+   "added": false,
+   "error": "audio effect",
+   "defined": false
+  },
+  {
+   "matchName": "ADBE Aud Modulator",
+   "name": "Modulador",
+   "category": "Audio",
+   "version": "25.0",
+   "added": false,
+   "error": "audio effect",
+   "defined": false
+  },
+  {
+   "matchName": "ADBE Param EQ",
+   "name": "EQ paramétrica",
+   "category": "Audio",
+   "version": "25.0",
+   "added": false,
+   "error": "audio effect",
+   "defined": false
+  },
+  {
+   "matchName": "ADBE Aud Reverb",
+   "name": "Reverberación",
+   "category": "Audio",
+   "version": "25.0",
+   "added": false,
+   "error": "audio effect",
+   "defined": false
+  },
+  {
+   "matchName": "ADBE Aud Reverse",
+   "name": "Hacia atrás",
+   "category": "Audio",
+   "version": "25.0",
+   "added": false,
+   "error": "audio effect",
+   "defined": false
+  },
+  {
+   "matchName": "ADBE Aud Tone",
+   "name": "Tono",
+   "category": "Audio",
+   "version": "25.0",
+   "added": false,
+   "error": "audio effect",
+   "defined": false
+  },
+  {
+   "matchName": "ADBE AutoColor",
+   "name": "Color automático",
+   "category": "Corrección de color",
+   "version": "25.0",
+   "added": true,
+   "params": 7,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE AutoContrast",
+   "name": "Contraste automático",
+   "category": "Corrección de color",
+   "version": "25.0",
+   "added": true,
+   "params": 6,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE AutoLevels",
+   "name": "Niveles automáticos",
+   "category": "Corrección de color",
+   "version": "25.0",
+   "added": true,
+   "params": 6,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE AUX CHANNEL EXTRACT",
+   "name": "Extraer Canal 3D",
+   "category": "Canal 3D",
+   "version": "25.0",
+   "added": true,
+   "params": 7,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE Brightness & Contrast",
+   "name": "Brillo y contraste",
+   "category": "_Obsolete",
+   "version": "25.0",
+   "added": true,
+   "params": 3,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE Basic 3D",
+   "name": "3D básico",
+   "category": "Obsoleto",
+   "version": "25.0",
+   "added": true,
+   "params": 6,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE Basic Text2",
+   "name": "Texto básico",
+   "category": "Obsoleto",
+   "version": "25.0",
+   "added": true,
+   "params": 12,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE Laser",
+   "name": "Haz",
+   "category": "Generar",
+   "version": "25.0",
+   "added": true,
+   "params": 12,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE Bevel Alpha",
+   "name": "Biselar alfa",
+   "category": "Perspectiva",
+   "version": "1.7",
+   "added": true,
+   "params": 5,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE Bevel Edges",
+   "name": "Bordes biselados",
+   "category": "Perspectiva",
+   "version": "25.0",
+   "added": true,
+   "params": 5,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE BEZMESH",
+   "name": "Deformación Bézier",
+   "category": "Distorsionar",
+   "version": "25.0",
+   "added": true,
+   "params": 14,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE Bilateral",
+   "name": "Desenfoque bilateral",
+   "category": "Desenfocar y enfocar",
+   "version": "25.0",
+   "added": true,
+   "params": 4,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE Blend",
+   "name": "Fusionar",
+   "category": "Canal",
+   "version": "25.0",
+   "added": true,
+   "params": 5,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE Block Dissolve",
+   "name": "Disolver en bloques",
+   "category": "Transición",
+   "version": "25.0",
+   "added": true,
+   "params": 6,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE Box Blur2",
+   "name": "Desenfoque de cuadro rápido",
+   "category": "Desenfocar y enfocar",
+   "version": "25.0",
+   "added": true,
+   "params": 5,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE Box Blur",
+   "name": "Desenfoque de cuadro",
+   "category": "_Obsolete",
+   "version": "25.0",
+   "added": true,
+   "params": 5,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE Broadcast Colors",
+   "name": "Colores de emisión",
+   "category": "Corrección de color",
+   "version": "25.0",
+   "added": true,
+   "params": 4,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE Brush Strokes",
+   "name": "Trazos de pincel",
+   "category": "Estilizar",
+   "version": "2.3",
+   "added": true,
+   "params": 8,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE Bulge",
+   "name": "Abombar",
+   "category": "Distorsionar",
+   "version": "25.0",
+   "added": true,
+   "params": 8,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE Calculations",
+   "name": "Cálculos",
+   "category": "Canal",
+   "version": "25.0",
+   "added": true,
+   "params": 14,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE WRPMESH",
+   "name": "Deformación",
+   "category": "Distorsionar",
+   "version": "25.0",
+   "added": true,
+   "params": 6,
+   "defined": true
+  },
+  {
+   "matchName": "APC CardDanceCam",
+   "name": "Baile de cartas",
+   "category": "Simulación",
+   "version": "25.0",
+   "added": true,
+   "params": 80,
+   "defined": true
+  },
+  {
+   "matchName": "APC CardWipeCam",
+   "name": "Barrido de cartas",
+   "category": "Transición",
+   "version": "25.0",
+   "added": true,
+   "params": 61,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE Cartoonify",
+   "name": "Dibujos animados",
+   "category": "Estilizar",
+   "version": "25.0",
+   "added": true,
+   "params": 19,
+   "defined": true
+  },
+  {
+   "matchName": "APC Caustics",
+   "name": "Cáustico",
+   "category": "Simulación",
+   "version": "25.0",
+   "added": true,
+   "params": 39,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE Cell Pattern",
+   "name": "Patrón de celdas",
+   "category": "Generar",
+   "version": "25.0",
+   "added": true,
+   "params": 19,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE Change To Color",
+   "name": "Cambio de color",
+   "category": "Corrección de color",
+   "version": "25.0",
+   "added": true,
+   "params": 12,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE Change Color",
+   "name": "Cambiar color",
+   "category": "Corrección de color",
+   "version": "25.0",
+   "added": true,
+   "params": 10,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE Channel Combiner",
+   "name": "Combinador de canales",
+   "category": "Canal",
+   "version": "25.0",
+   "added": true,
+   "params": 9,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE Channel Blur",
+   "name": "Desenfoque del canal",
+   "category": "Desenfocar y enfocar",
+   "version": "25.0",
+   "added": true,
+   "params": 7,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE CHANNEL MIXER",
+   "name": "Mezclador de canales",
+   "category": "Corrección de color",
+   "version": "25.0",
+   "added": true,
+   "params": 14,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE Checkerboard",
+   "name": "Tablero de ajedrez",
+   "category": "Generar",
+   "version": "25.0",
+   "added": true,
+   "params": 13,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE Cineon Converter",
+   "name": "Convertidor Cineon",
+   "category": "_Obsolete",
+   "version": "25.0",
+   "added": true,
+   "params": 8,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE Cineon Converter2",
+   "name": "Convertidor Cineon",
+   "category": "Utilidad",
+   "version": "25.0",
+   "added": true,
+   "params": 8,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE Circle",
+   "name": "Círculo",
+   "category": "Generar",
+   "version": "25.0",
+   "added": true,
+   "params": 13,
+   "defined": true
+  },
+  {
+   "matchName": "APC Colorama",
+   "name": "Colorama",
+   "category": "Corrección de color",
+   "version": "25.0",
+   "added": true,
+   "params": 31,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE Color Link",
+   "name": "Enlace de colores",
+   "category": "Corrección de color",
+   "version": "25.0",
+   "added": true,
+   "params": 7,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE 4ColorGradient",
+   "name": "Degradado de 4 colores",
+   "category": "Generar",
+   "version": "25.0",
+   "added": true,
+   "params": 15,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE Color Balance",
+   "name": "Equilibrio de color",
+   "category": "_Obsolete",
+   "version": "25.0",
+   "added": true,
+   "params": 4,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE Color Balance 2",
+   "name": "Equilibrio de color",
+   "category": "Corrección de color",
+   "version": "25.0",
+   "added": true,
+   "params": 11,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE Color Difference Key",
+   "name": "Incrustación de dif. de color",
+   "category": "Clave",
+   "version": "25.0",
+   "added": true,
+   "params": 18,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE Color Emboss",
+   "name": "Relieve de color",
+   "category": "Estilizar",
+   "version": "25.0",
+   "added": true,
+   "params": 5,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE Color Balance (HLS)",
+   "name": "Equilibrio de color (HLS)",
+   "category": "Corrección de color",
+   "version": "25.0",
+   "added": true,
+   "params": 4,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE Color Key",
+   "name": "Croma lineal",
+   "category": "Obsoleto",
+   "version": "25.0",
+   "added": true,
+   "params": 5,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE Color Range",
+   "name": "Gama de colores",
+   "category": "Clave",
+   "version": "25.0",
+   "added": true,
+   "params": 10,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE Compound Arithmetic",
+   "name": "Aritmética compuesta",
+   "category": "Canal",
+   "version": "25.0",
+   "added": true,
+   "params": 7,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE Compound Blur",
+   "name": "Componer desenfoque",
+   "category": "Desenfocar y enfocar",
+   "version": "25.0",
+   "added": true,
+   "params": 5,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE Corner Pin",
+   "name": "Posicionar bordes",
+   "category": "Distorsionar",
+   "version": "25.0",
+   "added": true,
+   "params": 5,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE CurvesCustom",
+   "name": "Curvas",
+   "category": "Corrección de color",
+   "version": "25.0",
+   "added": true,
+   "params": 3,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE CameraShakeDeblur",
+   "name": "Estabilización del desenfoque de temblores",
+   "category": "Desenfocar y enfocar",
+   "version": "25.0",
+   "added": true,
+   "params": 5,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE Deflicker",
+   "name": "Estabilizador del color",
+   "category": "Corrección de color",
+   "version": "25.0",
+   "added": true,
+   "params": 6,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE DEPTH FIELD",
+   "name": "Profundidad de campo",
+   "category": "Canal 3D",
+   "version": "25.0",
+   "added": true,
+   "params": 5,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE DEPTH MATTE",
+   "name": "Mate de profundidad",
+   "category": "Canal 3D",
+   "version": "25.0",
+   "added": true,
+   "params": 4,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE Difference Matte2",
+   "name": "Mate de diferencia",
+   "category": "Clave",
+   "version": "25.0",
+   "added": true,
+   "params": 7,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE Difference",
+   "name": "Diferencia de tiempo",
+   "category": "Tiempo",
+   "version": "25.0",
+   "added": true,
+   "params": 6,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE Motion Blur",
+   "name": "Desenfoque direccional",
+   "category": "Desenfocar y enfocar",
+   "version": "25.0",
+   "added": true,
+   "params": 3,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE Displacement Map",
+   "name": "Mapa de desplazamiento",
+   "category": "Distorsionar",
+   "version": "25.0",
+   "added": true,
+   "params": 9,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE Drop Shadow",
+   "name": "Sombra paralela",
+   "category": "Perspectiva",
+   "version": "25.0",
+   "added": true,
+   "params": 7,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE Dust & Scratches",
+   "name": "Polvo y arañazos",
+   "category": "Ruido y granulado",
+   "version": "25.0",
+   "added": true,
+   "params": 4,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE Echo",
+   "name": "Eco",
+   "category": "Tiempo",
+   "version": "25.0",
+   "added": true,
+   "params": 6,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE ELLIPSE",
+   "name": "Elipse",
+   "category": "Generar",
+   "version": "25.0",
+   "added": true,
+   "params": 9,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE Emboss",
+   "name": "Relieve",
+   "category": "Estilizar",
+   "version": "25.0",
+   "added": true,
+   "params": 5,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE Equalize",
+   "name": "Ecualizar",
+   "category": "Corrección de color",
+   "version": "25.0",
+   "added": true,
+   "params": 3,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE Compander",
+   "name": "HDR Compander",
+   "category": "Utilidad",
+   "version": "25.0",
+   "added": true,
+   "params": 4,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE Exposure2",
+   "name": "Exposición",
+   "category": "Corrección de color",
+   "version": "25.0",
+   "added": true,
+   "params": 23,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE Exposure",
+   "name": "Exposición",
+   "category": "_Obsolete",
+   "version": "25.0",
+   "added": true,
+   "params": 23,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE Checkbox Control",
+   "name": "Control casilla verific.",
+   "category": "Controles de expresión",
+   "version": "25.0",
+   "added": true,
+   "params": 2,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE Slider Control",
+   "name": "Control del deslizador",
+   "category": "Controles de expresión",
+   "version": "25.0",
+   "added": true,
+   "params": 2,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE Layer Control",
+   "name": "Control de capa",
+   "category": "Controles de expresión",
+   "version": "25.0",
+   "added": true,
+   "params": 2,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE Color Control",
+   "name": "Control de color",
+   "category": "Controles de expresión",
+   "version": "25.0",
+   "added": true,
+   "params": 2,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE Point3D Control",
+   "name": "Control de punto 3D",
+   "category": "Controles de expresión",
+   "version": "25.0",
+   "added": true,
+   "params": 2,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE Point Control",
+   "name": "Control de puntos",
+   "category": "Controles de expresión",
+   "version": "25.0",
+   "added": true,
+   "params": 2,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE Angle Control",
+   "name": "Control de ángulo",
+   "category": "Controles de expresión",
+   "version": "25.0",
+   "added": true,
+   "params": 2,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE Dropdown Control",
+   "name": "Control del menú desplegable",
+   "category": "Controles de expresión",
+   "version": "25.0",
+   "added": true,
+   "params": 2,
+   "defined": false
+  },
+  {
+   "matchName": "ADBE Extract",
+   "name": "Extraer",
+   "category": "Clave",
+   "version": "25.0",
+   "added": true,
+   "params": 8,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE Eyedropper Fill",
+   "name": "Relleno de cuentagotas",
+   "category": "Generar",
+   "version": "25.0",
+   "added": true,
+   "params": 6,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE Fast Blur",
+   "name": "Desenfoque rápido (heredado)",
+   "category": "_Obsolete",
+   "version": "25.0",
+   "added": true,
+   "params": 4,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE Reduce Interlace Flicker",
+   "name": "Reducir parpadeo entrelazado",
+   "category": "Obsoleto",
+   "version": "25.0",
+   "added": true,
+   "params": 2,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE Fill",
+   "name": "Relleno",
+   "category": "Generar",
+   "version": "25.0",
+   "added": true,
+   "params": 8,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE Find Edges",
+   "name": "Encontrar bordes",
+   "category": "Estilizar",
+   "version": "25.0",
+   "added": true,
+   "params": 3,
+   "defined": true
+  },
+  {
+   "matchName": "APC Foam",
+   "name": "Espuma",
+   "category": "Simulación",
+   "version": "25.0",
+   "added": true,
+   "params": 47,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE FOG_3D",
+   "name": "Niebla 3D",
+   "category": "Canal 3D",
+   "version": "25.0",
+   "added": true,
+   "params": 9,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE Fractal",
+   "name": "Fractal",
+   "category": "Generar",
+   "version": "25.0",
+   "added": true,
+   "params": 32,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE Fractal Noise",
+   "name": "Ruido fractal",
+   "category": "Ruido y granulado",
+   "version": "25.0",
+   "added": true,
+   "params": 32,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE Gaussian Blur",
+   "name": "Desenfoque gaussiano (heredado)",
+   "category": "Obsoleto",
+   "version": "25.0",
+   "added": true,
+   "params": 3,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE Gaussian Blur 2",
+   "name": "Desenfoque gaussiano",
+   "category": "Desenfocar y enfocar",
+   "version": "25.0",
+   "added": true,
+   "params": 4,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE Glo2",
+   "name": "Resplandor",
+   "category": "Estilizar",
+   "version": "25.0",
+   "added": true,
+   "params": 15,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE Gamma/Pedestal/Gain2",
+   "name": "Gama/pedestal/ganancia",
+   "category": "Corrección de color",
+   "version": "25.0",
+   "added": true,
+   "params": 11,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE Gradient Wipe",
+   "name": "Barrido de degradado",
+   "category": "Transición",
+   "version": "25.0",
+   "added": true,
+   "params": 6,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE Grid",
+   "name": "Cuadrícula",
+   "category": "Generar",
+   "version": "25.0",
+   "added": true,
+   "params": 15,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE GROW BOUNDS",
+   "name": "Extender límites",
+   "category": "Utilidad",
+   "version": "25.0",
+   "added": true,
+   "params": 2,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE HUE SATURATION",
+   "name": "Tono/Saturación",
+   "category": "Corrección de color",
+   "version": "25.0",
+   "added": true,
+   "params": 10,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE ID MATTE",
+   "name": "ID de mate",
+   "category": "Canal 3D",
+   "version": "25.0",
+   "added": true,
+   "params": 6,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE ATG Extract",
+   "name": "Incrustación interior/exterior",
+   "category": "Clave",
+   "version": "25.0",
+   "added": true,
+   "params": 115,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE Invert",
+   "name": "Invertir",
+   "category": "Canal",
+   "version": "25.0",
+   "added": true,
+   "params": 3,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE IRIS_WIPE",
+   "name": "Barrido irisado",
+   "category": "Transición",
+   "version": "25.0",
+   "added": true,
+   "params": 8,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE KeyCleaner",
+   "name": "Key Cleaner",
+   "category": "Clave",
+   "version": "25.0",
+   "added": true,
+   "params": 5,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE Leave Color",
+   "name": "Conservar color",
+   "category": "Corrección de color",
+   "version": "25.0",
+   "added": true,
+   "params": 6,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE Lens Flare",
+   "name": "Destello de lente",
+   "category": "Generar",
+   "version": "25.0",
+   "added": true,
+   "params": 5,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE Easy Levels",
+   "name": "Niveles",
+   "category": "_Obsolete",
+   "version": "25.0",
+   "added": true,
+   "params": 10,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE Easy Levels2",
+   "name": "Niveles",
+   "category": "Corrección de color",
+   "version": "25.0",
+   "added": true,
+   "params": 10,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE Pro Levels2",
+   "name": "Niveles (contr. individuales)",
+   "category": "Corrección de color",
+   "version": "25.0",
+   "added": true,
+   "params": 40,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE Pro Levels",
+   "name": "Niveles (contr. individuales)",
+   "category": "_Obsolete",
+   "version": "25.0",
+   "added": true,
+   "params": 40,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE Lightning",
+   "name": "Relámpago",
+   "category": "Obsoleto",
+   "version": "25.0",
+   "added": true,
+   "params": 26,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE Lightning 2",
+   "name": "Relámpago avanzado",
+   "category": "Generar",
+   "version": "25.0",
+   "added": true,
+   "params": 31,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE Linear Color Key2",
+   "name": "Incrustación por croma lineal",
+   "category": "Clave",
+   "version": "25.0",
+   "added": true,
+   "params": 8,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE Linear Wipe",
+   "name": "Barrido lineal",
+   "category": "Transición",
+   "version": "25.0",
+   "added": true,
+   "params": 4,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE LIQUIFY",
+   "name": "Licuar",
+   "category": "Distorsionar",
+   "version": "25.0",
+   "added": true,
+   "params": 18,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE Luma Key",
+   "name": "Incrustación por luminancia",
+   "category": "Obsoleto",
+   "version": "25.0",
+   "added": true,
+   "params": 6,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE Lumetri",
+   "name": "Color de Lumetri",
+   "category": "Corrección de color",
+   "version": "25.0",
+   "added": true,
+   "params": 131,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE Magnify",
+   "name": "Aumentar",
+   "category": "Distorsionar",
+   "version": "25.0",
+   "added": true,
+   "params": 11,
+   "defined": true
+  },
+  {
+   "matchName": "VISINF Grain Duplication",
+   "name": "Aplicar granulado",
+   "category": "Ruido y granulado",
+   "version": "25.0",
+   "added": true,
+   "params": 104,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE Matte Choker",
+   "name": "Retractor de mate",
+   "category": "Mate",
+   "version": "25.0",
+   "added": true,
+   "params": 8,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE Median",
+   "name": "Mediana (heredado)",
+   "category": "Ruido y granulado",
+   "version": "25.0",
+   "added": true,
+   "params": 3,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE Minimax",
+   "name": "Mínimo/máximo",
+   "category": "Canal",
+   "version": "25.0",
+   "added": true,
+   "params": 6,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE Mirror",
+   "name": "Espejo",
+   "category": "Distorsionar",
+   "version": "25.0",
+   "added": true,
+   "params": 3,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE Mosaic",
+   "name": "Mosaico",
+   "category": "Estilizar",
+   "version": "25.0",
+   "added": true,
+   "params": 4,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE MESH WARP",
+   "name": "Deformación de malla",
+   "category": "Distorsionar",
+   "version": "25.0",
+   "added": true,
+   "params": 5,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE Noise2",
+   "name": "Ruido",
+   "category": "Ruido y granulado",
+   "version": "25.0",
+   "added": true,
+   "params": 4,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE Noise",
+   "name": "Ruido",
+   "category": "_Obsolete",
+   "version": "25.0",
+   "added": true,
+   "params": 4,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE Noise Alpha2",
+   "name": "Ruido alfa",
+   "category": "Ruido y granulado",
+   "version": "25.0",
+   "added": true,
+   "params": 10,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE Noise Alpha",
+   "name": "Ruido alfa",
+   "category": "_Obsolete",
+   "version": "25.0",
+   "added": true,
+   "params": 10,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE Noise HLS",
+   "name": "Ruido HLS",
+   "category": "_Obsolete",
+   "version": "25.0",
+   "added": true,
+   "params": 7,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE Noise HLS2",
+   "name": "Ruido HLS",
+   "category": "Ruido y granulado",
+   "version": "25.0",
+   "added": true,
+   "params": 7,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE Noise HLS Auto2",
+   "name": "Ruido HLS automático",
+   "category": "Ruido y granulado",
+   "version": "25.0",
+   "added": true,
+   "params": 7,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE Noise HLS Auto",
+   "name": "Ruido HLS automático",
+   "category": "_Obsolete",
+   "version": "25.0",
+   "added": true,
+   "params": 7,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE Numbers2",
+   "name": "Números",
+   "category": "Texto",
+   "version": "25.0",
+   "added": false,
+   "error": "TypeError: null no es un objeto",
+   "defined": false
+  },
+  {
+   "matchName": "ADBE OCIO CDL Transform",
+   "name": "Transformación de OCIO CDL",
+   "category": "Corrección de color",
+   "version": "25.0",
+   "added": true,
+   "params": 7,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE OCIO Color Space Transform",
+   "name": "Transformación de espacio de color OCIO",
+   "category": "Corrección de color",
+   "version": "25.0",
+   "added": true,
+   "params": 5,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE OCIO Display Transform",
+   "name": "Transformación de pantalla de OCIO",
+   "category": "Corrección de color",
+   "version": "25.0",
+   "added": true,
+   "params": 7,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE OCIO FILE Transform",
+   "name": "Transformación de archivo OCIO",
+   "category": "Corrección de color",
+   "version": "25.0",
+   "added": true,
+   "params": 6,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE OCIO Look Transform",
+   "name": "Transformación de Look OCIO",
+   "category": "Corrección de color",
+   "version": "25.0",
+   "added": true,
+   "params": 7,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE Offset",
+   "name": "Desplazamiento",
+   "category": "Distorsionar",
+   "version": "25.0",
+   "added": true,
+   "params": 3,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE Optics Compensation",
+   "name": "Compensación óptica",
+   "category": "Distorsionar",
+   "version": "25.0",
+   "added": true,
+   "params": 7,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE Paint Bucket",
+   "name": "Bote de pintura",
+   "category": "Generar",
+   "version": "25.0",
+   "added": true,
+   "params": 11,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE Playgnd",
+   "name": "Animación del objeto",
+   "category": "Simulación",
+   "version": "25.0",
+   "added": true,
+   "params": 126,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE Path Text",
+   "name": "Texto de trazado",
+   "category": "Obsoleto",
+   "version": "25.0",
+   "added": false,
+   "error": "TypeError: null no es un objeto",
+   "defined": false
+  },
+  {
+   "matchName": "ADBE Photo Filter",
+   "name": "Filtro de fotos",
+   "category": "_Obsolete",
+   "version": "25.0",
+   "added": true,
+   "params": 5,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE Polar Coordinates",
+   "name": "Coordenadas polares",
+   "category": "Distorsionar",
+   "version": "25.0",
+   "added": true,
+   "params": 3,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE Posterize",
+   "name": "Posterización",
+   "category": "Estilizar",
+   "version": "25.0",
+   "added": true,
+   "params": 2,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE Posterize Time",
+   "name": "Tiempo de posterización",
+   "category": "Tiempo",
+   "version": "25.0",
+   "added": true,
+   "params": 2,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE ProfileToProfile",
+   "name": "Convertidor perfiles de color",
+   "category": "Utilidad",
+   "version": "25.0",
+   "added": true,
+   "params": 8,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE HDR ToneMap",
+   "name": "Compresión de resalte HDR",
+   "category": "Utilidad",
+   "version": "25.0",
+   "added": true,
+   "params": 2,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE PhotoFilterPS",
+   "name": "Filtro de fotos",
+   "category": "Corrección de color",
+   "version": "25.0",
+   "added": true,
+   "params": 5,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE SelectiveColor",
+   "name": "Color selectivo",
+   "category": "Corrección de color",
+   "version": "25.0",
+   "added": true,
+   "params": 63,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE Vibrance",
+   "name": "Intensidad",
+   "category": "Corrección de color",
+   "version": "25.0",
+   "added": true,
+   "params": 3,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE Brightness & Contrast 2",
+   "name": "Brillo y contraste",
+   "category": "Corrección de color",
+   "version": "25.0",
+   "added": true,
+   "params": 4,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE PS Median",
+   "name": "Mediana",
+   "category": "Ruido y granulado",
+   "version": "25.0",
+   "added": true,
+   "params": 3,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE Black&White",
+   "name": "Blanco y negro",
+   "category": "Corrección de color",
+   "version": "25.0",
+   "added": true,
+   "params": 9,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE PSL Bevel Emboss",
+   "name": "Inglete y relieve de Photoshop",
+   "category": "_Obsolete",
+   "version": "25.0",
+   "added": true,
+   "params": 8,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE PSL Drop Shadow",
+   "name": "Sombra paralela de Photoshop",
+   "category": "_Obsolete",
+   "version": "25.0",
+   "added": true,
+   "params": 6,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE PSL Inner Glow",
+   "name": "Resplandor interior Photoshop",
+   "category": "_Obsolete",
+   "version": "25.0",
+   "added": true,
+   "params": 5,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE PSL Inner Shadow",
+   "name": "Sombra interior de Photoshop",
+   "category": "_Obsolete",
+   "version": "25.0",
+   "added": true,
+   "params": 6,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE PSL Outer Glow",
+   "name": "Resplandor exterior Photoshop",
+   "category": "_Obsolete",
+   "version": "25.0",
+   "added": true,
+   "params": 4,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE PSL Solid Fill",
+   "name": "Relleno sólido de Photoshop",
+   "category": "_Obsolete",
+   "version": "25.0",
+   "added": true,
+   "params": 2,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE PS Arbitrary Map",
+   "name": "Mapa arbitrario de Photoshop",
+   "category": "Corrección de color",
+   "version": "25.0",
+   "added": true,
+   "params": 3,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE Radial Shadow",
+   "name": "Sombra radial",
+   "category": "Perspectiva",
+   "version": "25.0",
+   "added": true,
+   "params": 10,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE Radial Blur",
+   "name": "Desenfoque radial",
+   "category": "Desenfocar y enfocar",
+   "version": "25.0",
+   "added": true,
+   "params": 7,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE Radial Wipe",
+   "name": "Barrido radial",
+   "category": "Transición",
+   "version": "25.0",
+   "added": true,
+   "params": 6,
+   "defined": true
+  },
+  {
+   "matchName": "APC Radio Waves",
+   "name": "Ondas de radio",
+   "category": "Generar",
+   "version": "25.0",
+   "added": true,
+   "params": 44,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE Ramp",
+   "name": "Gradación de degradado",
+   "category": "Generar",
+   "version": "25.0",
+   "added": true,
+   "params": 9,
+   "defined": true
+  },
+  {
+   "matchName": "VISINF Grain Removal",
+   "name": "Eliminar granulado",
+   "category": "Ruido y granulado",
+   "version": "25.0",
+   "added": true,
+   "params": 71,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE RESHAPE",
+   "name": "Dar nueva forma",
+   "category": "Distorsionar",
+   "version": "25.0",
+   "added": true,
+   "params": 8,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE Ripple",
+   "name": "Ondulación",
+   "category": "Distorsionar",
+   "version": "25.0",
+   "added": true,
+   "params": 8,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE OFMotionBlur",
+   "name": "Desenfoque de movimiento de píxeles",
+   "category": "Tiempo",
+   "version": "25.0",
+   "added": true,
+   "params": 5,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE Rolling Shutter",
+   "name": "Reparación de obturación despl.",
+   "category": "Distorsionar",
+   "version": "25.0",
+   "added": true,
+   "params": 8,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE Timewarp",
+   "name": "Deformación de tiempo",
+   "category": "Tiempo",
+   "version": "25.0",
+   "added": true,
+   "params": 39,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE Roughen Edges",
+   "name": "Bordes rugosos",
+   "category": "Estilizar",
+   "version": "25.0",
+   "added": true,
+   "params": 16,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE Scatter",
+   "name": "Dispersión",
+   "category": "Estilizar",
+   "version": "25.0",
+   "added": true,
+   "params": 4,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE Scribble Fill",
+   "name": "Garabato",
+   "category": "Generar",
+   "version": "25.0",
+   "added": true,
+   "params": 30,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE Set Channels",
+   "name": "Definir canales",
+   "category": "Canal",
+   "version": "25.0",
+   "added": true,
+   "params": 10,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE Set Matte3",
+   "name": "Definir mate",
+   "category": "Canal",
+   "version": "25.0",
+   "added": true,
+   "params": 7,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE Set Matte2",
+   "name": "Definir mate",
+   "category": "_Obsolete",
+   "version": "25.0",
+   "added": true,
+   "params": 7,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE ShadowHighlight",
+   "name": "Sombra/iluminación",
+   "category": "Corrección de color",
+   "version": "25.0",
+   "added": true,
+   "params": 17,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE Camera Lens Blur",
+   "name": "Desenfoque de lente de cámara",
+   "category": "Desenfocar y enfocar",
+   "version": "25.0",
+   "added": true,
+   "params": 23,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE Sharpen",
+   "name": "Enfocar",
+   "category": "Desenfocar y enfocar",
+   "version": "25.0",
+   "added": true,
+   "params": 2,
+   "defined": true
+  },
+  {
+   "matchName": "APC Shatter",
+   "name": "Dispersión",
+   "category": "Simulación",
+   "version": "25.0",
+   "added": true,
+   "params": 80,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE Shift Channels",
+   "name": "Cambiar canales",
+   "category": "Canal",
+   "version": "25.0",
+   "added": true,
+   "params": 5,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE Simple Choker",
+   "name": "Retractor simple",
+   "category": "Mate",
+   "version": "25.0",
+   "added": true,
+   "params": 3,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE Smart Blur",
+   "name": "Desenfoque inteligente",
+   "category": "Desenfocar y enfocar",
+   "version": "25.0",
+   "added": true,
+   "params": 4,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE SCHMEAR",
+   "name": "Alargar",
+   "category": "Distorsionar",
+   "version": "25.0",
+   "added": true,
+   "params": 9,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE Solid Composite",
+   "name": "Composición sólida",
+   "category": "Canal",
+   "version": "25.0",
+   "added": true,
+   "params": 5,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE Spherize",
+   "name": "Esferizar",
+   "category": "Distorsionar",
+   "version": "25.0",
+   "added": true,
+   "params": 3,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE Spill Suppressor",
+   "name": "Supresión de rebase",
+   "category": "Obsoleto",
+   "version": "25.0",
+   "added": true,
+   "params": 3,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE Spill2",
+   "name": "Advanced Spill Suppressor",
+   "category": "Clave",
+   "version": "25.0",
+   "added": true,
+   "params": 11,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE SubspaceStabilizer",
+   "name": "Estabilizador de deformación",
+   "category": "Distorsionar",
+   "version": "25.0",
+   "added": true,
+   "params": 38,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE Strobe",
+   "name": "Luz estroboscópica",
+   "category": "Estilizar",
+   "version": "25.0",
+   "added": true,
+   "params": 9,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE Stroke",
+   "name": "Trazo",
+   "category": "Generar",
+   "version": "25.0",
+   "added": true,
+   "params": 12,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE Texturize",
+   "name": "Texturizar",
+   "category": "Estilizar",
+   "version": "25.0",
+   "added": true,
+   "params": 5,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE Three-Way Color Corrector",
+   "name": "Corrección de color tridireccional",
+   "category": "_Obsolete",
+   "version": "25.0",
+   "added": true,
+   "params": 82,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE Threshold",
+   "name": "Umbral",
+   "category": "_Obsolete",
+   "version": "2.2",
+   "added": true,
+   "params": 2,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE Threshold2",
+   "name": "Umbral",
+   "category": "Estilizar",
+   "version": "2.2",
+   "added": true,
+   "params": 2,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE Tile",
+   "name": "Mosaico en movimiento",
+   "category": "Estilizar",
+   "version": "25.0",
+   "added": true,
+   "params": 9,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE Timecode",
+   "name": "Código de tiempo",
+   "category": "Texto",
+   "version": "25.0",
+   "added": true,
+   "params": 15,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE Time Displacement",
+   "name": "Desplazamiento de tiempo",
+   "category": "Tiempo",
+   "version": "25.0",
+   "added": true,
+   "params": 5,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE Tint",
+   "name": "Tinción",
+   "category": "Corrección de color",
+   "version": "25.0",
+   "added": true,
+   "params": 5,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE Geometry",
+   "name": "Transformar",
+   "category": "_Obsolete",
+   "version": "25.0",
+   "added": true,
+   "params": 13,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE Geometry2",
+   "name": "Transformar",
+   "category": "Distorsionar",
+   "version": "25.0",
+   "added": true,
+   "params": 13,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE Tritone",
+   "name": "Tritono",
+   "category": "Corrección de color",
+   "version": "25.0",
+   "added": true,
+   "params": 5,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE Turbulent Displace",
+   "name": "Desplazamiento turbulento",
+   "category": "Distorsionar",
+   "version": "25.0",
+   "added": true,
+   "params": 15,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE AIF Perlin Noise 3D",
+   "name": "Ruido de turbulencia",
+   "category": "Ruido y granulado",
+   "version": "25.0",
+   "added": true,
+   "params": 28,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE Twirl",
+   "name": "Molinete",
+   "category": "Distorsionar",
+   "version": "25.0",
+   "added": true,
+   "params": 4,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE Remove Color Matting",
+   "name": "Eliminar los halos de color",
+   "category": "Canal",
+   "version": "25.0",
+   "added": true,
+   "params": 3,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE Unsharp Mask2",
+   "name": "Máscara de enfoque",
+   "category": "Desenfocar y enfocar",
+   "version": "25.0",
+   "added": true,
+   "params": 4,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE Unsharp Mask",
+   "name": "Máscara de enfoque",
+   "category": "_Obsolete",
+   "version": "25.0",
+   "added": true,
+   "params": 4,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE Upscale",
+   "name": "Conservar detalles (ampliación)",
+   "category": "Distorsionar",
+   "version": "25.0",
+   "added": true,
+   "params": 7,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE Vector Paint",
+   "name": "Pintura vectorial",
+   "category": "_Obsolete",
+   "version": "25.0",
+   "added": true,
+   "params": 14,
+   "defined": true
+  },
+  {
+   "matchName": "APC Vegas",
+   "name": "Vegas",
+   "category": "Generar",
+   "version": "25.0",
+   "added": true,
+   "params": 35,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE Venetian Blinds",
+   "name": "Barridos venecianos",
+   "category": "Transición",
+   "version": "25.0",
+   "added": true,
+   "params": 5,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE DigitalVideoLimiter",
+   "name": "Limitador de vídeo",
+   "category": "Corrección de color",
+   "version": "25.0",
+   "added": true,
+   "params": 5,
+   "defined": true
+  },
+  {
+   "matchName": "Mettle SkyBox Chromatic Aberrat",
+   "name": "Error cromático de VR",
+   "category": "Vídeo inmersivo",
+   "version": "25.0",
+   "added": true,
+   "params": 11,
+   "defined": true
+  },
+  {
+   "matchName": "Mettle SkyBox Color Gradients",
+   "name": "Degradaciones de color de VR",
+   "category": "Vídeo inmersivo",
+   "version": "25.0",
+   "added": true,
+   "params": 28,
+   "defined": true
+  },
+  {
+   "matchName": "Mettle SkyBox Converter",
+   "name": "Convertidor de VR",
+   "category": "Vídeo inmersivo",
+   "version": "25.0",
+   "added": true,
+   "params": 11,
+   "defined": true
+  },
+  {
+   "matchName": "Mettle SkyBox Denoise",
+   "name": "Eliminación de ruido de VR",
+   "category": "Vídeo inmersivo",
+   "version": "25.0",
+   "added": true,
+   "params": 7,
+   "defined": true
+  },
+  {
+   "matchName": "Mettle SkyBox Digital Glitch",
+   "name": "Error digital de VR",
+   "category": "Vídeo inmersivo",
+   "version": "25.0",
+   "added": true,
+   "params": 39,
+   "defined": true
+  },
+  {
+   "matchName": "Mettle SkyBox Fractal Noise",
+   "name": "Ruido fractal de VR",
+   "category": "Vídeo inmersivo",
+   "version": "25.0",
+   "added": true,
+   "params": 27,
+   "defined": true
+  },
+  {
+   "matchName": "Mettle SkyBox Blur",
+   "name": "Desenfoque de VR",
+   "category": "Vídeo inmersivo",
+   "version": "25.0",
+   "added": true,
+   "params": 6,
+   "defined": true
+  },
+  {
+   "matchName": "Mettle SkyBox Glow",
+   "name": "Resplandor de VR",
+   "category": "Vídeo inmersivo",
+   "version": "25.0",
+   "added": true,
+   "params": 11,
+   "defined": true
+  },
+  {
+   "matchName": "Mettle SkyBox Project 2D",
+   "name": "Plano de VR a esfera",
+   "category": "Vídeo inmersivo",
+   "version": "25.0",
+   "added": true,
+   "params": 18,
+   "defined": true
+  },
+  {
+   "matchName": "Mettle SkyBox Rotate Sphere",
+   "name": "Esfera de rotación de VR",
+   "category": "Vídeo inmersivo",
+   "version": "25.0",
+   "added": true,
+   "params": 9,
+   "defined": true
+  },
+  {
+   "matchName": "Mettle SkyBox Sharpen",
+   "name": "Enfoque de VR",
+   "category": "Vídeo inmersivo",
+   "version": "25.0",
+   "added": true,
+   "params": 6,
+   "defined": true
+  },
+  {
+   "matchName": "Mettle SkyBox Viewer",
+   "name": "Esfera de VR a plano",
+   "category": "Vídeo inmersivo",
+   "version": "25.0",
+   "added": true,
+   "params": 10,
+   "defined": true
+  },
+  {
+   "matchName": "APC Wave World",
+   "name": "Mundo marino",
+   "category": "Simulación",
+   "version": "25.0",
+   "added": true,
+   "params": 48,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE Wave Warp",
+   "name": "Deformación con ondas",
+   "category": "Distorsionar",
+   "version": "25.0",
+   "added": true,
+   "params": 9,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE Write-on",
+   "name": "Simulación de escritura",
+   "category": "Generar",
+   "version": "25.0",
+   "added": true,
+   "params": 11,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE Samurai",
+   "name": "Pincel rotoscopia y Perf. borde",
+   "category": "_Obsolete",
+   "version": "25.0",
+   "added": true,
+   "params": 45,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE Paint",
+   "name": "Pintar",
+   "category": "_Obsolete",
+   "version": "25.0",
+   "added": true,
+   "params": 3,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE FreePin3",
+   "name": "Posición libre",
+   "category": "_Obsolete",
+   "version": "25.0",
+   "added": true,
+   "params": 5,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE RefineRBMatte",
+   "name": "Perfeccionar mate fuerte",
+   "category": "Mate",
+   "version": "25.0",
+   "added": true,
+   "params": 18,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE RefineMatte",
+   "name": "Perfeccionar mate",
+   "category": "_Obsolete",
+   "version": "25.0",
+   "added": true,
+   "params": 18,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE RefineMatte2",
+   "name": "Perfeccionar mate suave",
+   "category": "Mate",
+   "version": "25.0",
+   "added": true,
+   "params": 23,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE Color Swirl",
+   "name": "Remolino de color",
+   "category": "",
+   "version": "0.0x0",
+   "added": true,
+   "params": 3,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE Getting Jiggy",
+   "name": "Vibrando",
+   "category": "",
+   "version": "0.0x0",
+   "added": true,
+   "params": 17,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE Separate XYZ Position",
+   "name": "Separar posición de XYZ",
+   "category": "",
+   "version": "0.0x0",
+   "added": true,
+   "params": 4,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE Separate XYZ Scale",
+   "name": "Separar escala XYZ",
+   "category": "",
+   "version": "0.0x0",
+   "added": true,
+   "params": 4,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE CM InsetVideoFramed",
+   "name": "Vídeo de margen - con marco",
+   "category": "",
+   "version": "0.0x0",
+   "added": true,
+   "params": 4,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE CM InsetVideoTorn",
+   "name": "Vídeo margen - bordes rasgados",
+   "category": "",
+   "version": "0.0x0",
+   "added": true,
+   "params": 2,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE CM MoodLightAmorph",
+   "name": "Iluminación ambiental - amorfa",
+   "category": "",
+   "version": "0.0x0",
+   "added": true,
+   "params": 4,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE CM MoodLightDigital",
+   "name": "Ilumin. ambiental - digital",
+   "category": "",
+   "version": "0.0x0",
+   "added": true,
+   "params": 4,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE CM MoodLightStreaks",
+   "name": "Iluminación ambiental - vetas",
+   "category": "",
+   "version": "0.0x0",
+   "added": true,
+   "params": 4,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE CM CrackedTiles",
+   "name": "Azulejos agrietados",
+   "category": "",
+   "version": "0.0x0",
+   "added": true,
+   "params": 3,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE CM LightLeaksMarkers",
+   "name": "Pérdidas luz - marcadores capa",
+   "category": "",
+   "version": "0.0x0",
+   "added": true,
+   "params": 2,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE CM LightLeaksRandom",
+   "name": "Pérdidas de luz - aleatorias",
+   "category": "",
+   "version": "0.0x0",
+   "added": true,
+   "params": 3,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE CM OpacityFlashMarkers",
+   "name": "Destello opacidad - marc. capa",
+   "category": "",
+   "version": "0.0x0",
+   "added": true,
+   "params": 2,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE CM OpacityFlashRandom",
+   "name": "Destello opacidad - aleatorio",
+   "category": "",
+   "version": "0.0x0",
+   "added": true,
+   "params": 3,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE CM CropEdges",
+   "name": "Recortar bordes",
+   "category": "",
+   "version": "0.0x0",
+   "added": true,
+   "params": 3,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE CM AutoscrollHorizontal",
+   "name": "Desplaz. autom. - horizontal",
+   "category": "",
+   "version": "0.0x0",
+   "added": true,
+   "params": 2,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE CM AutoscrollVertical",
+   "name": "Desplaz. autom. - vertical",
+   "category": "",
+   "version": "0.0x0",
+   "added": true,
+   "params": 2,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE CM Throw",
+   "name": "Desplazamiento con el tiempo",
+   "category": "",
+   "version": "0.0x0",
+   "added": true,
+   "params": 3,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE CM FadeInOutFrames",
+   "name": "Fundido inter.+exter. - fotog.",
+   "category": "",
+   "version": "0.0x0",
+   "added": true,
+   "params": 3,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE CM FadeInOutmsec",
+   "name": "Fundido interno y externo - ms",
+   "category": "",
+   "version": "0.0x0",
+   "added": true,
+   "params": 3,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE CM Spin",
+   "name": "Rotar con el tiempo",
+   "category": "",
+   "version": "0.0x0",
+   "added": true,
+   "params": 2,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE CM ScaleBounceMarkers",
+   "name": "Rebote en escala - marc. capa",
+   "category": "",
+   "version": "0.0x0",
+   "added": true,
+   "params": 3,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE CM ScaleBounceRandom",
+   "name": "Rebote en escala - aleatorio",
+   "category": "",
+   "version": "0.0x0",
+   "added": true,
+   "params": 4,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE CM WiggleGelatin",
+   "name": "Ondulación - gelatina",
+   "category": "",
+   "version": "0.0x0",
+   "added": true,
+   "params": 3,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE CM WigglePosition",
+   "name": "Ondulación - posición",
+   "category": "",
+   "version": "0.0x0",
+   "added": true,
+   "params": 3,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE CM WiggleRotation",
+   "name": "Ondulación - rotación",
+   "category": "",
+   "version": "0.0x0",
+   "added": true,
+   "params": 3,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE CM WiggleScale",
+   "name": "Ondulación - escala",
+   "category": "",
+   "version": "0.0x0",
+   "added": true,
+   "params": 5,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE CM WiggleShear",
+   "name": "Ondulación - proyección",
+   "category": "",
+   "version": "0.0x0",
+   "added": true,
+   "params": 3,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE CM Wigglerama",
+   "name": "Wigglerama",
+   "category": "",
+   "version": "0.0x0",
+   "added": true,
+   "params": 8,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE CM DissolveUnmelt",
+   "name": "Disolver - solidificar",
+   "category": "",
+   "version": "0.0x0",
+   "added": true,
+   "params": 3,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE CM Zoom2DSpin",
+   "name": "Zoom - giro 2D",
+   "category": "",
+   "version": "0.0x0",
+   "added": true,
+   "params": 3,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE CM Zoom3DTumble",
+   "name": "Zoom - caída 3D",
+   "category": "",
+   "version": "0.0x0",
+   "added": true,
+   "params": 4,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE CM ZoomWobble",
+   "name": "Zoom - temblor",
+   "category": "",
+   "version": "0.0x0",
+   "added": true,
+   "params": 3,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE CM ZoomBubble",
+   "name": "Zoom - burbuja",
+   "category": "",
+   "version": "0.0x0",
+   "added": true,
+   "params": 2,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE CM ZoomSpiral",
+   "name": "Zoom - espiral",
+   "category": "",
+   "version": "0.0x0",
+   "added": true,
+   "params": 5,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE CM SlideVariable",
+   "name": "Deslizamiento - variable",
+   "category": "",
+   "version": "0.0x0",
+   "added": true,
+   "params": 4,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE CM FlyToInset",
+   "name": "Entrar hasta el margen",
+   "category": "",
+   "version": "0.0x0",
+   "added": true,
+   "params": 6,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE CM CornerReveal",
+   "name": "Mostrar esquina",
+   "category": "",
+   "version": "0.0x0",
+   "added": true,
+   "params": 5,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE CM GridWipe",
+   "name": "Barrido de cuadrícula",
+   "category": "",
+   "version": "0.0x0",
+   "added": true,
+   "params": 5,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE CM TransComplete",
+   "name": "Control maestro transición",
+   "category": "",
+   "version": "0.0x0",
+   "added": true,
+   "params": 2,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE CM TransStretch",
+   "name": "Control maestro estiramiento",
+   "category": "",
+   "version": "0.0x0",
+   "added": true,
+   "params": 2,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE CM TransDissolve",
+   "name": "Disolver control maestro",
+   "category": "",
+   "version": "0.0x0",
+   "added": true,
+   "params": 2,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE CM TransFade",
+   "name": "Control maestro de atenuación",
+   "category": "",
+   "version": "0.0x0",
+   "added": true,
+   "params": 2,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE CM TransFadeMask",
+   "name": "Ocultar controles atenuación",
+   "category": "",
+   "version": "0.0x0",
+   "added": true,
+   "params": 3,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE CM TransWipe",
+   "name": "Control maestro de barrido",
+   "category": "",
+   "version": "0.0x0",
+   "added": true,
+   "params": 2,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE CM TransWipeFeath",
+   "name": "Controles maestros de barrido",
+   "category": "",
+   "version": "0.0x0",
+   "added": true,
+   "params": 3,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE CM TransCard",
+   "name": "Control maestro Card Wipe",
+   "category": "",
+   "version": "0.0x0",
+   "added": true,
+   "params": 3,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE CM TransSlide",
+   "name": "Control patrón diapositivas",
+   "category": "",
+   "version": "0.0x0",
+   "added": true,
+   "params": 3,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE CM TransCorner",
+   "name": "Contr. maest. estir. (vértice)",
+   "category": "",
+   "version": "0.0x0",
+   "added": true,
+   "params": 3,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE CM TransDirection",
+   "name": "Contr. maest. estir. (borde)",
+   "category": "",
+   "version": "0.0x0",
+   "added": true,
+   "params": 3,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE CM TransIris",
+   "name": "Controles maest. barrido iris",
+   "category": "",
+   "version": "0.0x0",
+   "added": true,
+   "params": 4,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE CM TransRadial",
+   "name": "Contr. maest. barrido radial",
+   "category": "",
+   "version": "0.0x0",
+   "added": true,
+   "params": 5,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE DE Jiggle",
+   "name": "Resonar",
+   "category": "",
+   "version": "0.0x0",
+   "added": true,
+   "params": 6,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE DE Jiggle At Marker",
+   "name": "Resonar en el marcador",
+   "category": "",
+   "version": "0.0x0",
+   "added": true,
+   "params": 4,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE DE Jiggle On Beat",
+   "name": "Resonar con la pulsación",
+   "category": "",
+   "version": "0.0x0",
+   "added": true,
+   "params": 6,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE DE Jiggle Random",
+   "name": "Resonar aleatoriamente",
+   "category": "",
+   "version": "0.0x0",
+   "added": true,
+   "params": 6,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE DE Pulse",
+   "name": "Ritmo",
+   "category": "",
+   "version": "0.0x0",
+   "added": true,
+   "params": 5,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE DE Pulse At Marker",
+   "name": "Ritmo en el marcador",
+   "category": "",
+   "version": "0.0x0",
+   "added": true,
+   "params": 3,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE DE Pulse On Beat",
+   "name": "Ritmo con la pulsación",
+   "category": "",
+   "version": "0.0x0",
+   "added": true,
+   "params": 5,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE DE Pulse Random",
+   "name": "Ritmo aleatorio",
+   "category": "",
+   "version": "0.0x0",
+   "added": true,
+   "params": 5,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE DE Bounce",
+   "name": "Rebote",
+   "category": "",
+   "version": "0.0x0",
+   "added": true,
+   "params": 6,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE DE Bounce At Marker",
+   "name": "Rebotar en el marcador",
+   "category": "",
+   "version": "0.0x0",
+   "added": true,
+   "params": 4,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE DE Bounce On Beat",
+   "name": "Rebotar con la pulsación",
+   "category": "",
+   "version": "0.0x0",
+   "added": true,
+   "params": 6,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE DE Bounce Random",
+   "name": "Rebote aleatorio",
+   "category": "",
+   "version": "0.0x0",
+   "added": true,
+   "params": 6,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE DE Opacity Pulse",
+   "name": "Ritmo de opacidad",
+   "category": "",
+   "version": "0.0x0",
+   "added": true,
+   "params": 7,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE DE Opacity Pulse At Marker",
+   "name": "Ritmo opacidad en marcador",
+   "category": "",
+   "version": "0.0x0",
+   "added": true,
+   "params": 5,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE DE Opacity Pulse On Beat",
+   "name": "Ritmo opacidad con pulsación",
+   "category": "",
+   "version": "0.0x0",
+   "added": true,
+   "params": 7,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE DE Opacity Pulse Random",
+   "name": "Ritmo de opacidad aleatorio",
+   "category": "",
+   "version": "0.0x0",
+   "added": true,
+   "params": 7,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE DE Oscillate",
+   "name": "Oscilar",
+   "category": "",
+   "version": "0.0x0",
+   "added": true,
+   "params": 7,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE DE Oscillate At Marker",
+   "name": "Oscilar en el marcador",
+   "category": "",
+   "version": "0.0x0",
+   "added": true,
+   "params": 5,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE DE Oscillate On Beat",
+   "name": "Oscilar con la pulsación",
+   "category": "",
+   "version": "0.0x0",
+   "added": true,
+   "params": 7,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE DE Oscillate Random",
+   "name": "Oscilar aleatoriamente",
+   "category": "",
+   "version": "0.0x0",
+   "added": true,
+   "params": 8,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE DE Pendulum",
+   "name": "Péndulo",
+   "category": "",
+   "version": "0.0x0",
+   "added": true,
+   "params": 6,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE DE Pendulum At Marker",
+   "name": "Péndulo en el marcador",
+   "category": "",
+   "version": "0.0x0",
+   "added": true,
+   "params": 4,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE DE Pendulum On Beat",
+   "name": "Péndulo con pulsación",
+   "category": "",
+   "version": "0.0x0",
+   "added": true,
+   "params": 6,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE DE Pendulum Random",
+   "name": "Péndulo aleatorio",
+   "category": "",
+   "version": "0.0x0",
+   "added": true,
+   "params": 6,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE DE Swarm",
+   "name": "Enjambre",
+   "category": "",
+   "version": "0.0x0",
+   "added": true,
+   "params": 4,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE DE Follow",
+   "name": "Seguir",
+   "category": "",
+   "version": "0.0x0",
+   "added": true,
+   "params": 8,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE DE Orbit",
+   "name": "Girar",
+   "category": "",
+   "version": "0.0x0",
+   "added": true,
+   "params": 5,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE DE Orbit 3D",
+   "name": "Giro 3D",
+   "category": "",
+   "version": "0.0x0",
+   "added": true,
+   "params": 8,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE DE Random Motion 1D",
+   "name": "Movimiento aleatorio 1D",
+   "category": "",
+   "version": "0.0x0",
+   "added": true,
+   "params": 7,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE DE Random Motion",
+   "name": "Movimiento aleatorio",
+   "category": "",
+   "version": "0.0x0",
+   "added": true,
+   "params": 7,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE DE Random Rotation",
+   "name": "Rotación aleatoria",
+   "category": "",
+   "version": "0.0x0",
+   "added": true,
+   "params": 7,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE DE Random Rotation 3D",
+   "name": "Rotación aleatoria 3D",
+   "category": "",
+   "version": "0.0x0",
+   "added": true,
+   "params": 11,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE DE Random Opacity",
+   "name": "Opacidad aleatoria",
+   "category": "",
+   "version": "0.0x0",
+   "added": true,
+   "params": 7,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE DE Random Scale",
+   "name": "Escala aleatoria",
+   "category": "",
+   "version": "0.0x0",
+   "added": true,
+   "params": 8,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE DE Random Fill Color",
+   "name": "Color de relleno aleatorio",
+   "category": "",
+   "version": "0.0x0",
+   "added": true,
+   "params": 9,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE DE Z Spring",
+   "name": "Salto de Z",
+   "category": "",
+   "version": "0.0x0",
+   "added": true,
+   "params": 9,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE DE Z Spring At Marker",
+   "name": "Salto de Z en el marcador",
+   "category": "",
+   "version": "0.0x0",
+   "added": true,
+   "params": 7,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE DE Wobble Bounce",
+   "name": "Rebote de temblor",
+   "category": "",
+   "version": "0.0x0",
+   "added": true,
+   "params": 9,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE DE Wobble Bounce At Marker",
+   "name": "Rebote temblor en marcador",
+   "category": "",
+   "version": "0.0x0",
+   "added": true,
+   "params": 7,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE DE Wobble Bounce On Beat",
+   "name": "Rebote temblor con pulsación",
+   "category": "",
+   "version": "0.0x0",
+   "added": true,
+   "params": 9,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE DE Wobble Bounce Random",
+   "name": "Rebote de temblor aleatorio",
+   "category": "",
+   "version": "0.0x0",
+   "added": true,
+   "params": 10,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE CM Animated Shape Control",
+   "name": "Control de forma animada",
+   "category": "",
+   "version": "0.0x0",
+   "added": true,
+   "params": 6,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE CM Animated Shape 2",
+   "name": "Control de persecución",
+   "category": "",
+   "version": "0.0x0",
+   "added": true,
+   "params": 5,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE CM Animated Shape 3",
+   "name": "Control de forma animada",
+   "category": "",
+   "version": "0.0x0",
+   "added": true,
+   "params": 3,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE Sample Image",
+   "name": "Imagen de muestra",
+   "category": "",
+   "version": "0.0x0",
+   "added": true,
+   "params": 4,
+   "defined": true
+  },
+  {
+   "matchName": "ADBE Stereo 3D Controls",
+   "name": "Controles 3D estéreo",
+   "category": "",
+   "version": "0.0x0",
+   "added": true,
+   "params": 10,
+   "defined": true
+  },
+  {
+   "matchName": "Pseudo/ADBE Animal Head66",
+   "name": "Puntos de seguimiento de la ca",
+   "category": "",
+   "version": "0.0x0",
+   "added": true,
+   "params": 166,
+   "defined": true
+  },
+  {
+   "matchName": "Pseudo/ADBE Animal Head14",
+   "name": "Medidas de la cara",
+   "category": "",
+   "version": "0.0x0",
+   "added": true,
+   "params": 30,
+   "defined": true
+  },
+  {
+   "matchName": "Pseudo/ADBE Trace Path",
+   "name": "Trazar ruta",
+   "category": "",
+   "version": "0.0x0",
+   "added": true,
+   "params": 3,
+   "defined": true
+  },
+  {
+   "matchName": "Pseudo/ADBE Pattern Template",
+   "name": "Plantilla de patrón",
+   "category": "",
+   "version": "0.0x0",
+   "added": true,
+   "params": 6,
+   "defined": true
+  },
+  {
+   "matchName": "Pseudo/ADBE Counter Controls",
+   "name": "Controles de contador",
+   "category": "",
+   "version": "0.0x0",
+   "added": true,
+   "params": 15,
+   "defined": true
+  },
+  {
+   "matchName": "Pseudo/ADBE Currency Controls",
+   "name": "Controles de monedas",
+   "category": "",
+   "version": "0.0x0",
+   "added": true,
+   "params": 18,
+   "defined": true
+  },
+  {
+   "matchName": "Pseudo/ADBE Percentage Controls",
+   "name": "Controles porcentuales",
+   "category": "",
+   "version": "0.0x0",
+   "added": true,
+   "params": 16,
+   "defined": true
+  },
+  {
+   "matchName": "Pseudo/ADBE Timer Controls",
+   "name": "Controles de temporizador",
+   "category": "",
+   "version": "0.0x0",
+   "added": true,
+   "params": 13,
+   "defined": true
+  },
+  {
+   "matchName": "Pseudo/ADBE 2D Text Box",
+   "name": "Cuadro de texto 2D",
+   "category": "",
+   "version": "0.0x0",
+   "added": true,
+   "params": 34,
+   "defined": true
+  }
+ ]
+}

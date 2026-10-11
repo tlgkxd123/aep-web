@@ -34,6 +34,43 @@ in vec2 v_uv;
 out vec4 outColor;
 void main() { outColor = texture(u_source, v_uv); }`;
 
+/**
+ * A padded image reduced to a lower resolution: each reduced pixel averages u_taps x u_taps bilinear samples
+ * spread over its footprint (whole source pixels when 1/scale is an integer and the grids line up).
+ */
+export const REDUCE_FS = `#version 300 es
+precision highp float;
+uniform sampler2D u_source;
+uniform vec2 u_sourceSize;   // source texels, border included
+uniform vec2 u_sourceOrigin; // layer position of the source's first content pixel
+uniform vec2 u_origin;       // the reduced image's first content pixel, in reduced pixels
+uniform vec2 u_size;         // reduced content size
+uniform float u_pad;
+uniform float u_scale;
+uniform int u_taps;
+out vec4 outColor;
+void main() {
+  // Reduced content position, y down from the top-left corner; pixel centres at +0.5.
+  vec2 frag = gl_FragCoord.xy - u_pad;
+  vec2 q = vec2(frag.x, u_size.y - frag.y);
+  if (q.x < 0.0 || q.y < 0.0 || q.x > u_size.x || q.y > u_size.y) {
+    outColor = vec4(0.0);
+    return;
+  }
+  vec4 sum = vec4(0.0);
+  float n = float(u_taps);
+  for (int j = 0; j < 8; j++) {
+    if (j >= u_taps) break;
+    for (int i = 0; i < 8; i++) {
+      if (i >= u_taps) break;
+      vec2 sub = (vec2(float(i), float(j)) + 0.5) / n - 0.5;
+      vec2 src = (u_origin + q + sub) / u_scale - u_sourceOrigin + u_pad;
+      sum += texture(u_source, vec2(src.x, u_sourceSize.y - src.y) / u_sourceSize);
+    }
+  }
+  outColor = sum / (n * n);
+}`;
+
 /** Full-target pass with uv in [0,1]. */
 export const FULLSCREEN_VS = `#version 300 es
 layout(location = 0) in vec2 a_corner;

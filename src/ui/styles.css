@@ -1889,6 +1889,12 @@ button.vb-btn:hover {
   min-height: 0;
 }
 
+.fxp-hint {
+  padding: 0 8px 4px;
+  color: var(--text-dim);
+  font-size: 11px;
+}
+
 .fxp-tree {
   flex: 1;
   min-height: 0;
@@ -1924,6 +1930,45 @@ button.vb-btn:hover {
 
 .fxp-effect {
   padding-left: 22px;
+}
+
+.fxp-effect.fxp-lib {
+  padding-left: 37px;
+}
+
+.fxp-effect.selected,
+.fxp-effect.selected:hover {
+  background: var(--sel);
+  color: var(--text-hi);
+}
+
+.fxp-lib.unavailable {
+  color: var(--text-dim);
+}
+
+.fxp-lib.unavailable .ic-effect {
+  opacity: 0.45;
+}
+
+.fxp-lib:focus-visible {
+  outline: none;
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+
+.tl-layer.drop-on > * {
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+
+.comp-svg .effect-drop {
+  fill: rgb(45 140 235 / 14%);
+  stroke: var(--accent);
+  stroke-width: 1;
+  vector-effect: non-scaling-stroke;
+  pointer-events: none;
+}
+
+.ec.drop-over .ec-list {
+  box-shadow: inset 0 0 0 1px var(--accent);
 }
 
 .fxp-none {

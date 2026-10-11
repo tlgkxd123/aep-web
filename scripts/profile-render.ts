@@ -3,6 +3,10 @@
 // placement, compositing). Footage is located on disk like the dev server does.
 //
 //   node scripts/profile-render.ts <project.aep> [--comps name,name] [--top 5] [--times 1,5] [--swiftshader] [--sapphire]
+//     [--discrete] [--scale 0.5] [--layers]
+//
+// --discrete runs on the high-performance GPU of a dual-GPU machine (the browser's default is the integrated one).
+// --scale renders at a viewer resolution (0.5 = Half); --layers adds what each top-level layer costs.
 import { execSync } from "node:child_process";
 import { readFileSync, statSync } from "node:fs";
 import { resolve } from "node:path";
@@ -19,7 +23,7 @@ const top = Number(opt("--top") ?? 5);
 if (!args.includes("--no-build")) execSync("npx vite build -c vite.harness.config.ts --logLevel error", { stdio: "inherit" });
 const gpuArgs = args.includes("--swiftshader")
   ? ["--use-angle=swiftshader", "--enable-unsafe-swiftshader"]
-  : ["--use-angle=d3d11", "--enable-gpu", "--ignore-gpu-blocklist"];
+  : ["--use-angle=d3d11", "--enable-gpu", "--ignore-gpu-blocklist", ...(args.includes("--discrete") ? ["--force-high-performance-gpu"] : [])];
 const browser = await chromium.launch({ channel: "msedge", headless: true, args: gpuArgs });
 const page = await browser.newPage();
 page.on("console", (m) => m.type() === "error" && console.log("console:", m.text()));
@@ -55,18 +59,20 @@ interface CpuNode {
   hitCount?: number;
 }
 
+const profileOptions = { scale: Number(opt("--scale") ?? 1), layers: args.includes("--layers") };
 for (const name of wanted) {
   const [, layers, w, h] = comps.find((c) => c[0] === name) ?? [name, 0, 0, 0];
   if (cdp) {
     // Warm the footage first so the CPU profile covers rendering only.
-    await page.evaluate(([c, t]) => (globalThis as any).aepHarness.profile(c, t), [name, times] as const);
+    await page.evaluate(([c, t, o]) => (globalThis as any).aepHarness.profile(c, t, o), [name, times, { scale: profileOptions.scale }] as const);
     await cdp.send("Profiler.start");
   }
-  const result = (await page.evaluate(([c, t]) => (globalThis as any).aepHarness.profile(c, t), [name, times] as const)) as {
+  const result = (await page.evaluate(([c, t, o]) => (globalThis as any).aepHarness.profile(c, t, o), [name, times, profileOptions] as const)) as {
     frameMs: number[];
     warmMs: number[];
     coldMs: number[];
     stages: [string, number, number][];
+    layers: [string, number][];
     gpu: string;
   };
   console.log(`\n${name}: waiting for footage at t=${times.join(",")}: ${result.warmMs.map((m) => m.toFixed(0)).join(", ")} ms`);
@@ -83,9 +89,14 @@ for (const name of wanted) {
     console.log(`\n-- CPU self time for ${name} (${total.toFixed(0)} ms sampled over ${times.length * 2} renders)`);
     for (const [fn, ms] of [...selfMs].sort((a, b) => b[1] - a[1]).slice(0, 18)) console.log(`  ${ms.toFixed(1).padStart(8)} ms  ${fn}`);
   }
-  console.log(`\n== ${name} (${w}x${h}, ${layers} layers) on ${result.gpu}`);
+  console.log(`\n== ${name} (${w}x${h}, ${layers} layers, scale ${profileOptions.scale}) on ${result.gpu}`);
   console.log(`frame ms at t=${times.join(",")}: ${result.frameMs.map((m) => m.toFixed(1)).join(", ")}`);
   console.log(`first complete render ms (footage uploads included): ${result.coldMs.map((m) => m.toFixed(1)).join(", ")}`);
+  console.log("ms per stage (each stage waited for on the GPU, which adds to the total):");
   for (const [stage, ms, count] of result.stages.slice(0, 14)) console.log(`  ${ms.toFixed(1).padStart(8)} ms  ${count.toFixed(0).padStart(4)}x  ${stage}`);
+  if (result.layers.length) {
+    console.log("ms each top-level layer adds to a frame:");
+    for (const [layer, ms] of result.layers) console.log(`  ${ms.toFixed(1).padStart(8)} ms  ${layer}`);
+  }
 }
 await browser.close();

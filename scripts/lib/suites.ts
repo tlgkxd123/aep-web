@@ -1,4 +1,6 @@
 // Fixture suites: refs/fixtures/manifest.json (core) plus refs/fixtures/<suite>.manifest.json.
+// A suite may also list comps whose renderer only approximates After Effects in
+// refs/fixtures/<suite>.approximations.json: they have references but no pixel gate.
 import { readdirSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 
@@ -15,11 +17,19 @@ export interface SuiteManifest {
   media?: string[];
 }
 
-export function loadSuites(only?: string): SuiteManifest[] {
+/** The suites' manifests; with `approximations`, their approximation lists too (for rendering references). */
+export function loadSuites(only?: string, approximations = false): SuiteManifest[] {
   const dir = join(ROOT, "fixtures");
   return readdirSync(dir)
-    .filter((f) => f.endsWith("manifest.json"))
-    .filter((f) => !only || f === only || f === `${only}.manifest.json` || (only === "fixtures" && f === "manifest.json"))
+    .filter((f) => f.endsWith("manifest.json") || (approximations && f.endsWith(".approximations.json")))
+    .filter(
+      (f) =>
+        !only ||
+        f === only ||
+        f === `${only}.manifest.json` ||
+        f === `${only}.approximations.json` ||
+        (only === "fixtures" && f === "manifest.json"),
+    )
     .sort()
     .map((file) => ({ file, ...(JSON.parse(readFileSync(join(dir, file), "utf8")) as Omit<SuiteManifest, "file">) }));
 }

@@ -1,7 +1,7 @@
 // Export gate: renders Render Queue items in headless Edge and checks the files
 // with readers that share no code with the writers.
 //
-//   node scripts/export-report.ts [--require] [--gpu] [--only case,case]
+//   node scripts/export-report.ts [--require] [--gpu] [--only case,case] [--software-h264]
 //
 // PNG sequences (zip) must hold exactly the renderer's frames, byte for byte.
 // H.264 MP4 and VP9 WebM are demuxed in Node, decoded with VideoDecoder and
@@ -77,6 +77,8 @@ await build({
   root: resolve("."),
   configFile: false,
   logLevel: "error",
+  // A library build leaves process.env alone; React (through the render queue's options) reads NODE_ENV.
+  define: { "process.env.NODE_ENV": JSON.stringify("production") },
   build: { outDir, emptyOutDir: true, minify: false, lib: { entry: resolve("scripts/export/export-entry.ts"), name: "AepExport", formats: ["iife"], fileName: () => "export.js" } },
 });
 const harnessJs = readFileSync(join(outDir, "export.js"));
@@ -95,8 +97,9 @@ const server = createServer((req, res) => {
     });
     return;
   }
-  if (req.url === "/export.js") res.writeHead(200, { "content-type": "text/javascript" }).end(harnessJs);
-  else res.writeHead(200, { "content-type": "text/html" }).end('<!doctype html><html><body><script src="/export.js"></script></body></html>');
+  // The bundle is UTF-8 (the expression engine's identifier pattern is not ASCII).
+  if (req.url === "/export.js") res.writeHead(200, { "content-type": "text/javascript; charset=utf-8" }).end(harnessJs);
+  else res.writeHead(200, { "content-type": "text/html; charset=utf-8" }).end('<!doctype html><html><body><script src="/export.js"></script></body></html>');
 });
 await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
 const port = (server.address() as AddressInfo).port;
@@ -105,6 +108,13 @@ const gpu = args.includes("--gpu");
 const browser = await chromium.launch({ channel: "msedge", headless: true, args: gpu ? [] : ["--use-angle=swiftshader", "--enable-unsafe-swiftshader"] });
 const page = await browser.newPage();
 page.on("pageerror", (e) => console.log(`page error: ${e.message}`));
+// --software-h264: the browser reports no H.264 encoder (as Android's WebView), so exports take the WebAssembly encoder.
+if (args.includes("--software-h264")) {
+  await page.addInitScript(() => {
+    const supported = VideoEncoder.isConfigSupported.bind(VideoEncoder);
+    VideoEncoder.isConfigSupported = async (config) => (config.codec.startsWith("avc1") ? { supported: false, config } : supported(config));
+  });
+}
 await page.goto(`http://127.0.0.1:${port}/`);
 const call = <T>(fn: string, ...params: unknown[]): Promise<T> =>
   page.evaluate(([f, p]) => (globalThis as any).aepExport[f as string](...(p as unknown[])), [fn, params] as const) as Promise<T>;

@@ -9,7 +9,7 @@
 // spectrum, flowers) are masked: particles there are unreliable to find, and the
 // mask is reported so that renders compared against the video skip the same tiles.
 import type { Gpu, Surface } from "./gpu.ts";
-import { readFloats } from "./gpu.ts";
+import { readFloats, ReadbackQueue } from "./gpu.ts";
 
 const MORPH_FS = `#version 300 es
 precision highp float;
@@ -300,6 +300,7 @@ export class Detector {
   private readonly tiles: { framebuffer: WebGLFramebuffer; textures: WebGLTexture[]; width: number; height: number };
   private readonly read0: Float32Array;
   private readonly read1: Float32Array;
+  private readonly later: ReadbackQueue<number>;
   private history: Surface[] = [];
   private frames = 0;
 
@@ -318,6 +319,7 @@ export class Detector {
     this.tiles = gpu.multi(Math.ceil(w / options.tile), Math.ceil(h / options.tile), gl.RGBA32F, 2);
     this.read0 = new Float32Array(this.tiles.width * this.tiles.height * 4);
     this.read1 = new Float32Array(this.tiles.width * this.tiles.height * 4);
+    this.later = new ReadbackQueue<number>(gl);
   }
 
   /** Tile grid columns and rows (the mask's layout). */
@@ -333,6 +335,11 @@ export class Detector {
   /** The last frame's opening (its background without particles), covering the region. */
   get openingTexture(): WebGLTexture {
     return this.b.texture;
+  }
+
+  /** The past frames of the median background (HISTORY of them once warm), whole frames. */
+  get historyTextures(): WebGLTexture[] {
+    return this.history.map((s) => s.texture);
   }
 
   /** Whether the median background has all its past frames (detections before then are unreliable). */
@@ -430,17 +437,45 @@ export class Detector {
     const { framebuffer, width, height } = this.tiles;
     readFloats(gl, framebuffer, 0, width, height, this.read0);
     readFloats(gl, framebuffer, 1, width, height, this.read1);
+    return this.decode(this.read0, this.read1);
+  }
+
+  /**
+   * Queues the read of the last frame's detections without waiting for the GPU, tagged `tag`. Returns the
+   * queued reads it had to finish to make room, oldest first; `collect` and `drain` return the others.
+   */
+  readLater(tag: number): { tag: number; output: DetectorOutput }[] {
+    const { framebuffer, width, height } = this.tiles;
+    return this.decoded(this.later.read(tag, framebuffer, [0, 1], width, height));
+  }
+
+  /** The queued reads the GPU has finished, oldest first. */
+  collect(): { tag: number; output: DetectorOutput }[] {
+    return this.decoded(this.later.collect());
+  }
+
+  /** Every queued read, oldest first. */
+  drain(): { tag: number; output: DetectorOutput }[] {
+    return this.decoded(this.later.drain());
+  }
+
+  private decoded(reads: { tag: number; data: Float32Array[] }[]): { tag: number; output: DetectorOutput }[] {
+    return reads.map(({ tag, data }) => ({ tag, output: this.decode(data[0], data[1]) }));
+  }
+
+  private decode(read0: Float32Array, read1: Float32Array): DetectorOutput {
+    const { width, height } = this.tiles;
     const mask = new Uint8Array(width * height);
-    for (let i = 0; i < width * height; i++) mask[i] = this.read1[i * 4 + 3] > this.options.backMax ? 0 : 1;
+    for (let i = 0; i < width * height; i++) mask[i] = read1[i * 4 + 3] > this.options.backMax ? 0 : 1;
     maskEnclosed(mask, width, height, this.options.openEdges);
     let count = 0;
-    for (let i = 0; i < width * height; i++) if (mask[i] && this.read0[i * 4 + 2] > 0) count++;
+    for (let i = 0; i < width * height; i++) if (mask[i] && read0[i * 4 + 2] > 0) count++;
     const detections = new Float32Array(count * DETECTION_FLOATS);
     let k = 0;
     for (let i = 0; i < width * height; i++) {
-      if (!mask[i] || !(this.read0[i * 4 + 2] > 0)) continue;
-      detections.set(this.read0.subarray(i * 4, i * 4 + 4), k);
-      detections.set(this.read1.subarray(i * 4, i * 4 + 4), k + 4);
+      if (!mask[i] || !(read0[i * 4 + 2] > 0)) continue;
+      detections.set(read0.subarray(i * 4, i * 4 + 4), k);
+      detections.set(read1.subarray(i * 4, i * 4 + 4), k + 4);
       k += DETECTION_FLOATS;
     }
     return { detections, mask };
@@ -454,5 +489,6 @@ export class Detector {
   dispose(): void {
     for (const s of [this.a, this.b, this.residual, this.blurX, this.smooth, this.nearX, this.near, ...this.history]) this.gpu.release(s);
     this.history = [];
+    this.later.dispose();
   }
 }

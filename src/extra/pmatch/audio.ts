@@ -108,6 +108,16 @@ export function audioFeatures(read: SampleReader, sampleRate: number, duration: 
   return featuresFromEnergies(bandEnergies(read, sampleRate, duration));
 }
 
+/** A file's sound track as training hears it, resampled to 48 kHz (null when it has none the browser can decode). */
+export async function decodeSoundTrack(blob: Blob): Promise<AudioBuffer | null> {
+  try {
+    const context = new OfflineAudioContext(1, 1, 48000);
+    return await context.decodeAudioData(await blob.arrayBuffer());
+  } catch {
+    return null;
+  }
+}
+
 /** A reader over decoded channels (mixed to mono). */
 export function channelReader(channels: Float32Array[]): SampleReader {
   return (first, length) => {

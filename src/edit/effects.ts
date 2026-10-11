@@ -22,11 +22,11 @@ export interface EffectTemplate {
 const EFFECT_PARADE = "ADBE Effect Parade";
 const GROUP_END = "ADBE Group End";
 /** The name a group or effect stores when it has none of its own. */
-const UNNAMED = "-_0_/-";
+export const UNNAMED = "-_0_/-";
 /** Groups the Effects group comes before in a layer (Masks and the rest come before it). */
 const AFTER_PARADE = new Set(["ADBE Essential Properties", "ADBE Transform Group"]);
 
-function clone(chunk: Chunk): Chunk {
+export function clone(chunk: Chunk): Chunk {
   return { ...chunk, offset: -1, data: chunk.data.slice(), children: chunk.children?.map(clone) };
 }
 
@@ -77,7 +77,7 @@ function paramList(tdgp: Chunk, name: string, listType: string): Chunk | undefin
 }
 
 /** A tdsn payload: the name as a Utf8 chunk. */
-function nameData(text: string): Uint8Array {
+export function nameData(text: string): Uint8Array {
   const bytes = new TextEncoder().encode(text);
   const data = new Uint8Array(8 + bytes.length + (bytes.length & 1));
   data.set(new TextEncoder().encode("Utf8"));

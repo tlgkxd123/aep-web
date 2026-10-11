@@ -336,6 +336,8 @@ const PATHS = {
     </>
   ),
   play: <path d="M4.5 3 13 8l-8.5 5Z" {...F} />,
+  pause: <path d="M4.5 3h2.5v10H4.5ZM9 3h2.5v10H9Z" {...F} />,
+  back: <path d="M10 3.5 5.5 8l4.5 4.5" />,
   stop: <rect x="4" y="4" width="8" height="8" rx="0.5" {...F} />,
   nextFrame: (
     <>
@@ -399,6 +401,21 @@ const PATHS = {
   ),
   plus: <path d="M8 4v8M4 8h8" />,
   minus: <path d="M4 8h8" />,
+  undo: <path d="M5.8 3.5 2.8 6.5l3 3M3.1 6.5h6.7a3 3 0 0 1 0 6H7.5" />,
+  redo: <path d="M10.2 3.5l3 3-3 3M12.9 6.5H6.2a3 3 0 0 0 0 6h2.3" />,
+  render: (
+    <>
+      <path d="M2.5 4.5h7M2.5 8h5M2.5 11.5h7" />
+      <path d="M11 5.4 14 8l-3 2.6Z" {...F} />
+    </>
+  ),
+  more: (
+    <>
+      <circle cx="3.5" cy="8" r="1.15" {...F} />
+      <circle cx="8" cy="8" r="1.15" {...F} />
+      <circle cx="12.5" cy="8" r="1.15" {...F} />
+    </>
+  ),
   check: <path d="M3.5 8.5l3 3 6-7" />,
   alignLeft: (
     <>

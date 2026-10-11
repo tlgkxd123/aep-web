@@ -218,9 +218,13 @@ export function windowLength(rate: number, durationMs: number): number {
   return Math.max(1, Math.round((durationMs / 1000) * rate));
 }
 
-/** Index of the window's first sample for analysed time `time` (seconds, t = index / rate). */
+/**
+ * Index of the window's first sample for analysed time `time` (seconds, t = index / rate). An odd window puts
+ * frame times exactly halfway between samples; the bias keeps rounding error in the time from choosing the
+ * sample below on some frames and the one above on others.
+ */
 export function windowStart(time: number, rate: number, length: number, placement = WINDOW_PLACEMENT): number {
-  return Math.round(time * rate - length * placement);
+  return Math.round(time * rate - length * placement + 1e-6);
 }
 
 /** Length in samples of the short Hamming window whose response shapes averaged spectra. */

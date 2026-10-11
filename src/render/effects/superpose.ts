@@ -4,4 +4,4 @@
 // renders show the layer unchanged, so the browser draws it unchanged too.
 import { registerEffect } from "../registry.ts";
 
-registerEffect("Keller.io Superpose 2", (input) => input);
+registerEffect("Keller.io Superpose 2", (input) => input, { cacheable: true, scalable: true });

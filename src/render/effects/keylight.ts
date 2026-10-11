@@ -113,4 +113,4 @@ registerEffect("Keylight 906", (input, effect, layer, time, ctx) => {
     gl.uniform1i(uniform("u_softColour"), clipped ? 1 : 0);
     gl.uniform3f(uniform("u_replace"), replace[0], replace[1], replace[2]);
   });
-});
+}, { cacheable: true, scalable: true });

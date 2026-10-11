@@ -11,14 +11,19 @@
     "corpus": "node scripts/corpus-report.ts"
   },
   "dependencies": {
+    "@capacitor/android": "^8.5.3",
+    "@capacitor/core": "^8.5.3",
+    "@capacitor/filesystem": "^8.1.4",
     "acorn": "^8.19.0",
     "astring": "^1.9.0",
     "fflate": "^0.8.3",
+    "h264-mp4-encoder": "^1.0.12",
     "mp4-muxer": "^5.2.2",
     "react": "^19.1.0",
     "react-dom": "^19.1.0"
   },
   "devDependencies": {
+    "@capacitor/cli": "^8.5.3",
     "@testing-library/react": "^16.3.0",
     "@types/node": "^24.0.0",
     "@types/react": "^19.1.0",

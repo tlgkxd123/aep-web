@@ -1,6 +1,7 @@
 // Where projects are read from and written to: the File System Access API
 // where the browser has it (so Save writes back to the opened file), a file
 // input and a download otherwise.
+import { saveBlob } from "../export/saveFile.ts";
 import { IMPORTABLE_EXTENSIONS } from "../media/probe.ts";
 
 interface WritableHandle {
@@ -63,18 +64,30 @@ async function write(handle: ProjectHandle, bytes: Uint8Array): Promise<void> {
   await writable.close();
 }
 
-function download(bytes: Uint8Array, name: string): void {
-  const url = URL.createObjectURL(new Blob([bytes as BlobPart], { type: "application/octet-stream" }));
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = name;
-  a.click();
-  setTimeout(() => URL.revokeObjectURL(url), 10_000);
+function download(bytes: Uint8Array, name: string): Promise<string> {
+  return saveBlob(new Blob([bytes as BlobPart], { type: "application/octet-stream" }), name);
 }
 
 export interface Saved {
   name: string;
   handle?: ProjectHandle;
+}
+
+async function saveNew(bytes: Uint8Array, suggestedName: string, type: PickerType): Promise<Saved | undefined> {
+  const { showSaveFilePicker } = pickers();
+  if (showSaveFilePicker) {
+    let target: ProjectHandle;
+    try {
+      target = await showSaveFilePicker({ suggestedName, types: [type] });
+    } catch (e) {
+      if (isAbort(e)) return undefined;
+      throw e;
+    }
+    await write(target, bytes);
+    return { name: target.name, handle: target };
+  }
+  await download(bytes, suggestedName);
+  return { name: suggestedName };
 }
 
 /**
@@ -86,21 +99,17 @@ export async function saveProjectBytes(bytes: Uint8Array, name: string, handle: 
     await write(handle, bytes);
     return { name: handle.name, handle };
   }
-  const suggestedName = /\.aep$/i.test(name) ? name : `${name}.aep`;
-  const { showSaveFilePicker } = pickers();
-  if (showSaveFilePicker) {
-    let target: ProjectHandle;
-    try {
-      target = await showSaveFilePicker({ suggestedName, types: [AEP_TYPE] });
-    } catch (e) {
-      if (isAbort(e)) return undefined;
-      throw e;
-    }
-    await write(target, bytes);
-    return { name: target.name, handle: target };
-  }
-  download(bytes, suggestedName);
-  return { name: suggestedName };
+  return saveNew(bytes, /\.aep$/i.test(name) ? name : `${name}.aep`, AEP_TYPE);
+}
+
+/**
+ * Saves bytes as a new file of type `extension` (".pmwm") through the browser's
+ * save picker, or as a download. Resolves to the saved file's name, or
+ * undefined when the user cancelled the picker.
+ */
+export async function saveFileBytes(bytes: Uint8Array, name: string, description: string, extension: string): Promise<string | undefined> {
+  const suggestedName = name.toLowerCase().endsWith(extension) ? name : `${name}${extension}`;
+  return (await saveNew(bytes, suggestedName, { description, accept: { "application/octet-stream": [extension] } }))?.name;
 }
 
 /** The browser's file dialog for footage. Resolves to [] when cancelled. */

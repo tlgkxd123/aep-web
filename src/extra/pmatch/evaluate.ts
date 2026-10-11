@@ -8,7 +8,7 @@ import { DEFAULT_DETECTOR, Detector, type DetectorOptions } from "./detect.ts";
 import { Clock } from "./dynamics.ts";
 import { decodeWindow, videoInfo } from "./frames.ts";
 import { createGpu, frameTexture, uploadFrame, type Gpu } from "./gpu.ts";
-import { compare, measure, median, spriteMatch, type Comparison, type SpriteMatch } from "./metrics.ts";
+import { classShares, compare, lightProfiles, measure, median, spriteMatch, type Comparison, type LightProfiles, type SpriteMatch } from "./metrics.ts";
 import type { ParticleWorldModel } from "./model.ts";
 import { analyseVideo, mirrorCorrelation, referenceView, synthesize, Synthesizer, videoAudioFeatures, type FrameMask, type VideoAnalysis } from "./pipeline.ts";
 import { prepare, type Prepared, type View } from "./sample.ts";
@@ -35,6 +35,12 @@ export interface Evaluation {
   sprites: SpriteMatch[];
   /** The mean crop of the model's particles against the reference's. */
   meanSprite: number;
+  /** How the particles' light falls off from their centre out to their halo, by thirds of the reference's peaks. */
+  profiles: LightProfiles;
+  /** The median size (spread, px) of reference and model detections in each third of the reference's detection peaks. */
+  spreadByThird: { reference: number[]; model: number[] };
+  /** The share of reference and model crops that look most like each sprite, and their total variation distance. */
+  shares: { reference: number[]; model: number[]; distance: number };
   /** Mirror correlations (the median over a few frames) and the axis they are measured about. */
   mirror: { reference: number; model: number; axis: number };
   /** The model clock's mean speed over the window (clock seconds per second). */
@@ -60,6 +66,8 @@ export async function evaluateModel(blob: Blob, model: ParticleWorldModel, from:
     const mine = measure(ours.frames, track(ours.frames, tracker), center);
     const mirror = await mirrorScores(gpu, blob, analysis, prepared, clock, view, from, to);
     gpu.release(analysis.background);
+    const shares = { reference: classShares(model.sprites, analysis.crops), model: classShares(model.sprites, ours.crops) };
+    const texels = model.sprites.size / 2 / model.sprites.reach;
     return {
       seconds: (performance.now() - started) / 1000,
       frames: frames.length,
@@ -71,7 +79,16 @@ export async function evaluateModel(blob: Blob, model: ParticleWorldModel, from:
       crops: [analysis.crops.length, ours.crops.length],
       comparison: compare(reference, mine, info.frameRate),
       sprites: spriteMatch(model.sprites, analysis.crops),
-      meanSprite: correlation(meanTemplate(analysis.crops), meanTemplate(ours.crops)),
+      meanSprite: correlation(meanTemplate(analysis.crops, model.sprites.size, texels), meanTemplate(ours.crops, model.sprites.size, texels)),
+      profiles: lightProfiles(analysis.crops, ours.crops),
+      spreadByThird: (() => {
+        const sorted = reference.peaks.slice().sort((a, b) => a - b);
+        const edges = [1 / 3, 2 / 3].map((q) => sorted[Math.floor(q * (sorted.length - 1))] ?? 0);
+        const byThird = (m: typeof reference) =>
+          [0, 1, 2].map((t) => median(m.spreads.filter((_, i) => (m.peaks[i] < edges[0] ? 0 : m.peaks[i] < edges[1] ? 1 : 2) === t)));
+        return { reference: byThird(reference), model: byThird(mine) };
+      })(),
+      shares: { ...shares, distance: 0.5 * shares.reference.reduce((s, r, k) => s + Math.abs(r - shares.model[k]), 0) },
       mirror,
       clockSpeed: (clock.timeAt(to) - clock.timeAt(from)) / (to - from),
     };

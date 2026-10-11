@@ -6,87 +6,9 @@ import { findList, type Chunk } from "../src/aep/riff.ts";
 import { Mat4 } from "../src/aep/transform.ts";
 import { Editor } from "../src/edit/editor.ts";
 import { DEFAULT_COMP_SETTINGS, newComposition, newProject } from "../src/edit/project.ts";
-import { FEATURES, type AudioFeatures } from "../src/extra/pmatch/audio.ts";
-import {
-  dynamicsWeightCount,
-  JITTER_COUNT,
-  LIFE_SAMPLES,
-  MODEL_VERSION,
-  P_AMP,
-  P_LIFE,
-  P_OX,
-  P_OY,
-  P_SIZE,
-  P_SPRITE,
-  P_VX,
-  P_VY,
-  P_VZ,
-  PROTO_STRIDE,
-  type ParticleWorldModel,
-} from "../src/extra/pmatch/model.ts";
 import { createParticularLayers, effectParam, MIRROR, PARTICULAR, PARTICULAR_PARAM as P, particularSettings, type ParticularTarget } from "../src/extra/pmatch/particular.ts";
 import { curveSamples } from "../src/render/effects/particularCurves.ts";
-
-const HIDDEN = 2;
-
-function syntheticModel(mirrorAxis: number | null): ParticleWorldModel {
-  const count = 96;
-  const prototypes = new Float32Array(count * PROTO_STRIDE);
-  for (let i = 0; i < count; i++) {
-    const u = (i + 0.5) / count;
-    const p = prototypes.subarray(i * PROTO_STRIDE, (i + 1) * PROTO_STRIDE);
-    const angle = i * 2.399963;
-    p[P_VX] = 0.02 * Math.cos(angle);
-    p[P_VY] = 0.02 * Math.sin(angle);
-    p[P_VZ] = -(0.05 + 0.3 * u);
-    p[P_OX] = 0.3 * Math.cos(angle * 1.7);
-    p[P_OY] = 0.2 * Math.sin(angle * 1.3);
-    p[P_SIZE] = 0.0015 + (0.001 * ((i * 7) % 5)) / 4;
-    p[P_AMP] = 0.5 + (0.4 * ((i * 3) % 7)) / 6;
-    p[P_LIFE] = 1 + 8 * (1 - u);
-    p[P_SPRITE] = i % 2;
-  }
-  const size = 32;
-  const reach = 4;
-  const data = new Float32Array(2 * size * size);
-  for (let k = 0; k < 2; k++) {
-    const sigma = k ? 0.6 : 1;
-    for (let y = 0; y < size; y++) {
-      for (let x = 0; x < size; x++) {
-        const rho = (Math.hypot(x + 0.5 - size / 2, y + 0.5 - size / 2) / (size / 2)) * reach;
-        data[k * size * size + y * size + x] = Math.exp(-((rho / sigma) ** 2) / 2);
-      }
-    }
-  }
-  // Log clock speed follows the first feature.
-  const weights = new Float32Array(dynamicsWeightCount(FEATURES, HIDDEN));
-  weights[HIDDEN * FEATURES + HIDDEN + 2 * HIDDEN + 2] = 1;
-  return {
-    version: MODEL_VERSION,
-    rate: 200,
-    preRun: 10,
-    sizeDepth: 0.1,
-    lightDepth: 0.2,
-    prototypes,
-    weights: new Float32Array(count).fill(1),
-    jitter: new Float32Array(JITTER_COUNT).fill(0.05),
-    opacityOverLife: Float32Array.from({ length: LIFE_SAMPLES }, (_, k) => 0.6 + 0.4 * Math.sin((Math.PI * k) / (LIFE_SAMPLES - 1))),
-    sprites: { size, reach, count: 2, data, tint: Float32Array.from([1, 1, 1, 0.9, 0.95, 1]) },
-    dynamics: { rate: 100, inputs: FEATURES, hidden: HIDDEN, lag: 0, weights },
-    shake: null,
-    source: { name: "synthetic", width: 1280, height: 720, frameRate: 30, mirrorAxis, center: [600, 350], train: [0, 10] },
-    report: {},
-  };
-}
-
-/** Features whose first band swings once a second. */
-function swingingFeatures(seconds: number): AudioFeatures {
-  const rate = 100;
-  const frames = seconds * rate;
-  const data = new Float32Array(frames * FEATURES);
-  for (let k = 0; k < frames; k++) data[k * FEATURES] = 0.5 * Math.sin((2 * Math.PI * k) / rate);
-  return { rate, frames, dims: FEATURES, data };
-}
+import { SPEED_BIAS, swingingFeatures, syntheticModel } from "./pmatch-fixtures.ts";
 
 const TARGET: ParticularTarget = { width: 1920, height: 1080, frameRate: 30, duration: 4, zoom: 1920 / 0.72 };
 
@@ -158,7 +80,7 @@ describe("Particular settings from a world model", () => {
     const normal = particularSettings(syntheticModel(null), TARGET, null);
     const slow = syntheticModel(null);
     // The clock's silent speed: half a clock second per second.
-    slow.dynamics.weights[HIDDEN * FEATURES + HIDDEN + 2 * HIDDEN] = Math.log(0.5);
+    slow.dynamics.weights[SPEED_BIAS] = Math.log(0.5);
     const stretched = particularSettings(slow, TARGET, null);
     expect(stretched.timeFactor).toBe(1);
     stretched.layers.forEach((layer, i) => {
@@ -168,6 +90,29 @@ describe("Particular settings from a world model", () => {
       expect(layer.numbers.get(P.rate)! / n.get(P.rate)!).toBeCloseTo(0.5, 1);
       expect(layer.sizeOverLife).toEqual(normal.layers[i].sizeOverLife);
     });
+  });
+
+  it("fits the sprites once per model: another comp size gives the numbers a fresh copy of the model gives", () => {
+    const model = syntheticModel(700);
+    particularSettings(model, TARGET, null);
+    const small: ParticularTarget = { width: 1280, height: 720, frameRate: 25, duration: 3, zoom: 1280 / 0.72 };
+    const cached = particularSettings(model, small, swingingFeatures(4));
+    const fresh = particularSettings(structuredClone(model), small, swingingFeatures(4));
+    expect(cached).toEqual(fresh);
+    // The fit is in the class's typical size: the sprite's Size follows the comp's height.
+    const full = particularSettings(model, TARGET, null);
+    expect(full.layers[0].numbers.get(P.size)! / cached.layers[0].numbers.get(P.size)!).toBeCloseTo(1080 / 720, 1);
+  });
+
+  it("fits a model changed in place again", () => {
+    const model = syntheticModel(null);
+    const before = particularSettings(model, TARGET, null);
+    // Calibration reweights the bank in place: here toward the narrower sprite.
+    for (let i = 0; i < model.weights.length; i++) model.weights[i] = i % 2 ? 4 : 0.25;
+    const after = particularSettings(model, TARGET, null);
+    expect(after).toEqual(particularSettings(structuredClone(model), TARGET, null));
+    const look = (s: typeof before) => s.layers.flatMap((l) => [P.feather, P.glowSize, P.glowOpacity].map((n) => l.numbers.get(n)));
+    expect(look(after)).not.toEqual(look(before));
   });
 
   it("mirrors where the reference does and follows its soundtrack", () => {

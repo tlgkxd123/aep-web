@@ -8,6 +8,8 @@
 .menu-pop.menu-sub-pop {
   top: -5px;
   left: calc(100% - 2px);
+  max-height: calc(100vh - 8px);
+  overflow-y: auto;
 }
 
 .menu-item.open:not(:disabled) {

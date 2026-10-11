@@ -6,15 +6,17 @@
 import { currentValue, layerTimeAt, setExpressionScope } from "../aep/evaluate.ts";
 import type { CompItem, Layer, Project, Property, PropertyGroup, PropertyNode } from "../aep/model.ts";
 import { cameraAt, localTransform, Mat4, worldMatrix, type Camera } from "../aep/transform.ts";
-import { LayerCache, valuesKey } from "./contentCache.ts";
+import { footageStore } from "../media/store.ts";
+import { ImageCache, LayerCache, valuesKey } from "./contentCache.ts";
 import "./features.ts";
 import { trimFloat } from "./floatTargets.ts";
 import { sourcePixelAspect } from "./footage.ts";
-import { bindTarget, compile, TargetPool, unitQuad, type GL, type Target } from "./gl.ts";
+import { bindTarget, compile, filterRedundantState, finishGpu, TargetPool, unitQuad, type GL, type Target } from "./gl.ts";
+import { LayerKeys } from "./layerKeys.ts";
 import { MaskRenderer } from "./masks.ts";
-import { contentProviders, effectRenderer, type LayerImage, type RenderContext, type RendererOptions } from "./registry.ts";
+import { contentProviders, effectIsScalable, effectRenderer, type LayerImage, type RenderContext, type RendererOptions } from "./registry.ts";
 import { rasterizeShapeLayer } from "./shapes.ts";
-import { COMPOSITE_FS, FILL_FS, FULLSCREEN_VS, LAYER_FS, LAYER_VS, MASK_FS, MatteMode } from "./shaders.ts";
+import { COMPOSITE_FS, FILL_FS, FULLSCREEN_VS, LAYER_FS, LAYER_VS, MASK_FS, MatteMode, REDUCE_FS } from "./shaders.ts";
 
 const PAD = 1;
 const NO_MATTE = 5012;
@@ -28,12 +30,21 @@ const MAX_DEPTH = 16;
 /** Render target memory pooled between frames at most (8-bit and float). */
 const POOL_BYTES = 1024 * 1024 * 1024;
 const FLOAT_POOL_BYTES = 1024 * 1024 * 1024;
+/** Layer images (and adjustment layers' coverage) kept for reuse in later frames, at most. */
+const LAYER_CACHE_BYTES = 320 * 1024 * 1024;
+const COVERAGE_CACHE_BYTES = 64 * 1024 * 1024;
+
+/** A layer image kept between frames, with what rendering it warned about. */
+interface CachedImage {
+  image: LayerImage;
+  warnings: string[];
+}
 
 export interface RenderOptions {
   /**
-   * Resolution of the result relative to the comp (1/2 for Half...). Only the
-   * top-level comp is scaled: layer content, nested comps and effects still
-   * render at full resolution and are resampled when placed.
+   * Resolution of the result relative to the comp (1/2 for Half...). Nested comps, layer content, masks and
+   * effects render at it too, as After Effects does at a reduced resolution; a layer with an effect that cannot
+   * (one not registered `scalable`) renders at full resolution and is resampled when placed.
    */
   scale?: number;
 }
@@ -48,6 +59,7 @@ interface Programs {
   mask: WebGLProgram;
   fill: WebGLProgram;
   composite: WebGLProgram;
+  reduce: WebGLProgram;
 }
 
 function findProperty(nodes: PropertyNode[], path: string[]): Property | undefined {
@@ -74,12 +86,22 @@ export class Renderer {
   private warnings = new Set<string>();
   private complete = true;
   private readonly passPrograms = new Map<string, WebGLProgram>();
-  /** When set, each render stage's exclusive time (GPU work included, via gl.finish) accumulates here by name. */
+  /** When set, each render stage's exclusive time (GPU work included, see finishGpu) accumulates here by name. */
   profile: Map<string, { ms: number; count: number }> | null = null;
   private readonly profileStack: number[] = [];
   private readonly layersInProgress = new Set<Layer>();
-  private scale = 1;
   private readonly shapeCache: LayerCache<LayerImage | null>;
+  private keys: LayerKeys;
+  private readonly images: ImageCache<CachedImage>;
+  private readonly coverages: ImageCache<CachedImage>;
+  /** Reuses layer images whose key (layerKeys.ts) is unchanged since an earlier frame; off only to compare against. */
+  reuseLayers = true;
+  /** Layer images reused and rendered under a key, for profiling. */
+  readonly reuseStats = { hits: 0, misses: 0 };
+  /** Layers and comps that render at a reduced resolution (layerScales, compScales). */
+  private scalable = new WeakMap<object, boolean>();
+  /** Per comp, what its layers drew the last time it rendered and how many bottom ones the kept composite holds. */
+  private readonly prefixes = new Map<CompItem, { parts: (string | null)[]; held: number }>();
   private cachedProject?: Project;
 
   /** `options` may be shared with other renderers and changed between renders. */
@@ -88,6 +110,7 @@ export class Renderer {
     const gl = canvas.getContext("webgl2", { premultipliedAlpha: true, alpha: true, antialias: false, preserveDrawingBuffer: true });
     if (!gl) throw new Error("WebGL2 is not available");
     this.gl = gl as GL;
+    filterRedundantState(this.gl);
     this.quad = unitQuad(this.gl);
     this.pool = new TargetPool(this.gl);
     this.programs = {
@@ -95,14 +118,39 @@ export class Renderer {
       mask: compile(this.gl, FULLSCREEN_VS, MASK_FS),
       fill: compile(this.gl, FULLSCREEN_VS, FILL_FS),
       composite: compile(this.gl, FULLSCREEN_VS, COMPOSITE_FS),
+      reduce: compile(this.gl, FULLSCREEN_VS, REDUCE_FS),
     };
     this.masks = new MaskRenderer(this.gl, () => this.draw());
     this.shapeCache = new LayerCache((image) => image && this.pool.release(image.target));
+    this.keys = this.newKeys();
+    const dispose = (cached: CachedImage) => this.pool.release(cached.image.target);
+    this.images = new ImageCache(LAYER_CACHE_BYTES, dispose);
+    this.coverages = new ImageCache(COVERAGE_CACHE_BYTES, dispose);
+  }
+
+  private newKeys(): LayerKeys {
+    const project = () => this.project;
+    return new LayerKeys({
+      get project() {
+        return project();
+      },
+      drawOrder: (comp, time) => {
+        if (comp.layers.some((l) => l.threeDLayer)) return null;
+        return this.drawOrder(comp, time, undefined, comp.layers.some((l) => l.solo && this.isRenderable(l)));
+      },
+      matteLayerOf: (layer, comp) => this.matteLayerOf(layer, comp),
+      isActive: (layer, time) => this.isActive(layer, time),
+    });
   }
 
   /** Drops cached layer content; needed only when the project changes in ways its values do not show. */
   clearCaches(): void {
     this.shapeCache.clear();
+    this.images.clear();
+    this.coverages.clear();
+    this.keys = this.newKeys();
+    this.scalable = new WeakMap();
+    this.prefixes.clear();
   }
 
   /** Things the renderer skipped or approximated in the last frame (unsupported layer kinds, missing footage...). */
@@ -125,8 +173,8 @@ export class Renderer {
     const warnings = (this.warnings = new Set());
     this.complete = true;
     setExpressionScope({ project, warn: (message) => warnings.add(message) });
-    this.scale = options.scale ?? 1;
-    const result = this.renderComp(comp, time, 0);
+    this.keys.newFrame();
+    const result = this.renderComp(comp, time, 0, options.scale ?? 1);
     this.pool.trim(Math.max(POOL_BYTES, 8 * result.width * result.height * 4));
     trimFloat(this.gl, FLOAT_POOL_BYTES);
     return result;
@@ -134,6 +182,24 @@ export class Renderer {
 
   release(target: Target): void {
     this.pool.release(target);
+  }
+
+  /**
+   * Asks the footage store for every movie frame `comp` shows at `time`, nested comps included, so they decode
+   * before the frame renders; renders nothing. True when they have all decoded (or cannot be).
+   */
+  requestFootage(project: Project, comp: CompItem, time: number): boolean {
+    if (project !== this.cachedProject) {
+      this.clearCaches();
+      this.cachedProject = project;
+    }
+    this.project = project;
+    setExpressionScope({ project, warn: () => {} });
+    let ready = true;
+    this.keys.footage(comp, time, (item, frame) => {
+      if (footageStore.frame(item, frame).status === "pending") ready = false;
+    });
+    return ready;
   }
 
   /** Straight-alpha RGBA pixels of a rendered comp, rows top to bottom, without the border. */
@@ -226,13 +292,13 @@ export class Renderer {
   private timed<T>(key: string, run: () => T): T {
     const profile = this.profile;
     if (!profile) return run();
-    this.gl.finish();
+    finishGpu(this.gl);
     const started = performance.now();
     this.profileStack.push(0);
     try {
       return run();
     } finally {
-      this.gl.finish();
+      finishGpu(this.gl);
       const elapsed = performance.now() - started;
       const children = this.profileStack.pop()!;
       if (this.profileStack.length) this.profileStack[this.profileStack.length - 1] += elapsed;
@@ -251,8 +317,12 @@ export class Renderer {
     return "other";
   }
 
-  private renderComp(comp: CompItem, time: number, depth: number): Target {
-    const scale = depth === 0 ? this.scale : 1;
+  /**
+   * The comp at `time` in a target of its size times `requested` (plus the border). A comp whose adjustment layers
+   * run an effect that cannot render at a reduced resolution renders at full resolution and is then reduced.
+   */
+  private renderComp(comp: CompItem, time: number, depth: number, requested: number): Target {
+    const scale = requested < 1 && !this.compScales(comp) ? 1 : requested;
     const width = scaledSize(comp.width, scale) + 2 * PAD;
     const height = scaledSize(comp.height, scale) + 2 * PAD;
     let accumulated = this.pool.acquire(width, height);
@@ -264,14 +334,39 @@ export class Renderer {
     const camera = comp.layers.some((l) => l.threeDLayer) ? cameraAt(comp, time) : undefined;
     const drawOrder = this.drawOrder(comp, time, camera, anySolo);
 
-    for (const layer of drawOrder) {
+    // The bottom layers draw what they drew last frame: the composite of them is kept and drawn on from.
+    const parts = this.reuseLayers && !camera ? this.keys.parts(comp, time) : null;
+    const last = this.prefixes.get(comp);
+    const prefixKey = (n: number) => `${depth}#${scale}#${parts!.slice(0, n).join(";")}`;
+    let first = 0;
+    let held = 0;
+    const outerWarnings = new Set(this.warnings);
+    const outerComplete = this.complete;
+    this.complete = true;
+    let heldWarnings: string[] = [];
+    if (parts && last && last.held > 0 && last.held <= parts.length) {
+      const hit = this.images.get(comp, prefixKey(last.held));
+      if (hit) {
+        this.reuseStats.hits++;
+        this.blit(hit.image.target, accumulated);
+        for (const warning of hit.warnings) this.warnings.add(warning);
+        heldWarnings = hit.warnings;
+        first = held = last.held;
+      }
+    }
+    let stable = 0;
+    if (parts && last) while (stable < parts.length && parts[stable] !== null && parts[stable] === last.parts[stable]) stable++;
+
+    for (let i = first; i < drawOrder.length; i++) {
+      const layer = drawOrder[i];
+      if (i > first && i === stable && this.holdPrefix(comp, prefixKey(stable), accumulated, heldWarnings, outerWarnings)) held = stable;
       let coverage: Target | null = null;
       let placed: Target | null;
       if (layer.adjustmentLayer) {
-        const adjusted = this.placeAdjustment(layer, comp, time, camera, depth, accumulated);
+        const adjusted = this.placeAdjustment(layer, comp, time, camera, depth, scale, accumulated);
         placed = adjusted?.image ?? null;
         coverage = adjusted?.coverage ?? null;
-      } else placed = this.placeLayer(layer, comp, time, camera, depth);
+      } else placed = this.placeLayer(layer, comp, time, camera, depth, scale);
       if (!placed) continue;
       let matte: Target | null = null;
       let matteMode: number = MatteMode.NONE;
@@ -279,12 +374,12 @@ export class Renderer {
       if (layer.trackMatteType !== NO_MATTE) {
         const matteLayer = this.matteLayerOf(layer, comp);
         matteMode = MATTE_MODES[layer.trackMatteType] ?? MatteMode.NONE;
-        matte = matteLayer ? this.placeLayer(matteLayer, comp, time, camera, depth, true) : null;
+        matte = matteLayer ? this.placeLayer(matteLayer, comp, time, camera, depth, scale, true) : null;
         if (matteLayer && matte) matteOpacity = localTransform(matteLayer, time).opacity / 100;
         if (!matte) matte = this.pool.acquire(width, height);
       }
       const opacity = localTransform(layer, time).opacity / 100;
-      const next = this.pool.acquire(width, height);
+      const next = this.pool.acquire(width, height, false);
       this.timed("composite", () =>
         this.composite(accumulated, placed, { target: matte, mode: matteMode, opacity: matteOpacity }, layer.blendingMode, opacity, next, coverage),
       );
@@ -294,7 +389,89 @@ export class Renderer {
       if (coverage) this.pool.release(coverage);
       accumulated = next;
     }
-    return accumulated;
+    // Every layer draws as it did last frame: the whole composite is kept.
+    if (drawOrder.length > first && stable === drawOrder.length && this.holdPrefix(comp, prefixKey(stable), accumulated, heldWarnings, outerWarnings)) {
+      held = stable;
+    }
+    if (parts) this.prefixes.set(comp, { parts, held });
+    this.complete = outerComplete && this.complete;
+    if (scale === requested) return accumulated;
+    const reduced = this.reduce({ target: accumulated, width: comp.width, height: comp.height, origin: [0, 0] }, requested);
+    this.pool.release(accumulated);
+    return reduced.target;
+  }
+
+  /** Copies all of `source` into `out`, a target of the same size. */
+  private blit(source: Target, out: Target): void {
+    const gl = this.gl;
+    gl.bindFramebuffer(gl.READ_FRAMEBUFFER, source.framebuffer);
+    gl.bindFramebuffer(gl.DRAW_FRAMEBUFFER, out.framebuffer);
+    gl.blitFramebuffer(0, 0, source.width, source.height, 0, 0, out.width, out.height, gl.COLOR_BUFFER_BIT, gl.NEAREST);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, out.framebuffer);
+  }
+
+  /**
+   * Keeps a copy of a comp's composite of its bottom layers under `key`, with what they warned about (`earlier`, from
+   * a kept composite drawn on, and what was added to the frame's warnings since `before`); not when footage they
+   * need was still loading. True when kept.
+   */
+  private holdPrefix(comp: CompItem, key: string, accumulated: Target, earlier: string[], before: Set<string>): boolean {
+    if (!this.complete) return false;
+    const copy = this.pool.acquire(accumulated.width, accumulated.height, false);
+    this.blit(accumulated, copy);
+    const warnings = [...new Set([...earlier, ...[...this.warnings].filter((w) => !before.has(w))])];
+    const image = { target: copy, width: accumulated.width - 2 * PAD, height: accumulated.height - 2 * PAD, origin: [0, 0] as [number, number] };
+    if (this.images.set(comp, key, { image, warnings }, copy.width * copy.height * 4)) return true;
+    this.pool.release(copy);
+    return false;
+  }
+
+  /** Whether a layer's effects all render at a reduced resolution (see EffectOptions.scalable). */
+  private layerScales(layer: Layer): boolean {
+    let scales = this.scalable.get(layer);
+    if (scales === undefined) {
+      const parade = layer.properties.find((n): n is PropertyGroup => n.kind === "group" && n.matchName === "ADBE Effect Parade");
+      scales = !layer.effectsActive || !parade || parade.children.every((e) => e.kind !== "group" || !e.enabled || effectIsScalable(e.matchName));
+      this.scalable.set(layer, scales);
+    }
+    return scales;
+  }
+
+  /** Whether a comp renders at a reduced resolution: its adjustment layers' effects (run on what is below them) all can. */
+  private compScales(comp: CompItem): boolean {
+    let scales = this.scalable.get(comp);
+    if (scales === undefined) {
+      scales = comp.layers.every((l) => !l.adjustmentLayer || this.layerScales(l));
+      this.scalable.set(comp, scales);
+    }
+    return scales;
+  }
+
+  /**
+   * A full-resolution image reduced to `scale`: each new pixel the average over its footprint, on a grid aligned to
+   * the layer origin (so origins stay whole image pixels). Releases nothing.
+   */
+  private reduce(image: LayerImage, scale: number): LayerImage {
+    const x0 = Math.floor(image.origin[0] * scale + 1e-6);
+    const y0 = Math.floor(image.origin[1] * scale + 1e-6);
+    const width = Math.max(1, Math.ceil((image.origin[0] + image.width) * scale - 1e-6) - x0);
+    const height = Math.max(1, Math.ceil((image.origin[1] + image.height) * scale - 1e-6) - y0);
+    const out = this.pool.acquire(width + 2 * PAD, height + 2 * PAD, false);
+    const gl = this.gl;
+    gl.disable(gl.BLEND);
+    const p = this.programs.reduce;
+    gl.useProgram(p);
+    gl.uniform1i(this.uniform(p, "u_source"), 0);
+    gl.uniform2f(this.uniform(p, "u_sourceSize"), image.target.width, image.target.height);
+    gl.uniform2f(this.uniform(p, "u_sourceOrigin"), image.origin[0], image.origin[1]);
+    gl.uniform2f(this.uniform(p, "u_origin"), x0, y0);
+    gl.uniform2f(this.uniform(p, "u_size"), width, height);
+    gl.uniform1f(this.uniform(p, "u_pad"), PAD);
+    gl.uniform1f(this.uniform(p, "u_scale"), scale);
+    gl.uniform1i(this.uniform(p, "u_taps"), Math.min(8, Math.ceil(1 / scale - 1e-6)));
+    this.bindTexture(0, image.target.texture);
+    this.draw();
+    return { target: out, width, height, origin: [x0, y0], scale };
   }
 
   private isRenderable(layer: Layer): boolean {
@@ -351,18 +528,58 @@ export class Renderer {
   }
 
   /** The layer's image transformed into comp space (comp-sized target), or null if it draws nothing. */
-  private placeLayer(layer: Layer, comp: CompItem, time: number, camera: Camera | undefined, depth: number, asMatte = false): Target | null {
+  private placeLayer(layer: Layer, comp: CompItem, time: number, camera: Camera | undefined, depth: number, scale: number, asMatte = false): Target | null {
     // A matte is used even when its own video is switched off, but only while it is in its time span.
     if (asMatte && !this.isActive(layer, time)) return null;
-    const content = this.timed(`content: ${this.contentKind(layer)}`, () => this.layerContent(layer, time, depth));
-    if (!content) return null;
-    const masked = this.applyEffects(layer, time, this.timed("masks", () => this.applyMasks(layer, time, content)), depth);
-    return this.placeImage(layer, comp, time, camera, depth, masked);
+    const image = this.layerImage(layer, time, depth, true, this.layerScales(layer) ? scale : 1);
+    return image && this.placeImage(layer, comp, time, camera, scale, image.image, image.owned);
   }
 
-  /** The layer's matrix from its own pixels to the comp target's (2D layers), with the source's pixel aspect. */
-  private layerToTarget(layer: Layer, comp: CompItem, time: number, depth: number): Mat4 {
-    const scale = depth === 0 ? this.scale : 1;
+  /**
+   * The layer's image in its own space at `scale`: its content after its masks and, with `effects`, its effects.
+   * Reused from an earlier frame while its key (layerKeys.ts) stays the same; `owned` is false for an image the
+   * cache keeps, which the caller must not release.
+   */
+  private layerImage(layer: Layer, time: number, depth: number, effects: boolean, scale: number): { image: LayerImage; owned: boolean } | null {
+    const cache = effects ? this.images : this.coverages;
+    const imageKey = this.reuseLayers ? this.keys.image(layer, time, effects) : null;
+    // Comps nested deeper than MAX_DEPTH render empty, so the same layer differs by how deep it is drawn.
+    const key = imageKey === null ? null : `${depth}#${scale}#${imageKey}`;
+    if (key !== null) {
+      const cached = cache.get(layer, key);
+      if (cached) {
+        this.reuseStats.hits++;
+        for (const warning of cached.warnings) this.warnings.add(warning);
+        return { image: cached.image, owned: false };
+      }
+      this.reuseStats.misses++;
+    }
+    // What this layer warns about and whether its footage is all there, apart from the rest of the frame.
+    const outerWarnings = this.warnings;
+    const outerComplete = this.complete;
+    const warnings = (this.warnings = new Set<string>());
+    this.complete = true;
+    let image: LayerImage | null;
+    let complete: boolean;
+    try {
+      const content = this.timed(`content: ${this.contentKind(layer)}`, () => this.layerContent(layer, time, depth, scale));
+      image = content && this.timed("masks", () => this.applyMasks(layer, time, content));
+      if (image && effects) image = this.applyEffects(layer, time, image, depth);
+    } finally {
+      complete = this.complete;
+      for (const warning of warnings) outerWarnings.add(warning);
+      this.warnings = outerWarnings;
+      this.complete = outerComplete && complete;
+    }
+    if (!image) return null;
+    if (key !== null && complete && cache.set(layer, key, { image, warnings: [...warnings] }, image.target.width * image.target.height * 4)) {
+      return { image, owned: false };
+    }
+    return { image, owned: true };
+  }
+
+  /** The layer's matrix from its own pixels to the comp target's (2D layers, comp at `scale`), with the source's pixel aspect. */
+  private layerToTarget(layer: Layer, comp: CompItem, time: number, scale: number): Mat4 {
     let world = worldMatrix(layer, comp, time);
     const aspect = sourcePixelAspect(layer, comp, this.project);
     if (aspect !== 1) {
@@ -374,9 +591,11 @@ export class Renderer {
     return toTarget.mul(world);
   }
 
-  /** Draws a layer-space image through the layer's transform into a new comp-sized target; releases `image`. */
-  private placeImage(layer: Layer, comp: CompItem, time: number, camera: Camera | undefined, depth: number, image: LayerImage): Target {
-    const scale = depth === 0 ? this.scale : 1;
+  /**
+   * Draws a layer-space image through the layer's transform into a new comp-sized target (comp at `scale`);
+   * releases an `owned` image.
+   */
+  private placeImage(layer: Layer, comp: CompItem, time: number, camera: Camera | undefined, scale: number, image: LayerImage, owned = true): Target {
     const width = scaledSize(comp.width, scale) + 2 * PAD;
     const height = scaledSize(comp.height, scale) + 2 * PAD;
     const out = this.pool.acquire(width, height);
@@ -388,26 +607,39 @@ export class Renderer {
       toView = view.mul(worldMatrix(layer, comp, time));
       perspective = { zoom: camera.zoom * scale };
     } else {
-      toView = this.layerToTarget(layer, comp, time, depth);
+      toView = this.layerToTarget(layer, comp, time, scale);
     }
     this.gl.disable(this.gl.BLEND);
-    const origin: [number, number] = [image.origin[0] - PAD, image.origin[1] - PAD];
-    this.timed("place", () => this.drawLayerQuad(image.target, image.width + 2 * PAD, image.height + 2 * PAD, origin, toView, perspective, width, height));
-    this.pool.release(image.target);
+    // The image's pixels in layer pixels (a reduced image covers 1/scale layer pixels per pixel).
+    const k = image.scale ?? 1;
+    const origin: [number, number] = [(image.origin[0] - PAD) / k, (image.origin[1] - PAD) / k];
+    this.timed("place", () =>
+      this.drawLayerQuad(image.target, (image.width + 2 * PAD) / k, (image.height + 2 * PAD) / k, origin, toView, perspective, width, height),
+    );
+    if (owned) this.pool.release(image.target);
     return out;
   }
 
   /**
-   * An adjustment layer: its effects run on the composite below, in comp pixels; its transform, source
-   * alpha and masks only say where the result shows (`coverage`). Without effects `image` is `below` itself.
+   * An adjustment layer: its effects run on the composite below, in comp pixels (at the comp's `scale`); its
+   * transform, source alpha and masks only say where the result shows (`coverage`). Without effects `image` is
+   * `below` itself.
    */
-  private placeAdjustment(layer: Layer, comp: CompItem, time: number, camera: Camera | undefined, depth: number, below: Target): { image: Target; coverage: Target } | null {
-    const content = this.timed(`content: ${this.contentKind(layer)}`, () => this.layerContent(layer, time, depth));
-    if (!content) return null;
-    const coverage = this.placeImage(layer, comp, time, camera, depth, this.timed("masks", () => this.applyMasks(layer, time, content)));
+  private placeAdjustment(
+    layer: Layer,
+    comp: CompItem,
+    time: number,
+    camera: Camera | undefined,
+    depth: number,
+    scale: number,
+    below: Target,
+  ): { image: Target; coverage: Target } | null {
+    const masked = this.layerImage(layer, time, depth, false, scale);
+    if (!masked) return null;
+    const coverage = this.placeImage(layer, comp, time, camera, scale, masked.image, masked.owned);
     const parade = layer.properties.find((n): n is PropertyGroup => n.kind === "group" && n.matchName === "ADBE Effect Parade");
     if (!layer.effectsActive || !parade?.children.some((e) => e.kind === "group" && e.enabled)) return { image: below, coverage };
-    const local = this.copyImage({ target: below, width: below.width - 2 * PAD, height: below.height - 2 * PAD, origin: [0, 0] });
+    const local = this.copyImage({ target: below, width: below.width - 2 * PAD, height: below.height - 2 * PAD, origin: [0, 0], scale });
     const effected = this.applyEffects(layer, time, local, depth);
     const out = this.pool.acquire(below.width, below.height);
     this.gl.disable(this.gl.BLEND);
@@ -445,13 +677,14 @@ export class Renderer {
     this.draw();
   }
 
-  private context(depth: number): RenderContext {
+  private context(depth: number, scale = 1): RenderContext {
     const gl = this.gl;
     return {
       gl,
       options: this.options,
       pool: this.pool,
       pad: PAD,
+      scale,
       project: this.project,
       warn: (message) => this.warnings.add(message),
       loading: (message) => {
@@ -459,12 +692,12 @@ export class Renderer {
         this.complete = false;
       },
       upload: (source, width, height, origin = [0, 0]) => this.upload(source, width, height, origin),
-      renderComp: (comp, time) => this.renderComp(comp, time, depth + 1),
+      renderComp: (comp, time) => this.renderComp(comp, time, depth + 1, 1),
       layerImage: (layer, time, withMasksAndEffects) => {
         if (this.layersInProgress.has(layer)) return null;
         this.layersInProgress.add(layer);
         try {
-          const content = this.layerContent(layer, time, depth);
+          const content = this.layerContent(layer, time, depth, 1);
           if (!content || !withMasksAndEffects) return content;
           return this.applyEffects(layer, time, this.applyMasks(layer, time, content), depth);
         } finally {
@@ -487,31 +720,43 @@ export class Renderer {
     };
   }
 
-  private layerContent(layer: Layer, time: number, depth: number): LayerImage | null {
+  /**
+   * The layer's source at `scale` (see LayerImage.scale): solids, nested comps and providers that can drawn at it,
+   * the rest reduced to it.
+   */
+  private layerContent(layer: Layer, time: number, depth: number, scale: number): LayerImage | null {
+    const reduced = (image: LayerImage | null) => {
+      if (!image || (image.scale ?? 1) === scale) return image;
+      const out = this.reduce(image, scale);
+      this.pool.release(image.target);
+      return out;
+    };
     const source = layer.sourceId ? this.project.items.get(layer.sourceId) : undefined;
     const providers = contentProviders();
     if (providers.length) {
-      const ctx = this.context(depth);
+      const ctx = this.context(depth, scale);
       for (const provider of providers) {
         const image = provider(layer, time, ctx);
-        if (image !== undefined) return image;
+        if (image !== undefined) return reduced(image);
       }
     }
-    if (layer.layerType === "ShapeLayer") return this.shapeContent(layer, time);
+    if (layer.layerType === "ShapeLayer") return reduced(this.shapeContent(layer, time));
     if (layer.layerType !== "AVLayer") {
       this.warnings.add(`text layers are not rendered yet ("${layer.name}")`);
       return null;
     }
     if (source?.kind === "footage" && source.mainSource.sourceType === "SolidSource") {
-      const target = this.pool.acquire(source.width + 2 * PAD, source.height + 2 * PAD);
+      const width = scaledSize(source.width, scale);
+      const height = scaledSize(source.height, scale);
+      const target = this.pool.acquire(width + 2 * PAD, height + 2 * PAD);
       const [r, g, b] = source.mainSource.color;
       const gl = this.gl;
       gl.enable(gl.SCISSOR_TEST);
-      gl.scissor(PAD, PAD, source.width, source.height);
+      gl.scissor(PAD, PAD, width, height);
       gl.clearColor(r, g, b, 1);
       gl.clear(gl.COLOR_BUFFER_BIT);
       gl.disable(gl.SCISSOR_TEST);
-      return { target, width: source.width, height: source.height, origin: [0, 0] };
+      return scale === 1 ? { target, width, height, origin: [0, 0] } : { target, width, height, origin: [0, 0], scale };
     }
     if (source?.kind === "comp") {
       let sourceTime = layerTimeAt(layer, time);
@@ -520,7 +765,9 @@ export class Renderer {
         const value = remap ? currentValue(remap, time, layer) : null;
         if (typeof value === "number") sourceTime = value;
       }
-      return { target: this.renderComp(source, sourceTime, depth + 1), width: source.width, height: source.height, origin: [0, 0] };
+      const target = this.renderComp(source, sourceTime, depth + 1, scale);
+      const [width, height] = [scaledSize(source.width, scale), scaledSize(source.height, scale)];
+      return scale === 1 ? { target, width, height, origin: [0, 0] } : { target, width, height, origin: [0, 0], scale };
     }
     if (source?.kind === "footage") {
       this.warnings.add(`footage is not loaded yet ("${source.name}")`);
@@ -533,7 +780,7 @@ export class Renderer {
   private copyImage(image: LayerImage): LayerImage {
     const gl = this.gl;
     const { width, height } = image.target;
-    const out = this.pool.acquire(width, height);
+    const out = this.pool.acquire(width, height, false);
     gl.bindFramebuffer(gl.READ_FRAMEBUFFER, image.target.framebuffer);
     gl.bindFramebuffer(gl.DRAW_FRAMEBUFFER, out.framebuffer);
     gl.blitFramebuffer(0, 0, width, height, 0, 0, width, height, gl.COLOR_BUFFER_BIT, gl.NEAREST);
@@ -600,6 +847,8 @@ export class Renderer {
         }
         const input = image;
         image = this.timed(`effect: ${effect.effectName ?? effect.matchName}`, () => render(input, effect, layer, time, (ctx ??= this.context(depth))));
+        // Effects keep the resolution they are handed.
+        if (input.scale !== undefined && input.scale !== 1) image = { ...image, scale: input.scale };
       }
     } finally {
       this.layersInProgress.delete(layer);
@@ -608,12 +857,13 @@ export class Renderer {
   }
 
   private applyMasks(layer: Layer, time: number, content: LayerImage): LayerImage {
-    const coverage = this.masks.coverage(layer, time, content.width, content.height, PAD, content.origin);
+    const coverage = this.masks.coverage(layer, time, content.width, content.height, PAD, content.origin, content.scale ?? 1);
     if (!coverage) return content;
     const gl = this.gl;
     const w = content.width + 2 * PAD;
     const h = content.height + 2 * PAD;
-    const out = this.pool.acquire(w, h);
+    const out = this.pool.acquire(w, h, false);
+    gl.disable(gl.BLEND);
     const p = this.programs.mask;
     gl.useProgram(p);
     gl.uniform1i(this.uniform(p, "u_source"), 0);
@@ -622,7 +872,7 @@ export class Renderer {
     this.bindTexture(1, coverage);
     this.draw();
     this.pool.release(content.target);
-    return { target: out, width: content.width, height: content.height, origin: content.origin };
+    return { ...content, target: out };
   }
 
   private composite(

@@ -1,32 +1,23 @@
 // How a reference video's picture shakes, and Sapphire S_Shake settings that shake like it.
 //
 // Measuring: per frame, the GPU averages 8×8 blocks of the frame's grey levels (only that small copy
-// comes back), and Gauss–Newton over a three-level pyramid finds the shift, rotation and scale about
-// the frame centre that carry the previous frame's copy onto this one's (inverse compositional), with
-// Cauchy weights so that particles, bars and lettering moving on their own count little. Each level is
-// normalized to zero mean and unit spread first, so brightness pulses are not motion. A frame the
-// previous one does not match (a cut, a flash) moves nothing.
+// comes back, without stalling the GPU), and workers register each copy onto the next (shakeRegister.ts).
+// A frame the previous one does not match (a cut, a flash) moves nothing.
 //
-// Learning: the motions add up to the picture's path; less its one-second running mean (camera moves,
-// drift), that is the shake. How fast it changes gives S_Shake's Frequency: the look-alike's noise
+// Describing it: the motions add up to the picture's path; less its one-second running mean (camera
+// moves, drift), that is the shake. How fast it changes gives S_Shake's Frequency: the look-alike's noise
 // (sapphireShake.ts), sampled and filtered the same way, is matched by how soon its autocorrelation
 // falls to one half. Its strength over time is the Amplitude (the shake's running RMS, scaled so that
-// its 95th percentile is 1), and its X, Y and Tilt give the random amplitudes. The Amplitude follows
-// the music by a ridge regression on the audio features at the best lag, as the clock does (fit.ts).
+// its 95th percentile is 1), and its X, Y and Tilt give the random amplitudes. How the Amplitude follows
+// the music is learned by the world model's audio network (ml/pmatch), from the envelope measured here.
 import { shakeNoise, stillShake, type ShakeParams } from "../../render/effects/sapphireShake.ts";
-import type { AudioFeatures } from "./audio.ts";
-import { featuresAt, r2, ridge, solve } from "./fit.ts";
-import { readFloats, type Gpu, type Surface } from "./gpu.ts";
+import { ReadbackQueue, type Gpu, type Surface } from "./gpu.ts";
+import { BLOCK, thumbnailMotion, type FrameMotion, type ShakeJob, type ShakeReply } from "./shakeRegister.ts";
 
-/** Frame pixels per thumbnail pixel. */
-const BLOCK = 8;
-const LEVELS = 3;
-/** Gauss–Newton steps per pyramid level, finest first. */
-const STEPS = [2, 3, 6];
-/** Thumbnail pixels left out along the edges (letterboxing, blocks the frame edge cuts). */
-const BORDER = 2;
-/** Cauchy tuning constant (95 % efficiency), in robust spreads of the residuals. */
-const CAUCHY = 2.385;
+export type { FrameMotion } from "./shakeRegister.ts";
+
+/** Workers registering thumbnails at most. */
+const MAX_WORKERS = 4;
 /** Mean Cauchy weight below which a frame does not match the previous one. */
 const MIN_AGREEMENT = 0.35;
 /** Seconds the running mean that separates the shake from slow motion spans. */
@@ -35,10 +26,6 @@ const SLOW_WINDOW = 1;
 const MIN_SHAKE = 0.75;
 /** Frequencies tried, shakes per second. */
 const FREQUENCIES = Array.from({ length: 49 }, (_, i) => 0.25 * 2 ** (i / 8));
-/** Lags tried between the music and the shake, seconds. */
-const LAGS = Array.from({ length: 19 }, (_, i) => -0.05 + i / 60);
-/** Regression R² (held back fifth) below which the Amplitude is taken not to follow the music. */
-const MIN_R2 = 0.1;
 
 const THUMB_FS = `#version 300 es
 precision highp float;
@@ -58,245 +45,107 @@ void main() {
   outColor = vec4(block(p.x * 4, p.y), block(p.x * 4 + 1, p.y), block(p.x * 4 + 2, p.y), block(p.x * 4 + 3, p.y));
 }`;
 
-/** A pyramid level: normalized grey levels and their gradients, rows top first. */
-export interface Level {
-  width: number;
-  height: number;
-  value: Float32Array;
-  gx: Float32Array;
-  gy: Float32Array;
+interface ShakeWaiting {
+  resolve: (motion: FrameMotion) => void;
+  reject: (error: Error) => void;
 }
 
-/** How the picture moved since the previous frame, about the frame centre. */
-export interface FrameMotion {
-  /** Shift, frame pixels (y down). */
-  dx: number;
-  dy: number;
-  /** Rotation (radians, clockwise on screen) and log scale. */
-  angle: number;
-  logScale: number;
-  /** Mean Cauchy weight: the share of the picture that moved together. */
-  agreement: number;
-}
+const shakeWaiting = new Map<number, ShakeWaiting>();
+let nextShakeJob = 1;
+let shakePool: Promise<Worker[]> | undefined;
 
-function normalized(raw: Float32Array, width: number, height: number): Level {
-  let sum = 0;
-  let squares = 0;
-  let n = 0;
-  for (let y = BORDER; y < height - BORDER; y++) {
-    for (let x = BORDER; x < width - BORDER; x++) {
-      const v = raw[y * width + x];
-      sum += v;
-      squares += v * v;
-      n++;
-    }
-  }
-  const mean = n ? sum / n : 0;
-  const spread = Math.sqrt(Math.max(1e-10, n ? squares / n - mean * mean : 0));
-  const value = new Float32Array(raw.length);
-  for (let i = 0; i < raw.length; i++) value[i] = (raw[i] - mean) / spread;
-  const gx = new Float32Array(raw.length);
-  const gy = new Float32Array(raw.length);
-  for (let y = 1; y < height - 1; y++) {
-    for (let x = 1; x < width - 1; x++) {
-      const i = y * width + x;
-      gx[i] = 0.5 * (value[i + 1] - value[i - 1]);
-      gy[i] = 0.5 * (value[i + width] - value[i - width]);
-    }
-  }
-  return { width, height, value, gx, gy };
-}
-
-/** The pyramid of a grey picture (rows top first), finest level first. */
-export function pyramid(grey: Float32Array, width: number, height: number): Level[] {
-  const levels: Level[] = [];
-  let raw = grey;
-  let w = width;
-  let h = height;
-  for (let l = 0; l < LEVELS; l++) {
-    levels.push(normalized(raw, w, h));
-    if (l === LEVELS - 1) break;
-    const hw = w >> 1;
-    const hh = h >> 1;
-    const half = new Float32Array(hw * hh);
-    for (let y = 0; y < hh; y++) {
-      for (let x = 0; x < hw; x++) {
-        const i = 2 * y * w + 2 * x;
-        half[y * hw + x] = 0.25 * (raw[i] + raw[i + 1] + raw[i + w] + raw[i + w + 1]);
-      }
-    }
-    raw = half;
-    w = hw;
-    h = hh;
-  }
-  return levels;
+function shakeWorkers(): Promise<Worker[]> {
+  shakePool ??=
+    typeof Worker === "undefined"
+      ? Promise.resolve([])
+      : import("./shakeWorker.ts?worker&inline").then(
+          ({ default: ShakeWorker }) => {
+            const cores = (globalThis.navigator as { hardwareConcurrency?: number } | undefined)?.hardwareConcurrency ?? 4;
+            return Array.from({ length: Math.max(1, Math.min(MAX_WORKERS, cores - 2)) }, () => {
+              const worker = new ShakeWorker();
+              worker.onmessage = ({ data }: MessageEvent<ShakeReply>) => {
+                shakeWaiting.get(data.id)?.resolve(data.motion);
+                shakeWaiting.delete(data.id);
+              };
+              worker.onerror = (event) => {
+                event.preventDefault();
+                for (const job of shakeWaiting.values()) job.reject(new Error(event.message || "the shake could not be measured"));
+                shakeWaiting.clear();
+              };
+              return worker;
+            });
+          },
+          () => [],
+        );
+  return shakePool;
 }
 
 /**
- * The similarity (about the picture centre) that carries `from` onto `to`, as the 2×3 matrix
- * [a, -b, tx, b, a, ty] in finest-level pixels, and the share of the picture that agrees with it.
+ * Measures each frame's motion since the frame before it. Consecutive frames register independently, so the
+ * workers take pairs in turn (on this thread when there are none).
  */
-export function register(from: Level[], to: Level[]): { matrix: number[]; agreement: number } {
-  // m maps `from`'s centred coordinates to `to`'s.
-  const m = [1, 0, 0, 0, 1, 0];
-  let agreement = 0;
-  const hessian = new Float64Array(16);
-  const gradient = new Float64Array(4);
-  for (let l = LEVELS - 1; l >= 0; l--) {
-    if (l < LEVELS - 1) {
-      m[2] *= 2;
-      m[5] *= 2;
-    }
-    const t = from[l];
-    const im = to[l];
-    const cx = t.width / 2;
-    const cy = t.height / 2;
-    let scale = 0;
-    for (let step = 0; step < STEPS[l]; step++) {
-      const residual = (x: number, y: number): number => {
-        const ux = x + 0.5 - cx;
-        const uy = y + 0.5 - cy;
-        const qx = m[0] * ux + m[1] * uy + m[2] + cx - 0.5;
-        const qy = m[3] * ux + m[4] * uy + m[5] + cy - 0.5;
-        if (!(qx >= 0 && qy >= 0 && qx < im.width - 1 && qy < im.height - 1)) return NaN;
-        const x0 = Math.floor(qx);
-        const y0 = Math.floor(qy);
-        const fx = qx - x0;
-        const fy = qy - y0;
-        const i = y0 * im.width + x0;
-        const top = im.value[i] + (im.value[i + 1] - im.value[i]) * fx;
-        const bottom = im.value[i + im.width] + (im.value[i + im.width + 1] - im.value[i + im.width]) * fx;
-        return top + (bottom - top) * fy - t.value[y * t.width + x];
-      };
-      if (step === 0) {
-        // Robust spread of the residuals from every third pixel.
-        const sample: number[] = [];
-        for (let y = BORDER; y < t.height - BORDER; y += 3) {
-          for (let x = BORDER; x < t.width - BORDER; x += 3) {
-            const e = residual(x, y);
-            if (e === e) sample.push(Math.abs(e));
-          }
-        }
-        sample.sort((a, b) => a - b);
-        scale = CAUCHY * Math.max(0.02, 1.4826 * (sample[sample.length >> 1] ?? 1));
-      }
-      let h00 = 0, h01 = 0, h02 = 0, h03 = 0, h11 = 0, h12 = 0, h13 = 0, h22 = 0, h23 = 0, h33 = 0;
-      let g0 = 0, g1 = 0, g2 = 0, g3 = 0;
-      let weights = 0;
-      let count = 0;
-      for (let y = BORDER; y < t.height - BORDER; y++) {
-        const uy = y + 0.5 - cy;
-        for (let x = BORDER; x < t.width - BORDER; x++) {
-          const e = residual(x, y);
-          if (e !== e) continue;
-          const ux = x + 0.5 - cx;
-          const i = y * t.width + x;
-          // Steepest descent images: ∇T · ∂W/∂p at p = 0.
-          const s0 = t.gx[i];
-          const s1 = t.gy[i];
-          const s2 = s0 * ux + s1 * uy;
-          const s3 = s1 * ux - s0 * uy;
-          const r = e / scale;
-          const w = 1 / (1 + r * r);
-          const we = w * e;
-          g0 += s0 * we;
-          g1 += s1 * we;
-          g2 += s2 * we;
-          g3 += s3 * we;
-          const w0 = w * s0;
-          const w1 = w * s1;
-          const w2 = w * s2;
-          h00 += w0 * s0;
-          h01 += w0 * s1;
-          h02 += w0 * s2;
-          h03 += w0 * s3;
-          h11 += w1 * s1;
-          h12 += w1 * s2;
-          h13 += w1 * s3;
-          h22 += w2 * s2;
-          h23 += w2 * s3;
-          h33 += w * s3 * s3;
-          weights += w;
-          count++;
-        }
-      }
-      if (count < 16) return { matrix: [1, 0, 0, 0, 1, 0], agreement: 0 };
-      hessian.set([h00, h01, h02, h03, h01, h11, h12, h13, h02, h12, h22, h23, h03, h13, h23, h33]);
-      gradient.set([g0, g1, g2, g3]);
-      agreement = weights / count;
-      const delta = solve(hessian, gradient, 4);
-      if (!delta) break;
-      // m ← m ∘ W(delta)⁻¹, W(p): u ↦ [[1 + p2, -p3], [p3, 1 + p2]] u + (p0, p1).
-      const a = 1 + delta[2];
-      const b = delta[3];
-      const det = a * a + b * b;
-      const i00 = a / det;
-      const i01 = b / det;
-      const i10 = -b / det;
-      const i11 = a / det;
-      const itx = -(i00 * delta[0] + i01 * delta[1]);
-      const ity = -(i10 * delta[0] + i11 * delta[1]);
-      const [m0, m1, m2, m3, m4, m5] = m;
-      m[0] = m0 * i00 + m1 * i10;
-      m[1] = m0 * i01 + m1 * i11;
-      m[2] = m0 * itx + m1 * ity + m2;
-      m[3] = m3 * i00 + m4 * i10;
-      m[4] = m3 * i01 + m4 * i11;
-      m[5] = m3 * itx + m4 * ity + m5;
-      if (Math.abs(delta[0]) + Math.abs(delta[1]) < 1e-3 && Math.abs(delta[2]) + Math.abs(delta[3]) < 1e-5) break;
-    }
-  }
-  return { matrix: m, agreement };
-}
-
-/** The motion `register` found, in frame pixels. */
-export function motionOf(matrix: number[], agreement: number, block = BLOCK): FrameMotion {
-  return {
-    dx: matrix[2] * block,
-    dy: matrix[5] * block,
-    angle: Math.atan2(matrix[3], matrix[0]),
-    logScale: 0.5 * Math.log(Math.max(1e-6, matrix[0] * matrix[4] - matrix[1] * matrix[3])),
-    agreement,
-  };
-}
-
-/** Measures each frame's motion since the frame before it. */
 export class ShakeMeter {
   private readonly gpu: Gpu;
   private readonly blocks: [number, number];
   private readonly thumb: Surface;
-  private readonly pixels: Float32Array;
-  private readonly grey: Float32Array;
-  private previous: Level[] | null = null;
+  private readonly reads: ReadbackQueue<number>;
+  private readonly motions: Promise<FrameMotion | null>[] = [];
+  private previous: Float32Array | null = null;
+  private captured = 0;
+  private turn = 0;
 
   constructor(gpu: Gpu, width: number, height: number) {
     this.gpu = gpu;
     this.blocks = [Math.floor(width / BLOCK), Math.floor(height / BLOCK)];
-    const columns = Math.ceil(this.blocks[0] / 4);
-    this.thumb = gpu.surface(columns, this.blocks[1], gpu.gl.RGBA32F);
-    this.pixels = new Float32Array(columns * this.blocks[1] * 4);
-    this.grey = new Float32Array(this.blocks[0] * this.blocks[1]);
+    this.thumb = gpu.surface(Math.ceil(this.blocks[0] / 4), this.blocks[1], gpu.gl.RGBA32F);
+    this.reads = new ReadbackQueue<number>(gpu.gl);
+    void shakeWorkers();
   }
 
-  /** The motion of `frame` (rows top first) since the previous call's frame; null for the first. */
-  measure(frame: WebGLTexture): FrameMotion | null {
-    const { gpu, thumb, pixels, grey } = this;
-    const [bw, bh] = this.blocks;
+  /** Queues the measurement of `frame` (rows top first) against the frame captured before it. */
+  capture(frame: WebGLTexture): void {
+    const { gpu, thumb } = this;
     gpu.pass(gpu.program(THUMB_FS), thumb, [frame], (u) => {
       gpu.gl.uniform1i(u("u_src"), 0);
-      gpu.gl.uniform1i(u("u_blocks"), bw);
+      gpu.gl.uniform1i(u("u_blocks"), this.blocks[0]);
     });
-    readFloats(gpu.gl, thumb.framebuffer, 0, thumb.width, thumb.height, pixels);
-    for (let y = 0; y < bh; y++) for (let x = 0; x < bw; x++) grey[y * bw + x] = pixels[(y * thumb.width + (x >> 2)) * 4 + (x & 3)];
-    const levels = pyramid(grey, bw, bh);
-    const previous = this.previous;
-    this.previous = levels;
-    if (!previous) return null;
-    const { matrix, agreement } = register(previous, levels);
-    return motionOf(matrix, agreement);
+    this.take(this.reads.read(this.captured++, thumb.framebuffer, [0], thumb.width, thumb.height));
+    this.take(this.reads.collect());
+  }
+
+  /** Every captured frame's motion since the frame captured before it, in order (null for the first). */
+  async finish(): Promise<(FrameMotion | null)[]> {
+    this.take(this.reads.drain());
+    return Promise.all(this.motions);
+  }
+
+  private take(reads: { data: Float32Array[] }[]): void {
+    const [bw, bh] = this.blocks;
+    const columns = this.thumb.width;
+    for (const { data } of reads) {
+      const pixels = data[0];
+      const grey = new Float32Array(bw * bh);
+      for (let y = 0; y < bh; y++) for (let x = 0; x < bw; x++) grey[y * bw + x] = pixels[(y * columns + (x >> 2)) * 4 + (x & 3)];
+      const previous = this.previous;
+      this.previous = grey;
+      this.motions.push(previous ? this.register(previous, grey) : Promise.resolve(null));
+    }
+  }
+
+  private async register(from: Float32Array, to: Float32Array): Promise<FrameMotion> {
+    const [width, height] = this.blocks;
+    const workers = await shakeWorkers();
+    if (!workers.length) return thumbnailMotion(from, to, width, height);
+    const worker = workers[this.turn++ % workers.length];
+    return new Promise((resolve, reject) => {
+      const id = nextShakeJob++;
+      shakeWaiting.set(id, { resolve, reject });
+      worker.postMessage({ id, width, height, from, to } satisfies ShakeJob);
+    });
   }
 
   dispose(): void {
+    this.reads.dispose();
     this.gpu.release(this.thumb);
   }
 }
@@ -344,7 +193,7 @@ export function shakeTrack(motions: readonly (FrameMotion | null)[], frameRate: 
   return { x, y, tilt, valid };
 }
 
-/** How S_Shake shakes the picture, learned from a reference. */
+/** How S_Shake shakes the picture, learned from a reference. Its Amplitude over time is the dynamics network's D_SHAKE output (dynamics.ts Clock.shakeAt). */
 export interface ShakeModel {
   /** S_Shake Frequency: new random positions per second. */
   frequency: number;
@@ -352,10 +201,6 @@ export interface ShakeModel {
   x: number;
   y: number;
   tilt: number;
-  /** Amplitude from the music: bias + weights · features(t − lag), at least 0. */
-  bias: number;
-  weights: number[];
-  lag: number;
   /** Amplitude without a soundtrack. */
   level: number;
 }
@@ -364,8 +209,14 @@ export interface ShakeReport {
   /** RMS of the shake, source pixels and degrees. */
   rms: number;
   tiltRms: number;
-  /** R² of the Amplitude from the music on the held-back last fifth (0 without music). */
-  r2: number;
+}
+
+/** A window's shake as measured: S_Shake's settings, and its Amplitude per frame of the window (with whether the frame was measured). */
+export interface MeasuredShake {
+  shake: ShakeModel | null;
+  envelope: Float64Array;
+  valid: Uint8Array;
+  report: ShakeReport;
 }
 
 /** Lag (frames, interpolated) at which a signal's autocorrelation first falls to one half. */
@@ -416,17 +267,14 @@ function quantile(values: number[], q: number): number {
   return sorted[i] + ((sorted[Math.min(sorted.length - 1, i + 1)] ?? sorted[i]) - sorted[i]) * (x - i);
 }
 
-/**
- * S_Shake settings that shake like `track` (frames of a window starting at `start` seconds), with the
- * Amplitude following `features`; null when the picture does not shake.
- */
-export function fitShake(track: ShakeTrack, frameRate: number, start: number, features: AudioFeatures | null): { shake: ShakeModel | null; report: ShakeReport } {
+/** S_Shake settings that shake like `track` and its Amplitude per frame; no settings when the picture does not shake. */
+export function measureShake(track: ShakeTrack, frameRate: number): MeasuredShake {
   const n = track.x.length;
   const kept = Array.from({ length: n }, (_, k) => k).filter((k) => track.valid[k]);
   const motion = rms(kept.map((k) => Math.hypot(track.x[k], track.y[k])));
   const tiltRms = rms(kept.map((k) => track.tilt[k]));
-  const none = { shake: null, report: { rms: motion, tiltRms, r2: 0 } };
-  if (kept.length < 2 * frameRate || motion < MIN_SHAKE) return none;
+  const report = { rms: motion, tiltRms };
+  if (kept.length < 2 * frameRate || motion < MIN_SHAKE) return { shake: null, envelope: new Float64Array(n), valid: new Uint8Array(n), report };
 
   // Frequency: the look-alike's noise whose autocorrelation falls to one half after as many frames.
   const measured = halfLife([track.x, track.y], track.valid);
@@ -462,56 +310,9 @@ export function fitShake(track: ShakeTrack, frameRate: number, start: number, fe
     x: (size * rx) / Math.hypot(rx, ry),
     y: (size * ry) / Math.hypot(rx, ry),
     tilt: tilt >= 0.05 ? tilt : 0,
-    bias: level,
-    weights: new Array(features?.dims ?? 0).fill(0),
-    lag: 0,
     level,
   };
-  if (!features || kept.length < 50) return { shake, report: { rms: motion, tiltRms, r2: 0 } };
-
-  // The music: ridge regression of the Amplitude on the features, trained on the first four fifths.
-  const y = Float64Array.from(kept, (k) => amplitude[k]);
-  const split = Math.floor(kept.length * 0.8);
-  let best: { score: number; lag: number; coef: Float64Array } = { score: -Infinity, lag: 0, coef: new Float64Array(features.dims + 1) };
-  for (const lag of LAGS) {
-    const rows = kept.map((k) => {
-      const f = new Float64Array(features.dims);
-      featuresAt(features, start + k / frameRate - lag, f);
-      return f;
-    });
-    const coef = ridge(rows, y, split, 0.05);
-    const pred = rows.map((f) => Math.max(0, f.reduce((s, v, i) => s + v * coef[i + 1], coef[0])));
-    const score = r2(pred, y, split, kept.length);
-    if (score > best.score) best = { score, lag, coef };
-  }
-  if (best.score >= MIN_R2) {
-    shake.bias = best.coef[0];
-    shake.weights = Array.from(best.coef.subarray(1));
-    shake.lag = best.lag;
-  }
-  return { shake, report: { rms: motion, tiltRms, r2: Math.max(0, best.score) } };
-}
-
-/** S_Shake's Amplitude over time for a soundtrack's features (or none). */
-export class ShakeEnvelope {
-  private readonly shake: ShakeModel;
-  private readonly features: AudioFeatures | null;
-  private readonly row: Float64Array;
-
-  constructor(shake: ShakeModel, features: AudioFeatures | null) {
-    this.shake = shake;
-    this.features = features && features.dims === shake.weights.length && shake.weights.some((w) => w !== 0) ? features : null;
-    this.row = new Float64Array(shake.weights.length);
-  }
-
-  amplitudeAt(t: number): number {
-    const { shake, features, row } = this;
-    if (!features) return shake.level;
-    featuresAt(features, t - shake.lag, row);
-    let v = shake.bias;
-    for (let i = 0; i < row.length; i++) v += shake.weights[i] * row[i];
-    return Math.max(0, v);
-  }
+  return { shake, envelope: amplitude, valid: Uint8Array.from(track.valid), report };
 }
 
 /** S_Shake's settings for `shake` in a picture `scale` times the source's size, at Amplitude `amplitude`. */

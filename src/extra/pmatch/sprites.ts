@@ -1,15 +1,15 @@
-// Sprite templates learned from detected particles. A GPU pass gathers crops of
-// frame − background around chosen detections into an atlas (the only pixels read
-// back); each crop is resampled so that its own spread maps to a fixed template
-// spread, and k-means groups the templates into a few classes (soft dots, stars,
-// rings...). A class's template is its members' mean, its tint their mean colour.
+// Sprite crops of detected particles. A GPU pass gathers crops of frame − background
+// around chosen detections into an atlas (the only pixels read back); each crop is
+// resampled so that the spread of its core maps to a fixed template spread, its halo
+// around it. The world model's sprite codebook is learned from these
+// (ml/pmatch/pmatch/sprites.py), and evaluation compares its templates with held-out crops.
 import type { Gpu, Surface } from "./gpu.ts";
-import { readFloats } from "./gpu.ts";
-import type { SpriteBank } from "./model.ts";
-import { random } from "./sample.ts";
+import { ReadbackQueue } from "./gpu.ts";
 
 /** Crop side in frame pixels (odd: the detection is at the centre texel). */
-export const CROP = 25;
+export const CROP = 49;
+/** Least detection peak worth a crop: dimmer particles' shapes drown in noise. */
+export const CROP_PEAK = 30 / 255;
 const HALF = (CROP - 1) / 2;
 /** Crops per atlas row; an atlas holds BATCH × BATCH crops. */
 const BATCH = 8;
@@ -55,22 +55,29 @@ export interface Crop {
   rgb: Float32Array;
 }
 
-/** Gathers crops of frame − background (`back` covers `origin`..+size of the frame) at up to CROPS_PER_PASS centres. */
+type CropCentre = { frame: number; x: number; y: number };
+
+/**
+ * Gathers crops of frame − background (`back` covers `origin`..+size of the frame), up to CROPS_PER_PASS centres
+ * a pass, read back without waiting for the GPU: `gather` queues a pass and, like `collect`, hands back the
+ * crops of the passes the GPU has finished, oldest first; `drain` hands back the rest.
+ */
 export class CropGatherer {
   private readonly gpu: Gpu;
   private readonly atlas: Surface;
-  private readonly pixels = new Float32Array(BATCH * CROP * BATCH * CROP * 4);
+  private readonly reads: ReadbackQueue<CropCentre[]>;
 
   constructor(gpu: Gpu) {
     this.gpu = gpu;
     this.atlas = gpu.surface(BATCH * CROP, BATCH * CROP, gpu.gl.RGBA32F);
+    this.reads = new ReadbackQueue(gpu.gl, 4);
   }
 
-  gather(frame: WebGLTexture, frameSize: [number, number], back: WebGLTexture, origin: [number, number], backSize: [number, number], centers: { frame: number; x: number; y: number }[]): Crop[] {
+  gather(frame: WebGLTexture, frameSize: [number, number], back: WebGLTexture, origin: [number, number], backSize: [number, number], centers: CropCentre[]): Crop[] {
     const { gpu } = this;
     const gl = gpu.gl;
     const list = centers.slice(0, CROPS_PER_PASS);
-    if (!list.length) return [];
+    if (!list.length) return this.collect();
     const flat = new Float32Array(CROPS_PER_PASS * 2);
     list.forEach((c, i) => flat.set([c.x, c.y], i * 2));
     gpu.pass(gpu.program(CROP_FS), this.atlas, [frame, back], (u) => {
@@ -82,96 +89,157 @@ export class CropGatherer {
       gl.uniform2i(u("u_origin"), origin[0], origin[1]);
       gl.uniform2i(u("u_backSize"), backSize[0], backSize[1]);
     });
-    readFloats(gl, this.atlas.framebuffer, 0, this.atlas.width, this.atlas.height, this.pixels);
+    // Crops fill the atlas from its bottom row (GL row 0) up: only their rows are read.
+    const done = this.reads.read(list, this.atlas.framebuffer, [0], this.atlas.width, Math.ceil(list.length / BATCH) * CROP);
+    return [...this.unpack(done), ...this.collect()];
+  }
+
+  collect(): Crop[] {
+    return this.unpack(this.reads.collect());
+  }
+
+  drain(): Crop[] {
+    return this.unpack(this.reads.drain());
+  }
+
+  private unpack(reads: { tag: CropCentre[]; data: Float32Array[] }[]): Crop[] {
     const side = BATCH * CROP;
-    return list.map((c, index) => {
-      const rgb = new Float32Array(CROP * CROP * 3);
-      const ox = (index % BATCH) * CROP;
-      const oy = Math.floor(index / BATCH) * CROP;
-      for (let y = 0; y < CROP; y++) {
-        for (let x = 0; x < CROP; x++) {
-          const at = ((oy + y) * side + ox + x) * 4;
-          rgb.set(this.pixels.subarray(at, at + 3), (y * CROP + x) * 3);
+    return reads.flatMap(({ tag: list, data: [pixels] }) =>
+      list.map((c, index) => {
+        const rgb = new Float32Array(CROP * CROP * 3);
+        const ox = (index % BATCH) * CROP;
+        const oy = Math.floor(index / BATCH) * CROP;
+        for (let y = 0; y < CROP; y++) {
+          for (let x = 0; x < CROP; x++) {
+            const at = ((oy + y) * side + ox + x) * 4;
+            rgb.set(pixels.subarray(at, at + 3), (y * CROP + x) * 3);
+          }
         }
-      }
-      return { frame: c.frame, x: c.x, y: c.y, rgb };
-    });
+        return { frame: c.frame, x: c.x, y: c.y, rgb };
+      }),
+    );
   }
 
   dispose(): void {
+    this.reads.dispose();
     this.gpu.release(this.atlas);
   }
 }
 
-/** Template side in texels, and the spread (texels) a crop's own spread is mapped to. */
-export const TEMPLATE = 32;
-const TEMPLATE_SIGMA = 3.2;
-/** Half the template's width in units of a particle's size (its spread). */
+/** Template side in texels, and the spread (texels) a crop's spread is mapped to. */
+export const TEMPLATE = 64;
+export const TEMPLATE_SIGMA = 4;
+/** Half the template's width in units of a particle's size (its spread): room for the halo. */
 export const TEMPLATE_REACH = TEMPLATE / 2 / TEMPLATE_SIGMA;
+/** Half-width (px) of the box a crop's spread is measured in, as the detector measures a particle's (detect.ts window). */
+const SPREAD_WINDOW = 5;
 
 interface Canonical {
   template: Float32Array;
-  /** The crop's spread (px) and colour (largest channel 1). */
+  /** The crop's spread (px), measured as the detector measures a particle's size, and its colour (largest channel 1). */
   sigma: number;
   tint: [number, number, number];
 }
 
-/** A crop resampled to the template spread; null when it holds no clear particle. */
-export function canonical(crop: Crop): Canonical | null {
+/** A crop's luminance over the median of its border, and its peak near the centre. */
+export function cropLight(crop: Crop): { lum: Float32Array; peak: number } {
   const lum = new Float32Array(CROP * CROP);
   for (let i = 0; i < lum.length; i++) lum[i] = (crop.rgb[i * 3] + crop.rgb[i * 3 + 1] + crop.rgb[i * 3 + 2]) / 3;
-  // Background left in the crop: the median of its border.
   const border: number[] = [];
   for (let k = 0; k < CROP; k++) border.push(lum[k], lum[(CROP - 1) * CROP + k], lum[k * CROP], lum[k * CROP + CROP - 1]);
   border.sort((a, b) => a - b);
   const floor = border[border.length >> 1];
   let peak = 0;
-  for (let y = HALF - 2; y <= HALF + 2; y++) for (let x = HALF - 2; x <= HALF + 2; x++) peak = Math.max(peak, lum[y * CROP + x] - floor);
+  for (let i = 0; i < lum.length; i++) lum[i] -= floor;
+  for (let y = HALF - 2; y <= HALF + 2; y++) for (let x = HALF - 2; x <= HALF + 2; x++) peak = Math.max(peak, lum[y * CROP + x]);
+  return { lum, peak };
+}
+
+/** Catmull-Rom weights of the four samples around fraction `t`, into `out` at `at`. */
+function catmullRom(t: number, out: Float64Array, at: number): void {
+  out[at] = ((-t + 2) * t - 1) * t * 0.5;
+  out[at + 1] = ((3 * t - 5) * t * t + 2) * 0.5;
+  out[at + 2] = ((-3 * t + 4) * t + 1) * t * 0.5;
+  out[at + 3] = (t - 1) * t * t * 0.5;
+}
+
+/**
+ * A crop resampled to a template of `size` texels on which its spread is `sigmaTexels` texels, so that a
+ * sprite drawn at a particle's size looks like its crop; null when it holds no clear particle.
+ */
+export function canonical(crop: Crop, size = TEMPLATE, sigmaTexels = TEMPLATE_SIGMA): Canonical | null {
+  const { lum, peak } = cropLight(crop);
   if (!(peak > 1e-3)) return null;
-  for (let i = 0; i < lum.length; i++) lum[i] = Math.max(0, (lum[i] - floor) / peak);
-  let s = 0, sx = 0, sy = 0, sxx = 0, syy = 0;
+  for (let i = 0; i < lum.length; i++) lum[i] = Math.max(0, lum[i] / peak);
+  // The core's centre: the light above half the peak around the brightest pixel near the middle. The
+  // templates are means of crops, so this is what lines their cores up.
+  let top = HALF * CROP + HALF;
+  for (let y = HALF - 2; y <= HALF + 2; y++) for (let x = HALF - 2; x <= HALF + 2; x++) if (lum[y * CROP + x] > lum[top]) top = y * CROP + x;
+  let core = 0, cx = 0, cy = 0;
+  for (let dy = -2; dy <= 2; dy++) {
+    for (let dx = -2; dx <= 2; dx++) {
+      const w = Math.max(0, lum[top + dy * CROP + dx] - 0.5);
+      core += w;
+      cx += w * ((top % CROP) + dx - HALF);
+      cy += w * (Math.floor(top / CROP) + dy - HALF);
+    }
+  }
+  const mx = core > 0 ? cx / core : 0;
+  const my = core > 0 ? cy / core : 0;
+  let s = 0, sxx = 0, syy = 0;
   const tint = [0, 0, 0];
-  for (let y = 0; y < CROP; y++) {
-    for (let x = 0; x < CROP; x++) {
-      const dx = x - HALF;
-      const dy = y - HALF;
-      if (dx * dx + dy * dy > 100) continue;
-      const w = lum[y * CROP + x] > 0.05 ? lum[y * CROP + x] : 0;
+  for (let dy = -SPREAD_WINDOW; dy <= SPREAD_WINDOW; dy++) {
+    for (let dx = -SPREAD_WINDOW; dx <= SPREAD_WINDOW; dx++) {
+      const at = ((HALF + dy) * CROP + HALF + dx) * 3;
+      // White light, as the detector weighs it.
+      const w = Math.max(0, Math.min(crop.rgb[at], crop.rgb[at + 1], crop.rgb[at + 2]));
       s += w;
-      sx += w * dx;
-      sy += w * dy;
-      sxx += w * dx * dx;
-      syy += w * dy * dy;
-      for (let c = 0; c < 3; c++) tint[c] += w * crop.rgb[(y * CROP + x) * 3 + c];
+      sxx += w * (dx - mx) ** 2;
+      syy += w * (dy - my) ** 2;
+      for (let c = 0; c < 3; c++) tint[c] += w * crop.rgb[at + c];
     }
   }
   if (!(s > 0)) return null;
-  const mx = sx / s;
-  const my = sy / s;
-  const sigma = Math.max(0.6, Math.min(6, Math.sqrt(Math.max(0, 0.5 * (sxx / s - mx * mx + syy / s - my * my)))));
-  const template = new Float32Array(TEMPLATE * TEMPLATE);
-  const sample = (x: number, y: number) => {
-    const x0 = Math.floor(x);
-    const y0 = Math.floor(y);
-    const fx = x - x0;
-    const fy = y - y0;
-    const at = (px: number, py: number) => (px < 0 || py < 0 || px >= CROP || py >= CROP ? 0 : lum[py * CROP + px]);
-    return (at(x0, y0) * (1 - fx) + at(x0 + 1, y0) * fx) * (1 - fy) + (at(x0, y0 + 1) * (1 - fx) + at(x0 + 1, y0 + 1) * fx) * fy;
-  };
-  const k = sigma / TEMPLATE_SIGMA;
-  for (let v = 0; v < TEMPLATE; v++) {
-    for (let u = 0; u < TEMPLATE; u++) {
-      template[v * TEMPLATE + u] = sample(HALF + mx + (u + 0.5 - TEMPLATE / 2) * k, HALF + my + (v + 0.5 - TEMPLATE / 2) * k);
+  const sigma = Math.max(0.6, Math.min(6, Math.sqrt(Math.max(0, (0.5 * (sxx + syy)) / s))));
+  const template = new Float32Array(size * size);
+  // Catmull-Rom (unlike bilinear interpolation it does not soften the particle's core), separably: the
+  // texel grid is axis-aligned with the crop's, so each row is resampled once, then the columns.
+  const k = sigma / sigmaTexels;
+  const x0 = new Int32Array(size);
+  const y0 = new Int32Array(size);
+  const wx = new Float64Array(size * 4);
+  const wy = new Float64Array(size * 4);
+  for (let u = 0; u < size; u++) {
+    const x = HALF + mx + (u + 0.5 - size / 2) * k;
+    const y = HALF + my + (u + 0.5 - size / 2) * k;
+    x0[u] = Math.floor(x);
+    y0[u] = Math.floor(y);
+    catmullRom(x - x0[u], wx, u * 4);
+    catmullRom(y - y0[u], wy, u * 4);
+  }
+  const rows = new Float64Array(CROP * size);
+  for (let py = 0; py < CROP; py++) {
+    for (let u = 0; u < size; u++) {
+      let v = 0;
+      for (let i = 0; i < 4; i++) {
+        const px = x0[u] - 1 + i;
+        if (px >= 0 && px < CROP) v += lum[py * CROP + px] * wx[u * 4 + i];
+      }
+      rows[py * size + u] = v;
     }
   }
-  const top = Math.max(tint[0], tint[1], tint[2]);
-  return { template, sigma, tint: top > 0 ? [tint[0] / top, tint[1] / top, tint[2] / top] : [1, 1, 1] };
-}
-
-function distance(a: Float32Array, b: Float32Array): number {
-  let d = 0;
-  for (let i = 0; i < a.length; i++) d += (a[i] - b[i]) ** 2;
-  return d;
+  for (let v = 0; v < size; v++) {
+    for (let u = 0; u < size; u++) {
+      let value = 0;
+      for (let j = 0; j < 4; j++) {
+        const py = y0[v] - 1 + j;
+        if (py >= 0 && py < CROP) value += rows[py * size + u] * wy[v * 4 + j];
+      }
+      template[v * size + u] = Math.max(0, value);
+    }
+  }
+  const brightest = Math.max(tint[0], tint[1], tint[2]);
+  return { template, sigma, tint: brightest > 0 ? [tint[0] / brightest, tint[1] / brightest, tint[2] / brightest] : [1, 1, 1] };
 }
 
 /** Pearson correlation of two templates. */
@@ -193,100 +261,15 @@ export function correlation(a: Float32Array, b: Float32Array): number {
 }
 
 /** The mean canonical template of a set of crops (for comparing two videos' sprites). */
-export function meanTemplate(crops: Crop[]): Float32Array {
-  const out = new Float32Array(TEMPLATE * TEMPLATE);
+export function meanTemplate(crops: Crop[], size = TEMPLATE, sigmaTexels = TEMPLATE_SIGMA): Float32Array {
+  const out = new Float32Array(size * size);
   let n = 0;
   for (const crop of crops) {
-    const c = canonical(crop);
+    const c = canonical(crop, size, sigmaTexels);
     if (!c) continue;
     for (let i = 0; i < out.length; i++) out[i] += c.template[i];
     n++;
   }
   if (n) for (let i = 0; i < out.length; i++) out[i] /= n;
   return out;
-}
-
-export interface LearnedSprites {
-  bank: SpriteBank;
-  /** Class of each crop (−1 for crops without a clear particle). */
-  labels: Int32Array;
-}
-
-/** k-means over the crops' canonical templates; one soft dot when there are no usable crops. */
-export function learnSprites(crops: Crop[], seed = 3): LearnedSprites {
-  const items = crops.map(canonical);
-  const usable = items.map((c, i) => [c, i] as const).filter((x): x is readonly [Canonical, number] => x[0] !== null);
-  const labels = new Int32Array(crops.length).fill(-1);
-  const n = usable.length;
-  const k = n < 60 ? 1 : n < 200 ? 2 : n < 600 ? 3 : 4;
-  if (!n) {
-    const data = new Float32Array(TEMPLATE * TEMPLATE);
-    for (let v = 0; v < TEMPLATE; v++) {
-      for (let u = 0; u < TEMPLATE; u++) {
-        const dx = (u + 0.5 - TEMPLATE / 2) / TEMPLATE_SIGMA;
-        const dy = (v + 0.5 - TEMPLATE / 2) / TEMPLATE_SIGMA;
-        data[v * TEMPLATE + u] = Math.exp(-0.5 * (dx * dx + dy * dy));
-      }
-    }
-    return { bank: { size: TEMPLATE, reach: TEMPLATE_REACH, count: 1, data, tint: Float32Array.of(1, 1, 1) }, labels };
-  }
-  const rand = random(seed);
-  // k-means++ seeding.
-  const centres: Float32Array[] = [Float32Array.from(usable[Math.floor(rand() * n)][0].template)];
-  while (centres.length < k) {
-    const d = usable.map(([c]) => Math.min(...centres.map((m) => distance(c.template, m))));
-    const total = d.reduce((s, v) => s + v, 0);
-    let r = rand() * total;
-    let pick = 0;
-    while (pick < n - 1 && (r -= d[pick]) > 0) pick++;
-    centres.push(Float32Array.from(usable[pick][0].template));
-  }
-  const assign = new Int32Array(n);
-  for (let iteration = 0; iteration < 25; iteration++) {
-    let changed = false;
-    usable.forEach(([c], i) => {
-      let best = 0;
-      let bestD = Infinity;
-      centres.forEach((m, j) => {
-        const d = distance(c.template, m);
-        if (d < bestD) {
-          bestD = d;
-          best = j;
-        }
-      });
-      if (assign[i] !== best || iteration === 0) changed = true;
-      assign[i] = best;
-    });
-    for (let j = 0; j < k; j++) {
-      const sum = new Float32Array(TEMPLATE * TEMPLATE);
-      let count = 0;
-      usable.forEach(([c], i) => {
-        if (assign[i] !== j) return;
-        for (let t = 0; t < sum.length; t++) sum[t] += c.template[t];
-        count++;
-      });
-      if (count) centres[j] = sum.map((v) => v / count);
-    }
-    if (!changed) break;
-  }
-  // Classes by size, largest first; empty ones dropped.
-  const sizes = centres.map((_, j) => assign.reduce((s, a) => s + (a === j ? 1 : 0), 0));
-  const order = centres.map((_, j) => j).filter((j) => sizes[j] > 0).sort((a, b) => sizes[b] - sizes[a]);
-  const data = new Float32Array(order.length * TEMPLATE * TEMPLATE);
-  const tint = new Float32Array(order.length * 3);
-  order.forEach((j, slot) => {
-    const centre = centres[j];
-    const top = Math.max(1e-6, ...centre);
-    data.set(centre.map((v) => Math.max(0, v / top)), slot * TEMPLATE * TEMPLATE);
-    const colour = [0, 0, 0];
-    usable.forEach(([c], i) => {
-      if (assign[i] !== j) return;
-      for (let ch = 0; ch < 3; ch++) colour[ch] += c.tint[ch];
-    });
-    const peak = Math.max(1e-6, ...colour);
-    tint.set(colour.map((v) => v / peak), slot * 3);
-  });
-  const slotOf = new Map(order.map((j, slot) => [j, slot]));
-  usable.forEach(([, index], i) => (labels[index] = slotOf.get(assign[i]) ?? 0));
-  return { bank: { size: TEMPLATE, reach: TEMPLATE_REACH, count: order.length, data, tint }, labels };
 }

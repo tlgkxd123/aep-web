@@ -13,15 +13,18 @@
 // the strongest (a MAX blend), or with Blend Overlapping Colors each band is
 // composited over the later ones.
 //
-// All capsules go to the GPU as one instanced draw; the spectrum is computed
-// on the CPU per frame and cached by audio, time and settings.
+// The vertex shader lays every capsule out from the band layout and the
+// magnitudes in one instanced draw per run; the spectrum is computed on the
+// CPU, for the frames ahead in workers (spectrumPrefetch.ts), and cached by
+// audio, time and settings.
 import { currentValue } from "../../aep/evaluate.ts";
 import { isShapeValue, type CompItem, type Layer, type Project, type PropertyGroup, type Shape } from "../../aep/model.ts";
-import { layerAudio, mixWindow, type LayerAudio } from "../../media/mix.ts";
+import { layerAudio, type LayerAudio } from "../../media/mix.ts";
 import { effectNumber, effectProperty, effectVector } from "../effectParams.ts";
 import { compile, type GL } from "../gl.ts";
 import { registerEffect, type RenderContext } from "../registry.ts";
-import { analyse, analyseAveraged, windowLength, windowStart, type SpectrumSettings } from "./audioSpectrumAnalysis.ts";
+import type { SpectrumSettings } from "./audioSpectrumAnalysis.ts";
+import { prefetchSpectra, spectrumAt } from "./spectrumPrefetch.ts";
 
 /** Bar height per unit of Maximum Height and of magnitude. */
 export const HEIGHT_SCALE = 0.535;
@@ -40,31 +43,99 @@ export function rampWidth(thickness: number, softness: number): number {
  */
 const MIN_COLOR_RADIUS = 2;
 
-// One instance per capsule: segment a -> b in layer pixels (y down, pixel
-// centres at integers) and its Inside and Outside colours, drawn as a quad
-// covering its reach.
-const INSTANCE_FLOATS = 10;
+// One instance per capsule, laid out here from u_data: a row per run of
+// bands with each band's base point and Side A normal (x, y, nx, ny; layer
+// pixels, y down, pixel centres at integers), then a row of magnitudes. Each
+// capsule is a segment a -> b with the band's Inside and Outside colours
+// (hue-turned per band), drawn as a quad covering its reach.
 const CAPSULE_VS = `#version 300 es
 layout(location = 0) in vec2 a_corner;
-layout(location = 1) in vec4 a_segment;
-layout(location = 2) in vec3 a_inside;
-layout(location = 3) in vec3 a_outside;
+uniform highp sampler2D u_data;
+uniform int u_run;
+uniform int u_magRow;
+uniform int u_bands;
+uniform int u_count;
+uniform bool u_reverse;
+uniform int u_display;
+uniform bool u_both;
+uniform bool u_alternate;
+uniform float u_sign;
+uniform float u_height;
+uniform vec3 u_inside;
+uniform vec3 u_outside;
+uniform float u_hue;
+uniform float u_phase;
+uniform bool u_symmetry;
 uniform vec2 u_size;
 uniform float u_pad;
 uniform float u_reach;
+uniform float u_scale;
 flat out vec4 v_segment;
 flat out vec3 v_inside;
 flat out vec3 v_outside;
+
+// A layer pixel position (pixel centres at integers) in this image's pixels, at a reduced resolution.
+vec2 toImage(vec2 p) {
+  return u_scale == 1.0 ? p : (p + 0.5) * u_scale - 0.5;
+}
+
+vec2 tip(int k, float sign) {
+  vec4 f = texelFetch(u_data, ivec2(k, u_run), 0);
+  float h = u_height * texelFetch(u_data, ivec2(k, u_magRow), 0).r * (u_alternate && k % 2 == 1 ? -sign : sign);
+  return toImage(f.xy + f.zw * h);
+}
+
+// The colour with its hue turned by \`degrees\` (saturation and lightness kept).
+vec3 rotateHue(vec3 c, float degrees) {
+  float mx = max(c.r, max(c.g, c.b));
+  float mn = min(c.r, min(c.g, c.b));
+  float d = mx - mn;
+  if (d <= 0.0) return c;
+  float h0 = mx == c.r ? (c.g - c.b) / d + (c.g < c.b ? 6.0 : 0.0) : mx == c.g ? (c.b - c.r) / d + 2.0 : (c.r - c.g) / d + 4.0;
+  float h = mod(h0 + degrees / 60.0, 6.0);
+  float x = d * (1.0 - abs(mod(h, 2.0) - 1.0));
+  int sector = min(int(floor(h)), 5);
+  vec3 r = sector == 0 ? vec3(d, x, 0.0) : sector == 1 ? vec3(x, d, 0.0) : sector == 2 ? vec3(0.0, d, x)
+         : sector == 3 ? vec3(0.0, x, d) : sector == 4 ? vec3(x, 0.0, d) : vec3(d, 0.0, x);
+  return r + mn;
+}
+
 void main() {
-  v_inside = a_inside;
-  v_outside = a_outside;
-  vec2 a = a_segment.xy;
-  vec2 b = a_segment.zw;
+  int i = u_reverse ? u_count - 1 - gl_InstanceID : gl_InstanceID;
+  int k;
+  vec2 a;
+  vec2 b;
+  if (u_display == ${Display.LINES}) {
+    int per = max(u_bands - 1, 1);
+    k = i % per;
+    float sign = i / per == 0 ? u_sign : -u_sign;
+    a = tip(k, sign);
+    b = u_bands == 1 ? a : tip(k + 1, sign);
+  } else if (u_display == ${Display.DOTS}) {
+    k = i % u_bands;
+    a = tip(k, i / u_bands == 0 ? u_sign : -u_sign);
+    b = a;
+  } else if (u_both) {
+    k = i;
+    a = tip(k, -1.0);
+    b = tip(k, 1.0);
+  } else {
+    k = i;
+    a = toImage(texelFetch(u_data, ivec2(k, u_run), 0).xy);
+    b = tip(k, u_sign);
+  }
+  // Hue Interpolation turns the hue by Hue · s(k), s(k) = k / (N − 1) or the tent 1 − |2k / (N − 1) − 1| with
+  // Color Symmetry; Dynamic Hue Phase subtracts s at the strongest band (u_phase). Under 1e-3 degrees no 8-bit
+  // value changes.
+  float f = u_bands > 1 ? float(k) / float(u_bands - 1) : 0.0;
+  float turn = u_hue * ((u_symmetry ? 1.0 - abs(2.0 * f - 1.0) : f) - u_phase);
+  v_inside = abs(turn) < 1e-3 ? u_inside : rotateHue(u_inside, turn);
+  v_outside = abs(turn) < 1e-3 ? u_outside : rotateHue(u_outside, turn);
   float len = length(b - a);
   vec2 u = len > 1e-6 ? (b - a) / len : vec2(1.0, 0.0);
   vec2 v = vec2(-u.y, u.x);
   vec2 p = a + u * mix(-u_reach, len + u_reach, a_corner.x) + v * ((a_corner.y * 2.0 - 1.0) * u_reach);
-  v_segment = a_segment;
+  v_segment = vec4(a, b);
   vec2 framebuffer = vec2(p.x + u_pad + 0.5, u_size.y - (p.y + u_pad + 0.5));
   gl_Position = vec4(framebuffer / u_size * 2.0 - 1.0, 0.0, 1.0);
 }`;
@@ -93,10 +164,23 @@ void main() {
   outColor = vec4(mix(v_inside, v_outside, t) * alpha, alpha);
 }`;
 
+/**
+ * Band data textures used in turn, per size. Rewriting a texture that draws already queued still read makes the
+ * driver wait for the GPU to finish them; with a ring, each spectrum of a frame (and of the next frames) gets its
+ * own. A ring per size keeps each texture's storage, so it is refilled rather than allocated again.
+ */
+const DATA_RING = 32;
+
+interface DataRing {
+  textures: WebGLTexture[];
+  next: number;
+}
+
 interface CapsuleGpu {
   program: WebGLProgram;
   vao: WebGLVertexArrayObject;
-  instances: WebGLBuffer;
+  /** RGBA32F band layouts and magnitudes (see CAPSULE_VS), by "width x height". */
+  data: Map<string, DataRing>;
   uniforms: Map<string, WebGLUniformLocation | null>;
 }
 const capsuleGpu = new WeakMap<GL, CapsuleGpu>();
@@ -112,17 +196,38 @@ function capsules(gl: GL): CapsuleGpu {
   gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([0, 0, 1, 0, 0, 1, 1, 1]), gl.STATIC_DRAW);
   gl.enableVertexAttribArray(0);
   gl.vertexAttribPointer(0, 2, gl.FLOAT, false, 0, 0);
-  const instances = gl.createBuffer()!;
-  gl.bindBuffer(gl.ARRAY_BUFFER, instances);
-  for (const [location, size, offset] of [[1, 4, 0], [2, 3, 16], [3, 3, 28]]) {
-    gl.enableVertexAttribArray(location);
-    gl.vertexAttribPointer(location, size, gl.FLOAT, false, INSTANCE_FLOATS * 4, offset);
-    gl.vertexAttribDivisor(location, 1);
-  }
   gl.bindVertexArray(null);
-  state = { program, vao, instances, uniforms: new Map() };
+  state = { program, vao, data: new Map(), uniforms: new Map() };
   capsuleGpu.set(gl, state);
   return state;
+}
+
+let sharedData = new Float32Array(0);
+
+/** Uploads the runs' band layout and the magnitudes (a row each) into the next data texture, bound to unit 0. */
+function uploadBands(gl: GL, gpu: CapsuleGpu, runs: Float64Array[], mags: Float32Array): void {
+  const width = mags.length;
+  const height = runs.length + 1;
+  if (sharedData.length < width * height * 4) sharedData = new Float32Array(width * height * 4);
+  const data = sharedData.subarray(0, width * height * 4);
+  runs.forEach((frames, r) => data.set(frames, r * width * 4));
+  data.fill(0, runs.length * width * 4);
+  for (let k = 0; k < width; k++) data[(runs.length * width + k) * 4] = mags[k];
+  const size = `${width}x${height}`;
+  let ring = gpu.data.get(size);
+  if (!ring) gpu.data.set(size, (ring = { textures: [], next: 0 }));
+  gl.activeTexture(gl.TEXTURE0);
+  gl.pixelStorei(gl.UNPACK_ALIGNMENT, 4);
+  let texture = ring.textures[ring.next];
+  if (!texture) {
+    texture = gl.createTexture()!;
+    gl.bindTexture(gl.TEXTURE_2D, texture);
+    for (const p of [gl.TEXTURE_MIN_FILTER, gl.TEXTURE_MAG_FILTER]) gl.texParameteri(gl.TEXTURE_2D, p, gl.NEAREST);
+    gl.texStorage2D(gl.TEXTURE_2D, 1, gl.RGBA32F, width, height);
+    ring.textures.push(texture);
+  } else gl.bindTexture(gl.TEXTURE_2D, texture);
+  ring.next = (ring.next + 1) % DATA_RING;
+  gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, width, height, gl.RGBA, gl.FLOAT, data);
 }
 
 /** The comp that holds `layer`. */
@@ -235,12 +340,25 @@ interface BandRuns {
   polar: boolean;
 }
 
+const runCache = new WeakMap<PropertyGroup, { key: string; shape: Shape | undefined; runs: BandRuns }>();
+
 function bandRuns(effect: PropertyGroup, layer: Layer, time: number, bands: number): BandRuns {
-  const frames = new Float64Array(bands * 4);
   const pathIndex = effectNumber(effect, 4, layer, time, 0);
   const start = effectVector(effect, 2, layer, time, [0, 0]);
   const end = effectVector(effect, 3, layer, time, [0, 0]);
   const shape = pathIndex > 0 ? maskShape(layer, pathIndex, time) : undefined;
+  const polar = effectNumber(effect, 5, layer, time, 0) !== 0;
+  // The same parameters (and the same mask path value) lay the bands out the same.
+  const key = `${bands}|${pathIndex}|${start.join()}|${end.join()}|${polar}`;
+  const cached = runCache.get(effect);
+  if (cached && cached.key === key && cached.shape === shape) return cached.runs;
+  const runs = layOutBands(start, end, shape, polar, bands);
+  runCache.set(effect, { key, shape, runs });
+  return runs;
+}
+
+function layOutBands(start: number[], end: number[], shape: Shape | undefined, polar: boolean, bands: number): BandRuns {
+  const frames = new Float64Array(bands * 4);
   const at = (k: number) => (bands > 1 ? k / (bands - 1) : 0);
   if (shape && shape.vertices.length) {
     const line = flatten(shape);
@@ -249,7 +367,7 @@ function bandRuns(effect: PropertyGroup, layer: Layer, time: number, bands: numb
       const [x, y, dx, dy] = pointAt(line, total * (shape.closed ? k / bands : at(k)));
       frames.set([x, y, dy, -dx], k * 4);
     }
-  } else if (effectNumber(effect, 5, layer, time, 0) !== 0) {
+  } else if (polar) {
     // Rays from the Start Point at π − π k / (N − 1) (screen angles, counter-clockwise),
     // mirrored below the horizontal; the End Point is not used.
     const mirrored = new Float64Array(bands * 4);
@@ -268,118 +386,110 @@ function bandRuns(effect: PropertyGroup, layer: Layer, time: number, bands: numb
   return { runs: [frames], polar: false };
 }
 
-/** `rgb` with its hue turned by `degrees` (saturation and lightness kept). */
-function rotateHue(rgb: number[], degrees: number): [number, number, number] {
-  const [r, g, b] = rgb;
-  const max = Math.max(r, g, b);
-  const min = Math.min(r, g, b);
-  const d = max - min;
-  if (d <= 0) return [r, g, b];
-  const h0 = max === r ? (g - b) / d + (g < b ? 6 : 0) : max === g ? (b - r) / d + 2 : (r - g) / d + 4;
-  const h = (((h0 + degrees / 60) % 6) + 6) % 6;
-  const x = d * (1 - Math.abs((h % 2) - 1));
-  const sector = Math.floor(h);
-  const [cr, cg, cb] = [[d, x, 0], [x, d, 0], [0, d, x], [0, x, d], [x, 0, d], [d, 0, x]][sector];
-  return [cr + min, cg + min, cb + min];
-}
+/** Frames ahead whose spectra are computed off this thread while a frame renders (playback shows them next). */
+const PREFETCH_FRAMES = 16;
+/** The last time each effect was drawn at and the smallest step between its draws (its frame step in playback). */
+const drawn = new WeakMap<PropertyGroup, { time: number; step: number }>();
 
 /**
- * Inside and Outside colour of each band (6 per band). Hue Interpolation turns
- * the hue by Hue · s(k) with s(k) = k / (N − 1), or the tent 1 − |2k / (N − 1) − 1|
- * with Color Symmetry; Dynamic Hue Phase subtracts s at the strongest band.
+ * The spectrum drawn at `time` (null while the workers compute it, see spectraOffThread), and the spectra of the
+ * next frames started on the workers: spaced by the smallest step between the effect's draws (a nested comp is
+ * drawn at its parent's frame times), else by `frame`.
  */
-function bandColors(inside: number[], outside: number[], mags: Float32Array, hue: number, dynamic: boolean, symmetry: boolean): Float32Array {
-  const bands = mags.length;
-  const colors = new Float32Array(bands * 6);
-  const s = (k: number) => {
-    const f = bands > 1 ? k / (bands - 1) : 0;
-    return symmetry ? 1 - Math.abs(2 * f - 1) : f;
-  };
-  let strongest = 0;
-  for (let k = 1; k < bands; k++) if (mags[k] > mags[strongest]) strongest = k;
-  const phase = dynamic ? s(strongest) : 0;
-  for (let k = 0; k < bands; k++) {
-    const turn = hue * (s(k) - phase);
-    // A channel moves by at most turn / 60 of the colour's range: under 1e-3 degrees no 8-bit value changes.
-    const [a, b] = Math.abs(turn) < 1e-3 ? [inside, outside] : [rotateHue(inside, turn), rotateHue(outside, turn)];
-    colors[k * 6] = a[0];
-    colors[k * 6 + 1] = a[1];
-    colors[k * 6 + 2] = a[2];
-    colors[k * 6 + 3] = b[0];
-    colors[k * 6 + 4] = b[1];
-    colors[k * 6 + 5] = b[2];
-  }
-  return colors;
-}
-
-const audioIds = new WeakMap<object, number>();
-let nextAudioId = 1;
-const idOf = (o: object) => audioIds.get(o) ?? (audioIds.set(o, nextAudioId), nextAudioId++);
-
-const spectra = new Map<string, Float32Array>();
-const MAX_SPECTRA = 128;
-
-/** Band magnitudes of the audio layer at comp time `time` (offset included), cached. */
-function spectrumAt(audio: LayerAudio, time: number, settings: SpectrumSettings, averaged: boolean): Float32Array {
-  const perSecond = audio.rate * audio.timeScale;
-  const length = windowLength(perSecond, settings.durationMs);
-  const first = windowStart(time, perSecond, length);
-  const key = `${perSecond}:${audio.contributions.map((c) => `${idOf(c.audio)}:${c.scale}:${c.offset}:${c.from}:${c.to}`).join("|")}#${first}:${length}:${settings.startFrequency}:${settings.endFrequency}:${settings.bands}:${averaged}`;
-  let mags = spectra.get(key);
-  if (mags) {
-    spectra.delete(key);
-    spectra.set(key, mags);
-    return mags;
-  }
-  mags = (averaged ? analyseAveraged : analyse)(mixWindow(audio, first, length), audio.rate, settings);
-  spectra.set(key, mags);
-  if (spectra.size > MAX_SPECTRA) spectra.delete(spectra.keys().next().value!);
+function spectrum(effect: PropertyGroup, audio: LayerAudio, time: number, frame: number, settings: SpectrumSettings, averaged: boolean): Float32Array | null {
+  const mags = spectrumAt(audio, time, settings, averaged);
+  const last = drawn.get(effect);
+  const delta = last ? time - last.time : 0;
+  // Steps under a quarter of a 60 fps frame are motion blur samples, not frames.
+  const step = Math.min(last?.step ?? frame, delta >= 1 / 240 && delta < 0.25 ? delta : Infinity);
+  drawn.set(effect, { time, step });
+  if (step > 0) prefetchSpectra(audio, Array.from({ length: PREFETCH_FRAMES }, (_, k) => time + (k + 1) * step), settings, averaged);
   return mags;
 }
 
-function drawCapsules(ctx: RenderContext, out: { width: number; height: number }, instances: Float32Array, thickness: number, softness: number): void {
+interface CapsuleStyle {
+  display: number;
+  side: number;
+  maxHeight: number;
+  thickness: number;
+  softness: number;
+  inside: number[];
+  outside: number[];
+  hue: number;
+  dynamic: boolean;
+  symmetry: boolean;
+  /** Blend Overlapping Colors: each band composited over the later ones, so drawn last to first. */
+  blend: boolean;
+}
+
+/**
+ * Draws every band capsule of every run into the bound target. Analog lines on both sides alternate, even
+ * bands on Side A; analog dots on both sides are drawn once per side; digital bars on both sides run from one
+ * side's tip to the other's.
+ */
+function drawCapsules(
+  ctx: RenderContext,
+  out: { width: number; height: number },
+  runs: Float64Array[],
+  mags: Float32Array,
+  style: CapsuleStyle,
+  scale: number,
+): void {
   const gl = ctx.gl;
   const gpu = capsules(gl);
   const u = (name: string) => {
     if (!gpu.uniforms.has(name)) gpu.uniforms.set(name, gl.getUniformLocation(gpu.program, name));
     return gpu.uniforms.get(name)!;
   };
-  const ramp = rampWidth(thickness, softness);
+  const bands = mags.length;
+  uploadBands(gl, gpu, runs, mags);
+  // Widths in this image's pixels (positions are converted in the vertex shader).
+  const thickness = style.thickness * scale;
+  const ramp = rampWidth(thickness, style.softness);
   const edge = thickness / 2;
   gl.useProgram(gpu.program);
+  gl.uniform1i(u("u_data"), 0);
+  gl.uniform1i(u("u_magRow"), runs.length);
+  gl.uniform1i(u("u_bands"), bands);
+  gl.uniform1i(u("u_display"), style.display);
+  const both = style.side === Side.BOTH;
+  gl.uniform1i(u("u_both"), both ? 1 : 0);
+  gl.uniform1i(u("u_alternate"), both && style.display === Display.LINES ? 1 : 0);
+  gl.uniform1f(u("u_sign"), style.side === Side.B ? -1 : 1);
+  gl.uniform1f(u("u_height"), HEIGHT_SCALE * style.maxHeight);
+  gl.uniform3f(u("u_inside"), style.inside[0], style.inside[1], style.inside[2]);
+  gl.uniform3f(u("u_outside"), style.outside[0], style.outside[1], style.outside[2]);
+  let phase = 0;
+  if (style.dynamic && style.hue !== 0) {
+    let strongest = 0;
+    for (let k = 1; k < bands; k++) if (mags[k] > mags[strongest]) strongest = k;
+    const f = bands > 1 ? strongest / (bands - 1) : 0;
+    phase = style.symmetry ? 1 - Math.abs(2 * f - 1) : f;
+  }
+  gl.uniform1f(u("u_hue"), style.hue);
+  gl.uniform1f(u("u_phase"), phase);
+  gl.uniform1i(u("u_symmetry"), style.symmetry ? 1 : 0);
   gl.uniform2f(u("u_size"), out.width, out.height);
   gl.uniform1f(u("u_pad"), ctx.pad);
   gl.uniform1f(u("u_reach"), edge + ramp / 2 + 1);
+  gl.uniform1f(u("u_scale"), scale);
   gl.uniform1f(u("u_edge"), edge);
   gl.uniform1f(u("u_ramp"), ramp);
-  const colorRadius = Math.max(edge, MIN_COLOR_RADIUS);
+  const colorRadius = Math.max(edge, MIN_COLOR_RADIUS * scale);
   gl.uniform1f(u("u_colorRadius"), colorRadius);
   gl.uniform1f(u("u_colorShift"), (colorRadius - edge) / 2);
-  gl.bindBuffer(gl.ARRAY_BUFFER, gpu.instances);
-  gl.bufferData(gl.ARRAY_BUFFER, instances, gl.STREAM_DRAW);
+  gl.uniform1i(u("u_reverse"), style.blend ? 1 : 0);
+  const sides = style.display === Display.DOTS && both ? 2 : 1;
+  const count = style.display === Display.LINES ? Math.max(bands - 1, 1) : style.display === Display.DOTS ? sides * bands : bands;
+  gl.uniform1i(u("u_count"), count);
   gl.bindVertexArray(gpu.vao);
-  gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, instances.length / INSTANCE_FLOATS);
-  gl.bindVertexArray(null);
-}
-
-let sharedInstances = new Float32Array(0);
-
-/** A reused buffer for at least `capacity` instances. */
-function instanceBuffer(capacity: number): Float32Array {
-  if (sharedInstances.length < capacity * INSTANCE_FLOATS) sharedInstances = new Float32Array(capacity * INSTANCE_FLOATS);
-  return sharedInstances;
-}
-
-/** Reverses the order of the instances in place. */
-function reverseInstances(instances: Float32Array): void {
-  const n = instances.length / INSTANCE_FLOATS;
-  for (let i = 0, j = n - 1; i < j; i++, j--) {
-    for (let c = 0; c < INSTANCE_FLOATS; c++) {
-      const t = instances[i * INSTANCE_FLOATS + c];
-      instances[i * INSTANCE_FLOATS + c] = instances[j * INSTANCE_FLOATS + c];
-      instances[j * INSTANCE_FLOATS + c] = t;
-    }
+  const order = runs.map((_, r) => r);
+  if (style.blend) order.reverse();
+  for (const r of order) {
+    gl.uniform1i(u("u_run"), r);
+    gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, count);
   }
+  gl.bindVertexArray(null);
 }
 
 const COMPOSITE_FS = `#version 300 es
@@ -425,7 +535,12 @@ registerEffect("ADBE AudSpect", (input, effect, layer, time, ctx) => {
   const bands = Math.max(1, Math.round(num(8, 64)));
   const settings = { startFrequency: num(6, 20), endFrequency: num(7, 2000), bands, durationMs: Math.max(0, num(10, 90)) };
   // An audio layer without sound is analysed as silence: the bands are drawn at zero height.
-  const mags = audio ? spectrumAt(audio, time + num(11, 0) / 1000, settings, num(22, 0) !== 0) : new Float32Array(bands);
+  const frame = comp ? comp.frameDuration || 1 / (comp.frameRate || 24) : 0;
+  const mags = audio ? spectrum(effect, audio, time + num(11, 0) / 1000, frame, settings, num(22, 0) !== 0) : new Float32Array(bands);
+  if (!mags) {
+    ctx.loading(`audio spectrum is being analysed ("${audioLayer.name}")`);
+    return finish();
+  }
   const maxHeight = num(9, 50);
   const thickness = Math.max(0, num(12, 3));
   const softness = Math.min(1, Math.max(0, num(13, 0.5)));
@@ -438,42 +553,7 @@ registerEffect("ADBE AudSpect", (input, effect, layer, time, ctx) => {
 
   const { runs, polar } = bandRuns(effect, layer, time, bands);
   const side = polar ? Side.A : num(21, Side.A);
-  const colors = bandColors(inside, outside, mags, num(17, 0), num(18, 1) !== 0, num(19, 1) !== 0);
-  const instances = instanceBuffer(runs.length * 2 * bands);
-  let count = 0;
-  const push = (k: number, ax: number, ay: number, bx: number, by: number) => {
-    const at = count++ * INSTANCE_FLOATS;
-    instances[at] = ax;
-    instances[at + 1] = ay;
-    instances[at + 2] = bx;
-    instances[at + 3] = by;
-    for (let c = 0; c < 6; c++) instances[at + 4 + c] = colors[6 * k + c];
-  };
-  for (const frames of runs) {
-    // Tips per side; analog lines on both sides alternate, even bands on Side A.
-    const tips: Float64Array[] = [];
-    const alternate = side === Side.BOTH && display === Display.LINES;
-    const sides = side === Side.BOTH && !alternate ? [1, -1] : side === Side.B ? [-1] : [1];
-    for (const sign of sides) {
-      const tip = new Float64Array(bands * 2);
-      for (let k = 0; k < bands; k++) {
-        const h = HEIGHT_SCALE * maxHeight * mags[k] * (alternate && k % 2 ? -sign : sign);
-        tip[2 * k] = frames[4 * k] + frames[4 * k + 2] * h;
-        tip[2 * k + 1] = frames[4 * k + 1] + frames[4 * k + 3] * h;
-      }
-      tips.push(tip);
-    }
-    if (display === Display.LINES) {
-      for (const tip of tips) for (let k = 0; k + 1 < bands; k++) push(k, tip[2 * k], tip[2 * k + 1], tip[2 * k + 2], tip[2 * k + 3]);
-      if (bands === 1) for (const tip of tips) push(0, tip[0], tip[1], tip[0], tip[1]);
-    } else if (display === Display.DOTS) {
-      for (const tip of tips) for (let k = 0; k < bands; k++) push(k, tip[2 * k], tip[2 * k + 1], tip[2 * k], tip[2 * k + 1]);
-    } else if (side === Side.BOTH) {
-      for (let k = 0; k < bands; k++) push(k, tips[1][2 * k], tips[1][2 * k + 1], tips[0][2 * k], tips[0][2 * k + 1]);
-    } else {
-      for (let k = 0; k < bands; k++) push(k, frames[4 * k], frames[4 * k + 1], tips[0][2 * k], tips[0][2 * k + 1]);
-    }
-  }
+  const style: CapsuleStyle = { display, side, maxHeight, thickness, softness, inside, outside, hue: num(17, 0), dynamic: num(18, 1) !== 0, symmetry: num(19, 1) !== 0, blend };
 
   // `acquire` left `out` bound with its viewport set.
   const gl = ctx.gl;
@@ -485,11 +565,9 @@ registerEffect("ADBE AudSpect", (input, effect, layer, time, ctx) => {
   // Blend Overlapping Colors composites each band over the later ones; otherwise the strongest wins.
   if (blend) gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
   else gl.blendEquation(gl.MAX);
-  const drawn = instances.subarray(0, count * INSTANCE_FLOATS);
-  if (blend) reverseInstances(drawn);
-  drawCapsules(ctx, out, drawn, thickness, softness);
+  drawCapsules(ctx, out, runs, mags, style, input.scale ?? 1);
   gl.blendEquation(gl.FUNC_ADD);
   gl.disable(gl.BLEND);
   gl.disable(gl.SCISSOR_TEST);
   return finish();
-});
+}, { scalable: true });

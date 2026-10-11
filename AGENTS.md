@@ -27,15 +27,39 @@ frame by frame against After Effects 2025's own renders. React + TypeScript + Vi
     5. a composite pass (blend mode, track matte, opacity) in `shaders.ts`.
   - Images are premultiplied RGBA8 targets with a 1 px transparent border (PAD), in GL row order
     (row 0 is the bottom).
-  - `registry.ts` holds the extension points: `registerContentProvider` (text, footage...) and
-    `registerEffect(matchName, fn)`. Feature modules register from `features.ts`, one import line
-    per feature area.
+ - `registry.ts` holds the extension points: `registerContentProvider` (text, footage...) and
+ `registerEffect(matchName, fn, options)`. Feature modules register from `features.ts`, one import line
+ per feature area. Declare an effect's options when they hold; undeclared effects stay correct but render
+ every frame at full resolution:
+ - `cacheable`: its output depends only on its input image, its own parameter values and the layer (not on
+ the time itself, audio, footage or other layers), so layers using it are reused between frames under the
+ keys of `layerKeys.ts`;
+ - `scalable`: at a reduced resolution it multiplies what its parameters say in layer pixels by
+ `input.scale` (as After Effects effects follow the downsample factor).
+ - Reduced resolutions (`render(..., { scale })`, the viewer's Half/Third/Quarter and Fast Previews) render
+ nested comps, content, masks and scalable effects at that scale; Full resolution is unaffected.
   - `shapes.ts`: shape layers in Canvas2D.
   - `harness.ts`: `window.aepHarness` for the headless pixel tests.
 - `src/ui/` - the After Effects 2025-style workspace. `CompositionPanel.tsx` renders the viewer
   through `useCompRender`.
 - `scripts/` - verification and tooling. Run each with `node scripts/<name>.ts` (Node runs
-  TypeScript directly).
+ TypeScript directly).
+- `ml/pmatch/` - the Particle Match world model (Extra > Particle Match) in PyTorch, a uv project
+ (CUDA wheels; `uv run --project ml/pmatch ...`).
+ - The browser analyses the reference video (detection, tracking, sprite crops, shake) and writes
+ a safetensors dataset (`src/extra/pmatch/dataset.ts`).
+ - PyTorch learns the clock, the audio network, the particle flow, the sprites and the
+ appearance, and exports the effect's model format (`src/extra/pmatch/model.ts`; the app runs the
+ audio network in `tcn.ts`).
+ - The browser then calibrates the model by synthesis.
+ - The dev server runs the trainer for the dialog (`server/pmatch-trainer.ts`). From the command line:
+ `node scripts/pmatch-train.ts` (`--dataset` exports the analysis for
+ `uv run --project ml/pmatch python -m pmatch train`).
+ - The window exports a model as Trapcode Particular layers, into a comp of the open project or as a new
+ `.aep` with its soundtrack (`src/extra/pmatch/particularExport.ts`).
+ - Gates: `gates/pmatch-torch.md`; `gates/pmatch-fast.md` (detail and speed: `scripts/pmatch-report.ts`,
+ `pmatch-profile.ts`, `pmatch-inference.ts`); `gates/pmatch-ux.md` (the window and the export:
+ `scripts/check-pmatch-ui.ts`, `check-pmatch-export.ts`).
 
 ## Verification (the gates)
 
@@ -103,8 +127,17 @@ Gate ledgers follow the unlazy skill (`C:/Users/schxm/.claude/skills/unlazy/SKIL
        stored values, not After Effects' factory defaults (for example, Gaussian Blur comes
        in at 25).
 
-  When py-aep cannot author something, check whether a corpus sample already has it and AE 2025
-  can open that file (copy it into `refs/fixtures/`), or extend the authoring in `aepfix.py`.
+ When py-aep cannot author something, check whether a corpus sample already has it and AE 2025
+ can open that file (copy it into `refs/fixtures/`), or extend the authoring in `aepfix.py`.
+- **Effect library** (Effects & Presets panel, Effect menu): `src/edit/data/effect-library.json`
+ holds a template for every effect with a registered renderer whose definition an AE-saved project
+ (or a rendered fixture) holds. After adding renderers, re-run the export and the round trip, which
+ applies every library effect through the editor and has AE render the saved file (`gates/library.md`):
+ 1. `node scripts/export-effect-library.ts` (it lists the effects left out, and why);
+ 2. `uv run --no-project --with attrs --with pyyaml --with fonttools python scripts/fixtures/build_roundtrip.py`;
+ 3. `node scripts/fixtures/apply_roundtrip.ts` (add `SETTINGS` for the new effects);
+ 4. `node scripts/render-refs.ts --suite roundtrip --strict`, then
+ `node scripts/pixel-report.ts --suite roundtrip --require`.
 
 ## AE rules found so far (from references)
 
@@ -125,8 +158,15 @@ Gate ledgers follow the unlazy skill (`C:/Users/schxm/.claude/skills/unlazy/SKIL
 - Rendering runs on the GPU. Masks, effects and layer content must not read pixels back
   (`readPixels`, `getImageData`) or loop over pixels in JavaScript per frame.
   - Use `ctx.pass`/`ctx.program` shaders, instanced draws, or scissored clears.
-  - Profile with `node scripts/profile-render.ts <project> [--comps a,b] [--cpu]`. It runs on
-    the machine's GPU and reports ms per stage and per effect.
+ - Profile with `node scripts/profile-render.ts <project> [--comps a,b] [--cpu] [--scale 0.5] [--layers]
+ [--discrete]`. It runs on the machine's GPU and reports ms per frame, per stage and per top-level layer.
+ - Chrome's `gl.finish()` only flushes. Time GPU work with `finishGpu` (`gl.ts`), which reads a pixel back.
+ - Browsers on this laptop default to the integrated Intel GPU (`powerPreference` does not change that);
+ scripts take `--discrete` for the RTX.
+ - Playback in the app: `node scripts/check-video-playback.ts <project> <comps> [s] [start] --serve
+ [--require-fps n] [--require-audio] [--require-smooth ms] [--bench frames]`.
+ - The frame caches must not change a pixel: `node scripts/check-render-cache.ts <project>
+ "<comp>@<start>:<frames>" --require`; reduced resolutions against Full: `node scripts/check-render-scale.ts`.
 
 - Never copy Adobe code, assets or binaries. Never decompile or disassemble plugins (third-party or
   Adobe's): that breaks their licenses.

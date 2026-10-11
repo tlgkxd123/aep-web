@@ -7,7 +7,7 @@
 // the base, computed with `git merge-tree`, instead of this working tree.
 // Prints PIXELS-NOT-REGRESSED when no frame was lost.
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, rmSync, symlinkSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
@@ -27,6 +27,24 @@ function results(log: string): Map<string, boolean> {
   for (const line of log.split(/\r?\n/)) {
     const m = /^(ok|known|DIFF|NO REF|FAIL|ERROR)\s+(\S+@\d+)/.exec(line);
     if (m) out.set(m[2], m[1] === "ok" || m[1] === "known");
+  }
+  return out;
+}
+
+/** Every suite of a tree whose project file is there, one report each: a missing project stops a whole run. */
+function report(dir: string): Map<string, boolean> {
+  const fixtures = join(dir, "refs", "fixtures");
+  const out = new Map<string, boolean>();
+  let first = true;
+  for (const file of readdirSync(fixtures).filter((f) => f.endsWith("manifest.json")).sort()) {
+    const { project } = JSON.parse(readFileSync(join(fixtures, file), "utf8")) as { project: string };
+    if (!existsSync(join(fixtures, project))) {
+      console.log(`skipped ${file} in ${dir}: ${project} is missing`);
+      continue;
+    }
+    const suite = file === "manifest.json" ? "fixtures" : file.replace(/\.manifest\.json$/, "");
+    for (const [frame, pass] of results(run("node", ["scripts/pixel-report.ts", "--suite", suite, ...(first ? [] : ["--no-build"])], dir).out)) out.set(frame, pass);
+    first = false;
   }
   return out;
 }
@@ -63,8 +81,8 @@ if (args.includes("--merge")) {
   label = `HEAD merged into ${base}`;
 }
 
-const before = results(run("node", ["scripts/pixel-report.ts"], exportTree(commit)).out);
-const after = results(run("node", ["scripts/pixel-report.ts"], candidate).out);
+const before = report(exportTree(commit));
+const after = report(candidate);
 if (!before.size || !after.size) {
   console.error(`no report rows (base ${before.size}, candidate ${after.size})`);
   process.exit(2);

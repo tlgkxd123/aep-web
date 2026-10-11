@@ -317,9 +317,11 @@ function deepGlow(input: LayerImage, effect: PropertyGroup, layer: Layer, time: 
   const iterations = Math.round(num(P.glowIterations, 8)) || 8;
   const view = num(P.view, View.FINAL);
   const glowView = view === View.GLOW_INPUT;
-  // Glow Aberration scales the radius per channel.
+  // Glow Aberration scales the radius per channel. At a reduced resolution the octaves keep their count and weights
+  // (the glow its brightness) and only their widths shrink.
+  const k = input.scale ?? 1;
   const multipliers = num(P.glowAberration, 0) ? [P.multiplyRed, P.multiplyGreen, P.multiplyBlue].map((p) => Math.max(0, num(p, 100)) / 100) : [1, 1, 1];
-  const octavesPerChannel = multipliers.map((m) => glowOctaves(radius * m, iterations, aspect));
+  const octavesPerChannel = multipliers.map((m) => glowOctaves(radius * m, iterations, aspect).map((o) => (k === 1 ? o : { ...o, su: o.su * k, sv: o.sv * k })));
   const reach = glowView ? 0 : Math.ceil(3 * Math.max(0, ...octavesPerChannel.flat().map((o) => Math.max(o.su, o.sv)))) + 1;
 
   const shifts: Shifts = [
@@ -328,7 +330,7 @@ function deepGlow(input: LayerImage, effect: PropertyGroup, layer: Layer, time: 
     [0, 0],
   ];
   if (num(P.pixelAberration, 0) && !glowView) {
-    const offset = num(P.pixelOffset, 0);
+    const offset = num(P.pixelOffset, 0) * k;
     const [plus, minus] = ABERRATION_PAIRS[num(P.aberrationChannels, 2)] ?? ABERRATION_PAIRS[2];
     // Texels in GL rows: a positive offset moves the first channel's glow up-left on screen.
     shifts[plus] = [offset, -offset];
@@ -390,4 +392,4 @@ function deepGlow(input: LayerImage, effect: PropertyGroup, layer: Layer, time: 
   return { target: out, width, height, origin: [input.origin[0] - grow, input.origin[1] - grow] };
 }
 
-registerEffect("PEDG2", deepGlow);
+registerEffect("PEDG2", deepGlow, { cacheable: true, scalable: true });

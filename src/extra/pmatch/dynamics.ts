@@ -1,76 +1,70 @@
-// The world model's global state over time: a clock whose speed, and a zoom whose
-// amount, a small network reads from the audio features. Particle time is the
+// The world model's global state over time: the audio network (tcn.ts) reads the
+// clock speed, the zoom and S_Shake's Amplitude from the sound. Particle time is the
 // integral of the clock speed, so any frame can be rendered directly (random
 // access) and a louder passage moves every particle further.
 import type { AudioFeatures } from "./audio.ts";
-import type { Dynamics } from "./model.ts";
+import { D_LOG_SPEED, D_LOG_ZOOM, D_SHAKE, type Dynamics } from "./model.ts";
+import { quietDynamics, runDynamics } from "./tcn.ts";
 
 /** Log clock speed is kept within ±MAX_LOG_SPEED, log zoom within ±MAX_LOG_ZOOM. */
 const MAX_LOG_SPEED = 3;
 const MAX_LOG_ZOOM = 1;
 
-/** Log clock speed and log zoom for the features at `offset` in `features`. */
-export function evaluateDynamics(d: Dynamics, features: ArrayLike<number>, offset: number, out: Float64Array, hidden?: Float64Array): void {
-  const { inputs, weights: w } = d;
-  const h = d.hidden;
-  const b1 = h * inputs;
-  const w2 = b1 + h;
-  const b2 = w2 + 2 * h;
-  const skip = b2 + 2;
-  let speed = w[b2];
-  let zoom = w[b2 + 1];
-  for (let j = 0; j < h; j++) {
-    let a = w[b1 + j];
-    for (let i = 0; i < inputs; i++) a += w[j * inputs + i] * features[offset + i];
-    const t = Math.tanh(a);
-    if (hidden) hidden[j] = t;
-    speed += w[w2 + j] * t;
-    zoom += w[w2 + h + j] * t;
-  }
-  for (let i = 0; i < inputs; i++) {
-    speed += w[skip + i] * features[offset + i];
-    zoom += w[skip + inputs + i] * features[offset + i];
-  }
-  out[0] = speed;
-  out[1] = zoom;
+interface Outputs {
+  /** Feature frames covered, and the outputs per frame (frame-major). */
+  frames: number;
+  data: Float32Array;
+  quiet: Float32Array;
+}
+
+const quietOf = new WeakMap<Dynamics, Float32Array>();
+const outputsOf = new WeakMap<Dynamics, WeakMap<AudioFeatures, Outputs>>();
+
+/** The network's outputs over a sound track (one frame of silence without one), computed once per model and track. */
+function dynamicsOutputs(d: Dynamics, features: AudioFeatures | null): Outputs {
+  let quiet = quietOf.get(d);
+  if (!quiet) quietOf.set(d, (quiet = quietDynamics(d)));
+  if (!features || features.dims !== d.inputs || features.frames < 2) return { frames: 1, data: quiet, quiet };
+  let perModel = outputsOf.get(d);
+  if (!perModel) outputsOf.set(d, (perModel = new WeakMap()));
+  let outputs = perModel.get(features);
+  if (!outputs) perModel.set(features, (outputs = { frames: features.frames, data: runDynamics(d, features.data, features.frames), quiet }));
+  return outputs;
 }
 
 const clamp = (v: number, limit: number) => Math.max(-limit, Math.min(limit, v));
 
 export interface ClockOptions {
-  /** Scales how far the audio moves speed and zoom away from their silent values (1 = as learned). */
+  /** Scales how far the audio moves speed, zoom and shake away from their silent values (1 = as learned). */
   reactivity: number;
   /** Multiplies the clock speed. */
   speed: number;
 }
 
-/** Particle time and zoom at any time, for one audio track (or none). */
+/** Particle time, zoom and shake at any time, for one audio track (or none). */
 export class Clock {
   private readonly rate: number;
-  private readonly lag: number;
   private readonly start: number;
   private readonly speeds: Float64Array;
   private readonly cumulative: Float64Array;
   private readonly logZooms: Float64Array;
+  private readonly shakes: Float64Array;
 
   constructor(d: Dynamics, features: AudioFeatures | null, preRun: number, options: ClockOptions) {
-    this.rate = features?.rate ?? d.rate;
-    this.lag = d.lag;
+    const outputs = dynamicsOutputs(d, features);
+    const { frames, data, quiet } = outputs;
+    const O = d.outputs;
+    this.rate = frames > 1 ? features!.rate : d.rate;
     this.start = preRun;
-    const out = new Float64Array(2);
-    evaluateDynamics(d, new Float32Array(d.inputs), 0, out);
-    const quietSpeed = out[0];
-    const quietZoom = out[1];
-    const frames = features && features.dims === d.inputs ? features.frames : 1;
     this.speeds = new Float64Array(frames);
     this.logZooms = new Float64Array(frames);
+    this.shakes = new Float64Array(frames);
     this.cumulative = new Float64Array(frames + 1);
+    const react = (k: number, output: number) => quiet[output] + options.reactivity * (data[k * O + output] - quiet[output]);
     for (let k = 0; k < frames; k++) {
-      if (frames > 1) evaluateDynamics(d, features!.data, k * d.inputs, out);
-      else out.set([quietSpeed, quietZoom]);
-      const logSpeed = clamp(quietSpeed + options.reactivity * (out[0] - quietSpeed), MAX_LOG_SPEED);
-      this.speeds[k] = options.speed * Math.exp(logSpeed);
-      this.logZooms[k] = clamp(quietZoom + options.reactivity * (out[1] - quietZoom), MAX_LOG_ZOOM);
+      this.speeds[k] = options.speed * Math.exp(clamp(react(k, D_LOG_SPEED), MAX_LOG_SPEED));
+      this.logZooms[k] = clamp(react(k, D_LOG_ZOOM), MAX_LOG_ZOOM);
+      this.shakes[k] = Math.max(0, react(k, D_SHAKE));
       this.cumulative[k + 1] = this.cumulative[k] + this.speeds[k] / this.rate;
     }
   }
@@ -86,19 +80,28 @@ export class Clock {
 
   /** Particle time (clock seconds) at time `t` seconds. */
   timeAt(t: number): number {
-    return this.start + this.integral((t - this.lag) * this.rate) - this.integral(-this.lag * this.rate);
+    return this.start + this.integral(t * this.rate);
   }
 
   /** Clock speed (clock seconds per second) at time `t`. */
   speedAt(t: number): number {
-    const k = Math.max(0, Math.min(this.speeds.length - 1, Math.floor((t - this.lag) * this.rate)));
+    const k = Math.max(0, Math.min(this.speeds.length - 1, Math.floor(t * this.rate)));
     return this.speeds[k];
   }
 
+  private interpolated(values: Float64Array, t: number): number {
+    const x = Math.max(0, Math.min(values.length - 1, t * this.rate));
+    const k = Math.min(values.length - 2, Math.floor(x));
+    if (k < 0) return values[0];
+    return values[k] + (values[k + 1] - values[k]) * (x - k);
+  }
+
   zoomAt(t: number): number {
-    const x = Math.max(0, Math.min(this.logZooms.length - 1, (t - this.lag) * this.rate));
-    const k = Math.min(this.logZooms.length - 2, Math.floor(x));
-    if (k < 0) return Math.exp(this.logZooms[0]);
-    return Math.exp(this.logZooms[k] + (this.logZooms[k + 1] - this.logZooms[k]) * (x - k));
+    return Math.exp(this.interpolated(this.logZooms, t));
+  }
+
+  /** S_Shake's Amplitude at time `t` (a model without a shake gives 0). */
+  shakeAt(t: number): number {
+    return this.interpolated(this.shakes, t);
   }
 }

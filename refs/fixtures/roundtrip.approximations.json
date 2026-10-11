@@ -1,0 +1,59 @@
+{
+ "project": "roundtrip.aep",
+ "comps": [
+  {
+   "comp": "roundtrip_pedg2",
+   "frames": [
+    0
+   ],
+   "fps": 24
+  },
+  {
+   "comp": "roundtrip_pedg2_set",
+   "frames": [
+    0
+   ],
+   "fps": 24
+  },
+  {
+   "comp": "roundtrip_tc_particular",
+   "frames": [
+    0,
+    12
+   ],
+   "fps": 24
+  },
+  {
+   "comp": "roundtrip_tc_particular_set",
+   "frames": [
+    0,
+    12
+   ],
+   "fps": 24
+  },
+  {
+   "comp": "roundtrip_tc_sound_keys",
+   "frames": [
+    0,
+    12
+   ],
+   "fps": 24
+  },
+  {
+   "comp": "roundtrip_tc_sound_keys_set",
+   "frames": [
+    0,
+    12
+   ],
+   "fps": 24
+  }
+ ],
+ "reasons": {
+  "roundtrip_pedg2": "Deep Glow's renderer is not pixel-verified yet (most deepglow suite frames still differ)",
+  "roundtrip_pedg2_set": "Deep Glow's renderer is not pixel-verified yet (most deepglow suite frames still differ)",
+  "roundtrip_tc_particular": "Particular is drawn with a seeded look-alike; particle positions do not match After Effects",
+  "roundtrip_tc_particular_set": "Particular is drawn with a seeded look-alike; particle positions do not match After Effects",
+  "roundtrip_tc_sound_keys": "Sound Keys draws its own spectrum/output display over the layer; only its grid and bars are imitated",
+  "roundtrip_tc_sound_keys_set": "Sound Keys draws its own spectrum/output display over the layer; only its grid and bars are imitated"
+ }
+}

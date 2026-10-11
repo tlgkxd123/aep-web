@@ -1,4 +1,5 @@
 import type { CompItem, Project } from "../aep/model.ts";
+import { collectPending } from "../media/pending.ts";
 import { footageStore } from "../media/store.ts";
 import type { Target } from "../render/gl.ts";
 import { Renderer, scaledSize } from "../render/renderer.ts";
@@ -21,6 +22,42 @@ export function autoFactor(zoom: number): 1 | 2 | 3 | 4 {
 export type Shown = "cached" | "rendered" | "same" | "waiting";
 
 let footageFiles = -1;
+
+/** Renders whose GPU times gpuTypicalMs looks at. */
+const RECENT_RENDERS = 6;
+
+/** Renders by the viewers, and how many of them footage still decoding left incomplete (for profiling playback). */
+export const viewerStats = {
+  renders: 0,
+  incomplete: 0,
+  waitingFootage: 0,
+  waitingSpectra: 0,
+  waitingUnknown: 0,
+  renderMs: 0,
+  factor: 1,
+  /** Why playback's rendering ahead stopped, per animation frame: the GPU queue was full, or footage was decoding. */
+  aheadGpuFull: 0,
+  aheadFootage: 0,
+};
+
+// Dev server pages only: lets scripts/check-video-playback.ts count renders.
+if (typeof document !== "undefined" && document.querySelector('meta[name="aep-local-footage"]')) {
+  (window as unknown as { aepViewer: typeof viewerStats }).aepViewer = viewerStats;
+}
+
+/** The adapter in a WebGL renderer string: "Intel(R) UHD Graphics" from "ANGLE (Intel, Intel(R) UHD Graphics (0x...) Direct3D11 ...)". */
+export function gpuName(renderer: string): string {
+  const angle = /^ANGLE \([^,]*, (.*?)(?: \(0x[0-9a-f]+\))?(?: Direct3D.*| OpenGL.*| Metal.*|, D3D.*|\))?$/i.exec(renderer);
+  return (angle?.[1] ?? renderer).trim();
+}
+
+/**
+ * Whether a GPU is one built into the processor (or a software renderer): on a laptop with a dedicated GPU too,
+ * the browser runs on it unless Windows is told otherwise.
+ */
+export function isIntegratedGpu(name: string): boolean {
+  return /Intel(?!.*\bArc\b)|Radeon\(TM\) (Graphics|Vega)|Microsoft Basic Render|SwiftShader|llvmpipe/i.test(name);
+}
 
 /** Frames rendered while footage was missing are stale once files are added. */
 function checkFootageFiles(): void {
@@ -52,6 +89,23 @@ export class ViewerEngine {
   warnings: string[] = [];
   /** Milliseconds the last render took. */
   lastRenderMs = 0;
+  /**
+   * Work the last render found in progress (footage decoding, spectra computing; see pending.ts); null when that
+   * cannot be told (a movie whose decoder was opening).
+   */
+  lastWaiting: string[] | null = [];
+  /** Renders submitted to the GPU and not seen finished yet, oldest first, with when each was submitted. */
+  private fences: { sync: WebGLSync; at: number }[] = [];
+  private finishedAt = 0;
+  /** About how long the GPU takes per render lately, in milliseconds (0 until a render has been seen finishing). */
+  gpuMs = 0;
+  /** Renders seen finishing since the timing was last reset. */
+  gpuSamples = 0;
+  private gpuRecent: number[] = [];
+  private timedSince = 0;
+
+  /** The GPU the viewer renders on, as the browser names it. */
+  readonly gpu: string;
 
   constructor(display: HTMLCanvasElement) {
     this.display = display;
@@ -59,6 +113,9 @@ export class ViewerEngine {
     this.surface = new OffscreenCanvas(1, 1);
     this.renderer = new Renderer(this.surface, appRenderOptions);
     this.unregister = registerRenderer(this.renderer);
+    const gl = this.renderer.gl;
+    const info = gl.getExtension("WEBGL_debug_renderer_info");
+    this.gpu = gpuName(String(gl.getParameter(info ? info.UNMASKED_RENDERER_WEBGL : gl.RENDERER)));
   }
 
   /** Sets what the viewer shows; frames are cached per comp and resolution. */
@@ -84,20 +141,36 @@ export class ViewerEngine {
     const width = scaledSize(comp.width, scale);
     const height = scaledSize(comp.height, scale);
     const started = performance.now();
-    const target = this.renderer.render(project, comp, frame * frameDuration(comp), { scale });
+    const { result: target, waiting } = collectPending(() => this.renderer.render(project, comp, frame * frameDuration(comp), { scale }));
+    this.lastWaiting = waiting;
     if (this.surface.width !== width || this.surface.height !== height) {
       this.surface.width = width;
       this.surface.height = height;
     }
     this.renderer.present(target, { ...comp, width, height });
     const bitmap = this.surface.transferToImageBitmap();
+    const gl = this.renderer.gl;
+    this.gpuQueue();
+    const sync = gl.fenceSync(gl.SYNC_GPU_COMMANDS_COMPLETE, 0);
+    if (sync) this.fences.push({ sync, at: performance.now() });
     // Unflushed, the bitmap's commands can sit in this context while the display canvas waits on them, and the
     // page stops getting animation frames until something renders again.
-    this.renderer.gl.flush();
+    gl.flush();
     if (this.last) this.renderer.release(this.last.target);
     this.last = { frame, view: this.view, generation: contentGeneration(), target };
     this.warnings = this.renderer.lastWarnings;
     this.lastRenderMs = performance.now() - started;
+    viewerStats.renders++;
+    viewerStats.renderMs += this.lastRenderMs;
+    viewerStats.factor = this.factor;
+    if (!this.renderer.lastComplete) {
+      viewerStats.incomplete++;
+      if (!waiting) viewerStats.waitingUnknown++;
+      else {
+        if (waiting.some((k) => k.startsWith("footage"))) viewerStats.waitingFootage++;
+        if (waiting.some((k) => k.startsWith("spectra"))) viewerStats.waitingSpectra++;
+      }
+    }
     return { bitmap, complete: this.renderer.lastComplete };
   }
 
@@ -152,6 +225,57 @@ export class ViewerEngine {
     return complete;
   }
 
+  /**
+   * Renders the GPU is still working through. The browser updates what it knows between tasks, so this is polled
+   * (each animation frame) rather than waited on; it also keeps `gpuMs` up to date.
+   */
+  gpuQueue(): number {
+    const gl = this.renderer.gl;
+    const now = performance.now();
+    while (this.fences.length) {
+      const { sync, at } = this.fences[0];
+      if (gl.getSyncParameter(sync, gl.SYNC_STATUS) !== gl.SIGNALED) break;
+      gl.deleteSync(sync);
+      this.fences.shift();
+      // Queued renders run back to back: one took from its submission, or the one before it finishing, until now.
+      if (at >= this.timedSince) {
+        const took = now - Math.max(at, this.finishedAt);
+        this.gpuMs = this.gpuMs ? this.gpuMs + (took - this.gpuMs) * 0.3 : took;
+        // The first render at a resolution fills the layer caches; it says little about the ones after it.
+        if (this.gpuSamples++ > 0) this.gpuRecent.push(took);
+        if (this.gpuRecent.length > RECENT_RENDERS) this.gpuRecent.shift();
+      }
+      this.finishedAt = now;
+    }
+    return this.fences.length;
+  }
+
+  /** Starts measuring the GPU anew, leaving out renders already submitted (a change of resolution costs differently). */
+  resetGpuTiming(): void {
+    this.gpuMs = 0;
+    this.gpuSamples = 0;
+    this.gpuRecent = [];
+    this.timedSince = performance.now();
+  }
+
+  /** The middle of the last few renders' GPU times: what a render costs once the first ones have filled the caches. */
+  gpuTypicalMs(): number {
+    const sorted = [...this.gpuRecent].sort((a, b) => a - b);
+    return sorted.length ? sorted[sorted.length >> 1] : 0;
+  }
+
+  /**
+   * Asks for the movie frames `frame` shows so they decode before it renders; `ready` when they all have, else
+   * what they wait for (see pending.ts).
+   */
+  requestFootage(frame: number): { ready: boolean; waiting: string[] | null } {
+    if (!this.project || !this.comp) return { ready: true, waiting: [] };
+    const project = this.project;
+    const comp = this.comp;
+    const { result, waiting } = collectPending(() => this.renderer.requestFootage(project, comp, frame * frameDuration(comp)));
+    return { ready: result, waiting };
+  }
+
   /** Straight RGBA of a comp pixel in the frame shown, rendering that frame again if needed. */
   readPixel(frame: number, x: number, y: number): [number, number, number, number] {
     if (!this.project || !this.comp) return [0, 0, 0, 0];
@@ -167,6 +291,8 @@ export class ViewerEngine {
   dispose(): void {
     if (this.last) this.renderer.release(this.last.target);
     this.last = null;
+    for (const { sync } of this.fences) this.renderer.gl.deleteSync(sync);
+    this.fences = [];
     this.unregister();
     (this.renderer.gl.getExtension("WEBGL_lose_context") as { loseContext(): void } | null)?.loseContext();
   }
@@ -184,6 +310,50 @@ export function setViewer(compId: number, engine: ViewerEngine | undefined): voi
   else viewers.delete(compId);
   for (const l of factorListeners) l();
 }
+
+const zooms = new Map<number, number>();
+
+/** Each comp viewer's magnification (1 = 100%), for Fast Previews. */
+export const viewerZooms = {
+  get: (compId: number): number => zooms.get(compId) ?? 1,
+  set(compId: number, zoom: number): void {
+    zooms.set(compId, zoom);
+  },
+};
+
+const FAST_PREVIEWS_KEY = "aep-web.fastPreviews";
+const fastPreviewListeners = new Set<() => void>();
+let adaptive = (() => {
+  try {
+    return globalThis.localStorage?.getItem(FAST_PREVIEWS_KEY) !== "off";
+  } catch {
+    return true;
+  }
+})();
+
+/**
+ * Fast Previews (Adaptive Resolution), the Composition panel's button: while a comp plays, its viewer renders no
+ * finer than it shows the comp and, when the GPU cannot keep up, at a lower resolution (see usePlayback).
+ */
+export const fastPreviews = {
+  get adaptive(): boolean {
+    return adaptive;
+  },
+  set(on: boolean): void {
+    if (on === adaptive) return;
+    adaptive = on;
+    try {
+      globalThis.localStorage?.setItem(FAST_PREVIEWS_KEY, on ? "on" : "off");
+    } catch {
+      // Not kept between sessions where storage is unavailable.
+    }
+    for (const l of fastPreviewListeners) l();
+  },
+  subscribe(listener: () => void): () => void {
+    fastPreviewListeners.add(listener);
+    return () => fastPreviewListeners.delete(listener);
+  },
+};
 
 const factors = new Map<number, number>();
 const factorListeners = new Set<() => void>();

@@ -4,6 +4,7 @@ import {
   useContext,
   useDeferredValue,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -31,8 +32,10 @@ import { isTransformValue, resetTransform, toggleTransformStopwatch, transformPr
 import { keyframeAt, shownValue } from "./animate.ts";
 import { openContextMenu } from "./ContextMenu.tsx";
 import { AppActionsContext, layerMenu } from "./contextMenus.ts";
-import { attempt, ITEM_MIME, LAYER_MIME, nextDragKey, useEditing } from "./editing.tsx";
+import { attempt, EFFECT_MIME, ITEM_MIME, LAYER_MIME, nextDragKey, useEditing } from "./editing.tsx";
 import { modeEntries, parentEntries, QUALITY, trackMatteEntries } from "./layerRowMenus.ts";
+import { followPointer } from "./pointer.ts";
+import { useCompact } from "./responsive.ts";
 import {
   blendingModeName,
   colorCss,
@@ -278,23 +281,20 @@ function dragLayerBar(
   const key = nextDragKey(`layer-${edge}`);
   const id = layer.id;
   const x0 = e.clientX;
-  const move = (ev: PointerEvent) => {
-    const delta = Math.round(((ev.clientX - x0) * perPixel) / frame) * frame;
-    const target = comp.layers.find((l) => l.id === id);
-    if (!target) return;
-    attempt(editing, () => {
-      if (edge === "move") editor.shiftLayers(comp, [target], delta, { coalesce: key });
-      else if (edge === "in") editor.setLayerTiming(comp, target, { inPoint: Math.min(outT - frame, inT + delta) }, { coalesce: key });
-      else editor.setLayerTiming(comp, target, { outPoint: Math.max(inT + frame, outT + delta) }, { coalesce: key });
-    });
-  };
-  const up = () => {
-    window.removeEventListener("pointermove", move);
-    window.removeEventListener("pointerup", up);
-    editor.commit();
-  };
-  window.addEventListener("pointermove", move);
-  window.addEventListener("pointerup", up);
+  followPointer(
+    e,
+    (ev) => {
+      const delta = Math.round(((ev.clientX - x0) * perPixel) / frame) * frame;
+      const target = comp.layers.find((l) => l.id === id);
+      if (!target) return;
+      attempt(editing, () => {
+        if (edge === "move") editor.shiftLayers(comp, [target], delta, { coalesce: key });
+        else if (edge === "in") editor.setLayerTiming(comp, target, { inPoint: Math.min(outT - frame, inT + delta) }, { coalesce: key });
+        else editor.setLayerTiming(comp, target, { outPoint: Math.max(inT + frame, outT + delta) }, { coalesce: key });
+      });
+    },
+    () => editor.commit(),
+  );
 }
 
 interface LayerRowProps {
@@ -312,8 +312,8 @@ interface LayerRowProps {
   onRename?: (id: number, name: string | undefined) => void;
   /** Rows can be dragged to reorder the stack. */
   reorderable?: boolean;
-  /** Where a dragged layer or item would land: above or below this row. */
-  dropMark?: "before" | "after";
+  /** Where a dragged layer or item would land: above or below this row; or that a dragged effect would apply to it. */
+  dropMark?: "before" | "after" | "on";
 }
 
 function RenameField({ initial, onDone }: { initial: string; onDone: (name: string | undefined) => void }) {
@@ -822,20 +822,20 @@ function ExpressionRow({ row, comp, time }: { row: Extract<Row, { kind: "expr" }
     e.stopPropagation();
     const start = { x0: e.clientX, y0: e.clientY };
     setWhip({ ...start, x: e.clientX, y: e.clientY });
-    const move = (ev: PointerEvent) => setWhip({ ...start, x: ev.clientX, y: ev.clientY });
-    const up = (ev: PointerEvent) => {
-      window.removeEventListener("pointermove", move);
-      window.removeEventListener("pointerup", up);
-      setWhip(undefined);
-      const target = document.elementFromPoint(ev.clientX, ev.clientY)?.closest<HTMLElement>("[data-prop-path]");
-      if (!target) return;
-      const targetLayer = comp.layers.find((l) => l.id === Number(target.dataset.ownerId));
-      const targetProp = targetLayer && resolveAddress(targetLayer, { compId: comp.id, layerId: targetLayer.id, path: target.dataset.propPath!.split(".").map(Number) });
-      const path = targetLayer && targetProp ? expressionPath(targetLayer, targetProp, layer) : undefined;
-      if (path && path !== prop.expression) attempt(editing, () => editor.setExpression(comp, layer, prop, path));
-    };
-    window.addEventListener("pointermove", move);
-    window.addEventListener("pointerup", up);
+    followPointer(
+      e,
+      (ev) => setWhip({ ...start, x: ev.clientX, y: ev.clientY }),
+      (ev, cancelled) => {
+        setWhip(undefined);
+        const target = cancelled ? null : document.elementFromPoint(ev.clientX, ev.clientY)?.closest<HTMLElement>("[data-prop-path]");
+        if (!target) return;
+        const targetLayer = comp.layers.find((l) => l.id === Number(target.dataset.ownerId));
+        const targetProp = targetLayer && resolveAddress(targetLayer, { compId: comp.id, layerId: targetLayer.id, path: target.dataset.propPath!.split(".").map(Number) });
+        const path = targetLayer && targetProp ? expressionPath(targetLayer, targetProp, layer) : undefined;
+        if (path && path !== prop.expression) attempt(editing, () => editor.setExpression(comp, layer, prop, path));
+      },
+      0,
+    );
   };
 
   return (
@@ -960,6 +960,9 @@ function revealKeys(project: Project, layer: Layer, prop: Property): string[] | 
   return walk(layerOutline(ctx), `L${layer.id}`, [`L${layer.id}`]);
 }
 
+/** The layer outline's width on compact screens: about 60% of the Timeline, at least what names and values need. */
+const compactOutline = (width: number) => (width > 0 ? Math.round(Math.min(width - 100, Math.max(244, width * 0.6))) : 244);
+
 /** The Timeline for one composition: layer outline with switches and twirl-downs, ruler, layer bars, keyframes and CTI. */
 export const TimelinePanel = memo(function TimelinePanel({
   project,
@@ -982,15 +985,18 @@ export const TimelinePanel = memo(function TimelinePanel({
   const [hideShy, setHideShy] = useState(comp.hideShyLayers);
   const [sourceMode, setSourceMode] = useState(false);
   const [showModes, setShowModes] = useState(true);
-  const [switchesPane, setSwitchesPane] = useState(true);
-  const [transferPane, setTransferPane] = useState(true);
+  // Compact screens start with the switch and mode panes hidden, so the layer bars have room beside the names.
+  const compact = useCompact();
+  const [switchesPane, setSwitchesPane] = useState(!compact);
+  const [transferPane, setTransferPane] = useState(!compact);
   const transferShown = showModes && transferPane;
-  // The outline is one grid; hidden panes drop their columns so the rest stay aligned.
+  // The outline is one grid; hidden panes drop their columns so the rest stay aligned. Compact screens leave out the
+  // layer number (and the audio switch), and the parent column, where property values show, is narrower.
   const columns = [
-    "72px 16px 18px 26px minmax(110px, 1fr)",
+    compact ? "54px 16px 14px minmax(64px, 1fr)" : "72px 16px 18px 26px minmax(110px, 1fr)",
     switchesPane ? "144px" : "",
     transferShown ? "78px 20px 108px" : "",
-    "128px",
+    compact ? "96px" : "128px",
   ]
     .filter(Boolean)
     .join(" ");
@@ -1001,10 +1007,25 @@ export const TimelinePanel = memo(function TimelinePanel({
   const [rulerWidth, setRulerWidth] = useState(600);
   const rulerRef = useRef<HTMLDivElement>(null);
   const rootRef = useRef<HTMLDivElement>(null);
+  const laidOutCompact = useRef<boolean>(undefined);
+  useLayoutEffect(() => {
+    if (laidOutCompact.current === compact) return;
+    const first = laidOutCompact.current === undefined;
+    laidOutCompact.current = compact;
+    if (!first) {
+      setSwitchesPane(!compact);
+      setTransferPane(!compact);
+    }
+    const width = rootRef.current?.clientWidth ?? 0;
+    setOutlineWidth(compact ? compactOutline(width) : 720);
+  }, [compact]);
   const editing = useEditing();
   const { editor, revision } = editing;
   const [renaming, setRenaming] = useState<number>();
   const [dropSlot, setDropSlot] = useState<number>();
+  /** The layer an effect dragged from Effects & Presets would be applied to. */
+  const [dropOn, setDropOn] = useState<number>();
+  const appActions = useContext(AppActionsContext);
 
   const duration = Math.max(comp.duration, comp.frameDuration || 1 / 24);
   const minSpan = Math.min(duration, (comp.frameDuration || 1 / 24) * 10);
@@ -1107,15 +1128,9 @@ export const TimelinePanel = memo(function TimelinePanel({
   const onRulerDown = (e: ReactPointerEvent<HTMLDivElement>) => {
     if (e.button !== undefined && e.button > 0) return;
     e.preventDefault();
-    rulerRef.current?.focus();
+    rulerRef.current?.focus({ preventScroll: true });
     setTime(timeFromX(e.clientX));
-    const move = (ev: PointerEvent | MouseEvent) => setTime(timeFromX(ev.clientX));
-    const up = () => {
-      window.removeEventListener("pointermove", move);
-      window.removeEventListener("pointerup", up);
-    };
-    window.addEventListener("pointermove", move);
-    window.addEventListener("pointerup", up);
+    followPointer(e, (ev) => setTime(timeFromX(ev.clientX)), undefined, 0);
   };
 
   const frame = comp.frameDuration || 1 / 24;
@@ -1158,11 +1173,27 @@ export const TimelinePanel = memo(function TimelinePanel({
   };
   const dragKind = (e: DragEvent) => {
     const types = Array.from(e.dataTransfer?.types ?? []);
-    return !editor ? undefined : types.includes(LAYER_MIME) ? "layer" : types.includes(ITEM_MIME) ? "item" : undefined;
+    if (!editor) return undefined;
+    if (types.includes(EFFECT_MIME)) return appActions?.applyEffect ? "effect" : undefined;
+    return types.includes(LAYER_MIME) ? "layer" : types.includes(ITEM_MIME) ? "item" : undefined;
+  };
+  /** The unlocked layer whose row (or a row of its properties) is under the pointer. */
+  const layerAt = (e: DragEvent) => {
+    const row = e.target instanceof Element ? e.target.closest<HTMLElement>("[data-layer-id], [data-owner-id]") : null;
+    const id = Number(row?.dataset.layerId ?? row?.dataset.ownerId);
+    return comp.layers.find((l) => l.id === id && !l.locked)?.id;
   };
   const onBodyDragOver = (e: DragEvent<HTMLDivElement>) => {
     const kind = dragKind(e);
     if (!kind) return;
+    if (kind === "effect") {
+      const target = layerAt(e);
+      setDropOn(target);
+      if (target === undefined) return;
+      e.preventDefault();
+      e.dataTransfer.dropEffect = "copy";
+      return;
+    }
     e.preventDefault();
     e.dataTransfer.dropEffect = kind === "layer" ? "move" : "copy";
     setDropSlot(slotAt(e));
@@ -1171,6 +1202,15 @@ export const TimelinePanel = memo(function TimelinePanel({
     const kind = dragKind(e);
     const slot = slotAt(e);
     setDropSlot(undefined);
+    setDropOn(undefined);
+    if (kind === "effect") {
+      const target = layerAt(e);
+      if (target === undefined) return;
+      e.preventDefault();
+      e.stopPropagation();
+      appActions?.applyEffect?.(e.dataTransfer.getData(EFFECT_MIME), { compId: comp.id, layerIds: [target] });
+      return;
+    }
     if (!kind || !editor || slot === undefined) return;
     e.preventDefault();
     e.stopPropagation();
@@ -1222,14 +1262,9 @@ export const TimelinePanel = memo(function TimelinePanel({
     e.preventDefault();
     const startX = e.clientX;
     const startW = outlineWidth;
-    const max = (rootRef.current?.clientWidth ?? 1600) - 160;
-    const move = (ev: PointerEvent | MouseEvent) => setOutlineWidth(Math.min(max, Math.max(360, startW + ev.clientX - startX)));
-    const up = () => {
-      window.removeEventListener("pointermove", move);
-      window.removeEventListener("pointerup", up);
-    };
-    window.addEventListener("pointermove", move);
-    window.addEventListener("pointerup", up);
+    const width = rootRef.current?.clientWidth ?? 1600;
+    const [min, max] = compact ? [150, width - 60] : [360, width - 160];
+    followPointer(e, (ev) => setOutlineWidth(Math.min(max, Math.max(min, startW + ev.clientX - startX))), undefined, 0);
   };
 
   const tc = timecode(time + comp.displayStartTime, comp.frameRate);
@@ -1345,7 +1380,9 @@ export const TimelinePanel = memo(function TimelinePanel({
           onKeyDown={onTreeKey}
           onDragOver={onBodyDragOver}
           onDragLeave={(e) => {
-            if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setDropSlot(undefined);
+            if (e.currentTarget.contains(e.relatedTarget as Node | null)) return;
+            setDropSlot(undefined);
+            setDropOn(undefined);
           }}
           onDrop={onBodyDrop}
           onDragEnd={() => setDropSlot(undefined)}
@@ -1368,11 +1405,13 @@ export const TimelinePanel = memo(function TimelinePanel({
                 onRename={rename}
                 reorderable={!!editor}
                 dropMark={
-                  dropSlot === row.layer.index
-                    ? "before"
-                    : dropSlot === row.layer.index + 1 && row.layer.index === comp.layers.length
-                      ? "after"
-                      : undefined
+                  dropOn === row.layer.id
+                    ? "on"
+                    : dropSlot === row.layer.index
+                      ? "before"
+                      : dropSlot === row.layer.index + 1 && row.layer.index === comp.layers.length
+                        ? "after"
+                        : undefined
                 }
               />
             ) : row.kind === "node" ? (

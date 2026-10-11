@@ -5,7 +5,8 @@
 //   Rect to Polar: q = (θ / 2π · (W − 1), 2·|p − c|), θ measured from straight up, counter-clockwise
 //     (the column through c takes θ = 2π above it and π below it);
 //   Polar to Rect: q = c − (p.y / H · |c|) · (cos a, sin a), a = p.x / W · 2π (0 = left, clockwise).
-// The source is sampled bilinearly and is transparent outside the layer.
+// The source is sampled bilinearly and is transparent outside the layer. The mapping follows the image's own
+// size, so it holds at a reduced resolution too.
 import { effectNumber } from "../effectParams.ts";
 import { registerEffect } from "../registry.ts";
 
@@ -57,4 +58,4 @@ registerEffect("ADBE Polar Coordinates", (input, effect, layer, time, ctx) => {
   });
   ctx.pool.release(input.target);
   return { ...input, target: out };
-});
+}, { cacheable: true, scalable: true });

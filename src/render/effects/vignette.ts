@@ -41,4 +41,4 @@ registerEffect("CS Vignette", (input, effect, layer, time, ctx) => {
     gl.uniform1f(uniform("u_tanHalf"), Math.tan(((angle / 2) * Math.PI) / 180));
     gl.uniform1f(uniform("u_pin"), Math.pow(Math.max(0, pin), 0.72));
   });
-});
+}, { cacheable: true });

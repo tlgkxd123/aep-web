@@ -1,26 +1,46 @@
-import { useContext, useEffect, useMemo, useRef, useState, type DragEvent, type MouseEvent, type PointerEvent } from "react";
+import { useContext, useEffect, useMemo, useRef, useState, useSyncExternalStore, type DragEvent, type MouseEvent, type PointerEvent } from "react";
 import type { CompItem, Layer, Project } from "../aep/model.ts";
 import { addLayer } from "../edit/layers.ts";
 import { anchorInComp, moveLayers, panBehind, rotateByDrag, scaleByHandle, type Handle } from "../edit/transform-ops.ts";
 import { frameIndex } from "../playback/clock.ts";
 import { usePlaying } from "../playback/playhead.ts";
 import { useViewer } from "../playback/useViewer.ts";
+import { fastPreviews as fastPreviewSetting, isIntegratedGpu, viewerZooms } from "../playback/viewer.ts";
 import { apply, invert, layerAffine, type Matrix } from "./animate.ts";
 import { openContextMenu, openMenuBelow, type MenuEntries } from "./ContextMenu.tsx";
 import { AppActionsContext, layerMenu, viewerMenu } from "./contextMenus.ts";
 import { TimeDisplay } from "./TimelinePanel.tsx";
 import { ChannelFilters, channelFilter, Guides, MaskPaths, snapDelta, snapTargets, type Channel, type GuideOptions } from "./viewerOverlays.tsx";
-import { attempt, ITEM_MIME, nextDragKey, useEditing } from "./editing.tsx";
+import { attempt, EFFECT_MIME, ITEM_MIME, nextDragKey, useEditing } from "./editing.tsx";
 import { colorCss, labelColor, timecode } from "./format.ts";
 import { setHover } from "./hover.ts";
 import { Icon, type IconName } from "./icons.tsx";
 import { locateFootageFolder, missingFootage } from "./LocateFootage.tsx";
+import { followPointer } from "./pointer.ts";
 import { layerHasVideo } from "./properties.ts";
 import { Dropdown } from "./values.tsx";
 
 const ZOOMS = [0.015, 0.03, 0.06, 0.125, 0.25, 0.333, 0.5, 1, 2, 4, 8];
 /** Screen pixels within which a dragged layer snaps. */
 const SNAP_PIXELS = 8;
+/** Kept when the note about rendering on a built-in GPU is dismissed. */
+const GPU_HINT_KEY = "aep-web.integratedGpuHint";
+
+function storedFlag(key: string): boolean {
+  try {
+    return globalThis.localStorage?.getItem(key) === "dismissed";
+  } catch {
+    return false;
+  }
+}
+
+function storeFlag(key: string): void {
+  try {
+    globalThis.localStorage?.setItem(key, "dismissed");
+  } catch {
+    // Shown again next session where storage is unavailable.
+  }
+}
 
 interface Pickable {
   layer: Layer;
@@ -132,9 +152,15 @@ export function CompositionPanel({
   const [showingSnapshot, setShowingSnapshot] = useState(false);
   const [roiMode, setRoiMode] = useState(false);
   const [roi, setRoi] = useState<[number, number, number, number]>();
-  const [fastPreviews, setFastPreviews] = useState(false);
+  const fastPreviews = useSyncExternalStore(fastPreviewSetting.subscribe, () => fastPreviewSetting.adaptive);
+  const [gpuHintHidden, setGpuHintHidden] = useState(() => storedFlag(GPU_HINT_KEY));
   const [alwaysPreview, setAlwaysPreview] = useState(false);
   const spaceDown = useRef(false);
+  /** Stops the drag one pointer started, when a second finger turns the gesture into a pinch. */
+  const drag = useRef<(() => void) | null>(null);
+  /** Fingers on the viewer, and the pinch the first two make. */
+  const touches = useRef(new Map<number, { x: number; y: number }>());
+  const pinch = useRef<{ ids: number[]; distance: number; mid: [number, number]; scale: number; offset: [number, number] } | null>(null);
   const [canvas, setCanvas] = useState<HTMLCanvasElement | null>(null);
   const editing = useEditing();
   const { editor, revision, tool } = editing;
@@ -157,8 +183,12 @@ export function CompositionPanel({
     };
   }, []);
   const missing = missingFootage(project, comp).length;
+  const gpu = render.engine.current?.gpu;
+  const integratedGpu = gpu && !gpuHintHidden && isIntegratedGpu(gpu) ? gpu : null;
   const svgRef = useRef<SVGSVGElement>(null);
   const [itemOver, setItemOver] = useState(false);
+  /** The layer an effect being dragged over the viewer would apply to. */
+  const [effectDrop, setEffectDrop] = useState<number>();
 
   useEffect(() => {
     const el = viewerRef.current;
@@ -174,8 +204,69 @@ export function CompositionPanel({
   const fit =
     viewer.width && viewer.height ? Math.min(1, (viewer.width - 40) / frameW, (viewer.height - 40) / comp.height) : 0.33;
   const scale = zoom === "fit" ? Math.max(0.01, fit) : zoom;
+  useEffect(() => viewerZooms.set(comp.id, scale), [comp.id, scale]);
   // A fitted view stays centred; panning applies to explicit zoom levels.
   const offset: [number, number] = zoom === "fit" ? [0, 0] : pan;
+  const live = useRef({ scale, offset });
+  live.current = { scale, offset };
+
+  // Two fingers pinch to zoom about their midpoint and pan as it moves; the comp point under it stays under it.
+  useEffect(() => {
+    const centre = (): [number, number] => {
+      const r = viewerRef.current?.getBoundingClientRect();
+      return r ? [r.left + r.width / 2, r.top + r.height / 2] : [0, 0];
+    };
+    const move = (e: globalThis.PointerEvent) => {
+      if (!touches.current.has(e.pointerId)) return;
+      touches.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      const p = pinch.current;
+      const a = p && touches.current.get(p.ids[0]);
+      const b = p && touches.current.get(p.ids[1]);
+      if (!p || !a || !b) return;
+      const [cx, cy] = centre();
+      const next = Math.min(ZOOMS[ZOOMS.length - 1], Math.max(ZOOMS[0], (p.scale * Math.hypot(b.x - a.x, b.y - a.y)) / p.distance));
+      const k = next / p.scale;
+      const mid = [(a.x + b.x) / 2 - cx, (a.y + b.y) / 2 - cy];
+      setZoom(next);
+      setPan([mid[0] - (p.mid[0] - p.offset[0]) * k, mid[1] - (p.mid[1] - p.offset[1]) * k]);
+    };
+    const end = (e: globalThis.PointerEvent) => {
+      if (!touches.current.delete(e.pointerId)) return;
+      // The fingers left after a pinch do nothing until they lift.
+      if (pinch.current?.ids.includes(e.pointerId)) pinch.current = { ...pinch.current, ids: [] };
+      if (!touches.current.size) pinch.current = null;
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", end);
+    window.addEventListener("pointercancel", end);
+    return () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", end);
+      window.removeEventListener("pointercancel", end);
+    };
+  }, []);
+  /** Counts a finger landing on the viewer: the second starts a pinch instead of a drag of its own. */
+  const onViewerPointerDown = (e: PointerEvent<HTMLDivElement>) => {
+    if (e.pointerType !== "touch") return;
+    touches.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
+    if (pinch.current) {
+      e.stopPropagation();
+      return;
+    }
+    if (touches.current.size < 2) return;
+    e.stopPropagation();
+    drag.current?.();
+    drag.current = null;
+    const [[ida, a], [idb, b]] = [...touches.current];
+    const r = viewerRef.current!.getBoundingClientRect();
+    pinch.current = {
+      ids: [ida, idb],
+      distance: Math.max(1, Math.hypot(b.x - a.x, b.y - a.y)),
+      mid: [(a.x + b.x) / 2 - (r.left + r.width / 2), (a.y + b.y) / 2 - (r.top + r.height / 2)],
+      scale: live.current.scale,
+      offset: live.current.offset,
+    };
+  };
 
   /** Zooms to `next`, keeping the comp point under (clientX, clientY) where it is, like AE's Zoom tool and wheel. */
   const zoomAt = (next: number, clientX?: number, clientY?: number) => {
@@ -210,23 +301,23 @@ export function CompositionPanel({
     return () => el.removeEventListener("wheel", wheel);
   }, []);
 
-  /** Pans the view by dragging (Hand tool, Space or middle button). */
+  /** Pans the view by dragging (Hand tool, Space, middle button, or a finger on no layer); a fitted view stays fitted until it moves. */
   const panDrag = (e: PointerEvent<Element>) => {
     e.preventDefault();
     const start = [e.clientX, e.clientY];
     const from = offset;
-    if (zoom === "fit") setZoom(scale);
-    const move = (ev: globalThis.PointerEvent) => setPan([from[0] + ev.clientX - start[0], from[1] + ev.clientY - start[1]]);
-    const up = () => {
-      window.removeEventListener("pointermove", move);
-      window.removeEventListener("pointerup", up);
-    };
-    window.addEventListener("pointermove", move);
-    window.addEventListener("pointerup", up);
+    const fitted = zoom === "fit";
+    let moved = false;
+    drag.current = followPointer(e, (ev) => {
+      if (!moved && fitted) setZoom(scale);
+      moved = true;
+      setPan([from[0] + ev.clientX - start[0], from[1] + ev.clientY - start[1]]);
+    });
   };
   // `revision` changes after every edit; the layer objects behind `comp` are rebuilt then.
   const pickable = useMemo(() => pickableLayers(project, comp, time), [project, comp, time, revision]);
   const selected = comp.layers.find((l) => l.id === selectedLayerId);
+  const effectDropPick = effectDrop !== undefined ? pickable.find((p) => p.layer.id === effectDrop) : undefined;
   const selectedMatrix = selected && !selected.threeDLayer && selected.width > 0 ? layerAffine(selected, comp, time) : undefined;
   const selectedAnchor = selected && selectedMatrix ? safeAnchor(comp, selected, time) : undefined;
 
@@ -262,21 +353,18 @@ export function CompositionPanel({
     if (roiMode) {
       // Drawing the region of interest.
       e.preventDefault();
-      const move = (ev: globalThis.PointerEvent) => {
-        const at = clientToComp(ev.clientX, ev.clientY, rect);
-        const x0 = Math.max(0, Math.min(start[0], at[0]));
-        const y0 = Math.max(0, Math.min(start[1], at[1]));
-        const x1 = Math.min(comp.width, Math.max(start[0], at[0]));
-        const y1 = Math.min(comp.height, Math.max(start[1], at[1]));
-        setRoi([x0, y0, Math.max(1, x1 - x0), Math.max(1, y1 - y0)]);
-      };
-      const up = () => {
-        window.removeEventListener("pointermove", move);
-        window.removeEventListener("pointerup", up);
-        setRoiMode(false);
-      };
-      window.addEventListener("pointermove", move);
-      window.addEventListener("pointerup", up);
+      drag.current = followPointer(
+        e,
+        (ev) => {
+          const at = clientToComp(ev.clientX, ev.clientY, rect);
+          const x0 = Math.max(0, Math.min(start[0], at[0]));
+          const y0 = Math.max(0, Math.min(start[1], at[1]));
+          const x1 = Math.min(comp.width, Math.max(start[0], at[0]));
+          const y1 = Math.min(comp.height, Math.max(start[1], at[1]));
+          setRoi([x0, y0, Math.max(1, x1 - x0), Math.max(1, y1 - y0)]);
+        },
+        () => setRoiMode(false),
+      );
       return;
     }
     const grip = (e.target as Element).closest?.("[data-handle]")?.getAttribute("data-handle");
@@ -297,47 +385,77 @@ export function CompositionPanel({
         layer = picked;
       }
     }
-    if (!editor || !kind || !layer) return;
+    if (!editor || !kind || !layer) {
+      // A finger on no layer pans the view, as on other touch canvases.
+      if (e.pointerType === "touch" && tool === "selection" && !picked) panDrag(e);
+      return;
+    }
     e.preventDefault();
     const handle = grip ? (grip.split(",").map(Number) as Handle) : ([0, 0] as Handle);
     const key = nextDragKey(kind);
     const id = layer.id;
-    const drag = kind;
+    const action = kind;
     const snap = editing.snapping && kind === "move" ? snapTargets(comp, layer, time) : undefined;
-    const move = (ev: globalThis.PointerEvent | globalThis.MouseEvent) => {
-      const at = clientToComp(ev.clientX, ev.clientY, rect);
-      const target = comp.layers.find((l) => l.id === id);
-      if (!target || !at.every(Number.isFinite)) return;
-      let delta: [number, number] = [at[0] - start[0], at[1] - start[1]];
-      // Ctrl temporarily inverts Snapping, as in AE.
-      if (snap && !ev.ctrlKey) delta = snapDelta(snap, delta, SNAP_PIXELS / scale);
-      attempt(editing, () => {
-        if (drag === "move") moveLayers(editor, comp, [target], delta, time, { coalesce: key, constrain: ev.shiftKey });
-        else if (drag === "scale") scaleByHandle(editor, comp, target, handle, start, at, time, { coalesce: key, proportional: ev.shiftKey });
-        else if (drag === "rotation") rotateByDrag(editor, comp, target, start, at, time, { coalesce: key, snap: ev.shiftKey });
-        else panBehind(editor, comp, target, delta, time, { coalesce: key, anchorOnly: ev.altKey });
-      });
-    };
-    const up = () => {
-      window.removeEventListener("pointermove", move);
-      window.removeEventListener("pointerup", up);
+    const stop = followPointer(
+      e,
+      (ev) => {
+        const at = clientToComp(ev.clientX, ev.clientY, rect);
+        const target = comp.layers.find((l) => l.id === id);
+        if (!target || !at.every(Number.isFinite)) return;
+        let delta: [number, number] = [at[0] - start[0], at[1] - start[1]];
+        // Ctrl temporarily inverts Snapping, as in AE.
+        if (snap && !ev.ctrlKey) delta = snapDelta(snap, delta, SNAP_PIXELS / scale);
+        attempt(editing, () => {
+          if (action === "move") moveLayers(editor, comp, [target], delta, time, { coalesce: key, constrain: ev.shiftKey });
+          else if (action === "scale") scaleByHandle(editor, comp, target, handle, start, at, time, { coalesce: key, proportional: ev.shiftKey });
+          else if (action === "rotation") rotateByDrag(editor, comp, target, start, at, time, { coalesce: key, snap: ev.shiftKey });
+          else panBehind(editor, comp, target, delta, time, { coalesce: key, anchorOnly: ev.altKey });
+        });
+      },
+      () => {
+        drag.current = null;
+        editor.commit();
+      },
+    );
+    drag.current = () => {
+      stop();
       editor.commit();
     };
-    window.addEventListener("pointermove", move);
-    window.addEventListener("pointerup", up);
   };
 
   const dragsItem = (e: DragEvent) => !!editor && Array.from(e.dataTransfer?.types ?? []).includes(ITEM_MIME);
+  /** The layer an Effects & Presets effect dragged over the viewer applies to: the one under the pointer, or else the selected one. */
+  const effectDropLayer = (e: DragEvent): Layer | undefined => {
+    if (!editor || !actions?.applyEffect || !Array.from(e.dataTransfer?.types ?? []).includes(EFFECT_MIME)) return undefined;
+    const rect = svgRef.current?.getBoundingClientRect();
+    const under = rect?.width ? hit(...clientToComp(e.clientX, e.clientY, rect))?.layer : undefined;
+    const layer = under ?? selected;
+    return layer && !layer.locked ? layer : undefined;
+  };
   const itemDrop = {
     onDragOver: (e: DragEvent<HTMLDivElement>) => {
-      if (!dragsItem(e)) return;
+      const effectLayer = effectDropLayer(e);
+      if (!dragsItem(e) && !effectLayer) return;
       e.preventDefault();
       e.dataTransfer.dropEffect = "copy";
-      setItemOver(true);
+      if (effectLayer) setEffectDrop(effectLayer.id);
+      else setItemOver(true);
     },
-    onDragLeave: () => setItemOver(false),
+    onDragLeave: (e: DragEvent<HTMLDivElement>) => {
+      if (e.currentTarget.contains(e.relatedTarget as Node | null)) return;
+      setItemOver(false);
+      setEffectDrop(undefined);
+    },
     onDrop: (e: DragEvent<HTMLDivElement>) => {
       setItemOver(false);
+      setEffectDrop(undefined);
+      const effectLayer = effectDropLayer(e);
+      if (effectLayer) {
+        e.preventDefault();
+        e.stopPropagation();
+        actions?.applyEffect?.(e.dataTransfer.getData(EFFECT_MIME), { compId: comp.id, layerIds: [effectLayer.id] });
+        return;
+      }
       if (!dragsItem(e) || !editor) return;
       e.preventDefault();
       e.stopPropagation();
@@ -379,7 +497,7 @@ export function CompositionPanel({
         <Icon name="lock" size={12} className="dim" />
         <span className="crumb">{comp.name}</span>
       </div>
-      <div className={`viewer ${itemOver ? "item-over" : ""}`} ref={viewerRef} {...itemDrop}>
+      <div className={`viewer ${itemOver ? "item-over" : ""}`} ref={viewerRef} {...itemDrop} onPointerDownCapture={onViewerPointerDown}>
         <div className="pasteboard">
           <div
             className={`comp-frame ${grid ? "transparency" : ""}`}
@@ -423,6 +541,19 @@ export function CompositionPanel({
               {(guides.safe || guides.proportional || guides.grid) && <Guides comp={comp} options={guides} scale={scale} />}
               {roi && <rect className="roi-rect" x={roi[0]} y={roi[1]} width={roi[2]} height={roi[3]} strokeWidth={1 / scale} />}
               {!playing && showMasks && selected && selectedMatrix && <MaskPaths layer={selected} matrix={selectedMatrix} time={time} scale={scale} />}
+              {effectDropPick && (
+                <polygon
+                  className="effect-drop"
+                  points={[
+                    [0, 0],
+                    [effectDropPick.layer.width, 0],
+                    [effectDropPick.layer.width, effectDropPick.layer.height],
+                    [0, effectDropPick.layer.height],
+                  ]
+                    .map(([x, y]) => apply(effectDropPick.matrix, x, y).join(","))
+                    .join(" ")}
+                />
+              )}
               {!playing && selected && selectedMatrix && (
                 <g className="sel-box" style={{ color: labelColor(selected.label) }}>
                   <polygon
@@ -460,8 +591,23 @@ export function CompositionPanel({
             </svg>
           </div>
         </div>
-        {(render.error || render.notes.length > 0 || missing > 0) && (
+        {(render.error || render.notes.length > 0 || missing > 0 || integratedGpu) && (
           <div className="render-notes" role="status">
+            {integratedGpu && (
+              <div>
+                {`Rendering on ${integratedGpu}, the processor's built-in GPU. For a dedicated GPU, set your browser to High performance in Windows Settings › Display › Graphics and restart it.`}
+                <button
+                  type="button"
+                  className="locate-link"
+                  onClick={() => {
+                    setGpuHintHidden(true);
+                    storeFlag(GPU_HINT_KEY);
+                  }}
+                >
+                  Dismiss
+                </button>
+              </div>
+            )}
             {missing > 0 && (
               <div>
                 {`${missing} footage ${missing === 1 ? "item is" : "items are"} missing.`}
@@ -487,6 +633,7 @@ export function CompositionPanel({
             }}
           >
             <option value="fit">{zoom === "fit" ? `(${pct})` : "Fit up to 100%"}</option>
+            {zoom !== "fit" && !ZOOMS.includes(zoom) && <option value={String(zoom)}>{pct}</option>}
             {ZOOMS.map((z) => (
               <option key={z} value={String(z)}>
                 {`${Number((z * 100).toFixed(1))}%`}
@@ -507,7 +654,12 @@ export function CompositionPanel({
             }))
           }
         />
-        <ViewerButton icon="fastPreview" title="Fast Previews" on={fastPreviews} onClick={() => setFastPreviews(!fastPreviews)} />
+        <ViewerButton
+          icon="fastPreview"
+          title={`Fast Previews: ${fastPreviews ? "Adaptive Resolution" : "Off (Final Quality)"}`}
+          on={fastPreviews}
+          onClick={() => fastPreviewSetting.set(!fastPreviews)}
+        />
         <ViewerButton icon="transparency" title="Toggle Transparency Grid" on={grid} onClick={() => setGrid(!grid)} />
         <ViewerButton icon="maskPath" title="Toggle Mask and Shape Path Visibility" on={showMasks} onClick={() => setShowMasks(!showMasks)} />
         <ViewerButton
@@ -582,13 +734,7 @@ export function CompositionPanel({
           onPointerDown={(e) => {
             const x0 = e.clientX;
             const from = exposure;
-            const move = (ev: globalThis.PointerEvent) => setExposure(Math.round((from + (ev.clientX - x0) / 20) * 10) / 10);
-            const up = () => {
-              window.removeEventListener("pointermove", move);
-              window.removeEventListener("pointerup", up);
-            };
-            window.addEventListener("pointermove", move);
-            window.addEventListener("pointerup", up);
+            followPointer(e, (ev) => setExposure(Math.round((from + (ev.clientX - x0) / 20) * 10) / 10));
           }}
           onKeyDown={(e) => {
             if (e.key === "ArrowRight" || e.key === "ArrowUp") setExposure(Math.round((exposure + 0.1) * 10) / 10);

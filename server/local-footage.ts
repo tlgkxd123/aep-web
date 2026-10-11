@@ -30,11 +30,16 @@ const MAX_BODY = 4 * 1024 * 1024;
 const mediaType = (file: string) => MEDIA_TYPES[extname(file).slice(1).toLowerCase()];
 const split = (path: string) => path.split(/[\\/]+/).filter(Boolean).map((p) => p.toLowerCase());
 
+/** The user folders footage is kept in. */
+function userFolders(): string[] {
+  const home = process.env.USERPROFILE ?? homedir();
+  return ["Downloads", "Desktop", "Documents", "Videos", "Pictures", "Music"].map((d) => join(home, d));
+}
+
 function searchRoots(): string[] {
   const configured = process.env.AEP_FOOTAGE_ROOTS?.split(";").filter(Boolean);
   if (configured?.length) return configured;
-  const home = process.env.USERPROFILE ?? homedir();
-  const user = ["Downloads", "Desktop", "Documents", "Videos", "Pictures", "Music"].map((d) => join(home, d));
+  const user = userFolders();
   const systemDrive = (process.env.SystemDrive ?? "C:").toUpperCase();
   const drives = "DEFGHIJKLMNOPQRSTUVWXYZ".split("").map((l) => `${l}:\\`).filter((d) => !d.startsWith(systemDrive) && existsSync(d));
   return [...user, ...drives].filter((d) => existsSync(d));
@@ -53,7 +58,7 @@ function buildIndex(): Promise<Map<string, string[]>> {
   return (index ??= (async () => {
     const byName = new Map<string, string[]>();
     const stack = [...roots];
-    let visited = 0;
+    let slice = performance.now();
     while (stack.length) {
       const dir = stack.pop()!;
       let entries;
@@ -74,7 +79,10 @@ function buildIndex(): Promise<Map<string, string[]>> {
         }
       }
       // Keep the dev server responsive while walking large drives.
-      if (++visited % 200 === 0) await new Promise((r) => setImmediate(r));
+      if (performance.now() - slice > 10) {
+        await new Promise((r) => setImmediate(r));
+        slice = performance.now();
+      }
     }
     return byName;
   })());
@@ -180,19 +188,19 @@ function browse(dir: string): { dir: string; parent: string | null; entries: Bro
  * files and the user folders, when exactly one file matches.
  */
 async function identify(name: string, size: number, lastModified: number, folders: Iterable<string>): Promise<string | null> {
-  const candidates = new Set((await buildIndex()).get(name.toLowerCase()) ?? []);
-  for (const folder of folders) {
-    const path = join(folder, basename(name));
-    if (existsSync(path)) candidates.add(path);
-  }
-  const matches = [...candidates].filter((path) => {
+  const same = (path: string) => {
     try {
       const stat = statSync(path);
       return stat.size === size && Math.abs(stat.mtimeMs - lastModified) < 2000;
     } catch {
       return false;
     }
-  });
+  };
+  // Files sit directly in a folder this session used or in a user folder often enough to look there before
+  // waiting for the index (minutes on large drives).
+  const near = [...new Set([...folders, ...userFolders()].map((folder) => join(folder, basename(name))))].filter(same);
+  if (near.length === 1) return near[0];
+  const matches = [...new Set([...((await buildIndex()).get(name.toLowerCase()) ?? []), ...near])].filter(same);
   return matches.length === 1 ? matches[0] : null;
 }
 

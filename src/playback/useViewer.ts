@@ -8,6 +8,8 @@ import { setViewer, viewerFactors, ViewerEngine } from "./viewer.ts";
 
 const subscribeFootage = (listener: () => void) => footageStore.subscribe(listener);
 const footageVersion = () => footageStore.version;
+const ignore = () => () => {};
+const noVersion = () => -1;
 
 /**
  * Shows `comp` at `time` in the canvas through a ViewerEngine, one frame per animation frame however fast
@@ -20,8 +22,9 @@ export function useViewer(canvas: HTMLCanvasElement | null, project: Project, co
   const [error, setError] = useState<string>();
   const [revision, setRevision] = useState(0);
   const playing = usePlaying(comp.id);
-  // Footage decodes asynchronously: a frame still waiting for it is shown once it arrives.
-  const footage = useSyncExternalStore(subscribeFootage, footageVersion);
+  // Footage decodes asynchronously: a frame still waiting for it is shown once it arrives. Playback follows the
+  // footage store itself, so the panel does not re-render for every frame decoded while playing.
+  const footage = useSyncExternalStore(playing ? ignore : subscribeFootage, playing ? noVersion : footageVersion);
 
   useEffect(() => {
     // jsdom and browsers without WebGL2 or OffscreenCanvas keep the plain comp frame.

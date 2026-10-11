@@ -9,6 +9,8 @@ refs/ours
 refs/probe
 *.log
 __pycache__
+.venv
+.pytest_cache
 refs/fixtures/effect-donors.json
 *registros/
 refs/probe*

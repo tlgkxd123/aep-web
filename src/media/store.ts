@@ -11,6 +11,7 @@ import { audioTrackRate } from "./mp4.ts";
 import { decodePsd, isPsd } from "./psd.ts";
 import { decodeTiff, isTiff } from "./tiff.ts";
 import { openVideo } from "./openVideo.ts";
+import { notePending, registerPendingSource } from "./pending.ts";
 import { videoStats, type VideoReader } from "./video.ts";
 
 export type FrameState =
@@ -60,6 +61,9 @@ interface ItemMedia {
   /** Whether the movie file has a sound track (read from its header). */
   soundTrack?: boolean;
   soundScan?: boolean;
+  /** The movie sample asked for last and how far apart forward requests have been lately (time remapping). */
+  lastSample: number;
+  stride: number;
 }
 
 interface Decoder {
@@ -76,14 +80,19 @@ const CACHE_BYTES = 384 * 1024 * 1024;
  * out the frame it was decoded for. Bounded, oldest first, for requests nobody comes back for.
  */
 const MAX_PINNED = 16;
-/** Movie samples kept decoded ahead of the one shown. */
+/** Movie frames kept decoded ahead of the one shown. */
 const READ_AHEAD = 8;
+/** How quickly the expected spacing of a movie's requests follows the latest one. */
+const STRIDE_FOLLOW = 0.3;
 /** Decoders per movie, for layers showing it at different times. */
 const MAX_DECODERS = 3;
 /** How far ahead of its last sample a decoder still takes a request rather than another one starting fresh. */
 const NEAR_SAMPLES = 90;
 /** How far behind its last sample (where decoding ahead left it) a decoder still takes a request. */
 const BEHIND_SAMPLES = 2 * READ_AHEAD;
+
+/** The footage store's prefix among the sources of work renders wait for (pending.ts). */
+const PENDING = "footage";
 
 const split = (path: string) => path.split(/[\\/]+/).filter(Boolean).map((p) => p.toLowerCase());
 
@@ -110,6 +119,8 @@ export class FootageStore {
   private readonly inflight = new Set<Promise<unknown>>();
   private nextId = 1;
   private generation = 0;
+  /** Frames that failed to decode, which renders need not wait for. */
+  private readonly failedKeys = new Set<string>();
   private fileCount = 0;
   private notifyScheduled = false;
   private changes = 0;
@@ -163,6 +174,7 @@ export class FootageStore {
     for (const entry of this.cache.values()) releaseFrame(entry.frame);
     this.cache.clear();
     this.pinned.clear();
+    this.failedKeys.clear();
     this.cacheBytes = 0;
     this.generation++;
     this.notify();
@@ -236,6 +248,7 @@ export class FootageStore {
           },
           (e: Error) => {
             this.pinned.delete(key);
+            this.failedKeys.add(key);
             media.failed.set(index, e.message || "cannot decode the file");
           },
         ).finally(() => media.requested.delete(index)),
@@ -259,6 +272,7 @@ export class FootageStore {
       media.soundScan = true;
       this.track(audioTrackRate(media.blob).then((rate) => (media.soundTrack = rate > 0), () => (media.soundTrack = false)));
     }
+    notePending(PENDING);
     return "pending";
   }
 
@@ -283,6 +297,7 @@ export class FootageStore {
           .finally(() => (media.audioDecoding = false)),
       );
     }
+    notePending(PENDING);
     return { status: "pending" };
   }
 
@@ -290,6 +305,11 @@ export class FootageStore {
   subscribe(listener: () => void): () => void {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
+  }
+
+  /** Whether a frame a render found decoding (see pending.ts) has decoded, or failed. */
+  decoded(key: string): boolean {
+    return this.cache.has(key) || this.failedKeys.has(key);
   }
 
   /** Resolves once no decoding is in flight. */
@@ -326,6 +346,8 @@ export class FootageStore {
         readAheads: new Map(),
         requested: new Set(),
         failed: new Map(),
+        lastSample: -1,
+        stride: 1,
       };
       if (media.blob && kind === "sequence") media.frames.set(0, media.blob);
       this.media.set(item, media);
@@ -338,9 +360,13 @@ export class FootageStore {
     const rate = (source.sourceType === "FileSource" && source.nativeFrameRate) || item.frameRate || 30;
     if (!media.video) {
       if (!media.opening) this.openDecoder(media, rate);
+      notePending(PENDING);
       return { status: "pending" };
     }
     const sample = media.video.indexAt(index / rate);
+    const gap = sample - media.lastSample;
+    if (media.lastSample >= 0 && gap > 0 && gap <= NEAR_SAMPLES) media.stride += (gap - media.stride) * STRIDE_FOLLOW;
+    if (gap !== 0) media.lastSample = sample;
     const key = `${media.id}:${sample}`;
     const cached = this.cache.get(key);
     if (cached) {
@@ -380,11 +406,13 @@ export class FootageStore {
               this.stats.videoMs += performance.now() - started;
               if (!delivered && !this.cache.has(key)) {
                 this.pinned.delete(key);
+                this.failedKeys.add(key);
                 media.failed.set(sample, "the decoder returned no picture for this frame");
               }
             },
             (e: Error) => {
               this.pinned.delete(key);
+              this.failedKeys.add(key);
               media.failed.set(sample, e.message || "cannot decode the video");
             },
           )
@@ -398,14 +426,18 @@ export class FootageStore {
   }
 
   /**
-   * Keeps decoding ahead of a movie frame being shown: when one of the next READ_AHEAD samples is neither
-   * decoded nor requested, it is decoded now, so playback does not reach the end of what is decoded and
-   * stall. Nothing waits on it until a render asks for that very frame (see videoFrame); a request for a
-   * frame it decodes on the way is skipped by the reader.
+   * Keeps decoding ahead of a movie frame being shown: when one of the next READ_AHEAD samples playback will
+   * ask for is neither decoded nor requested, it is decoded now, so playback does not reach the end of what is
+   * decoded and stall. A time-remapped movie shows every few samples: the ones expected are spaced by how far
+   * apart the requests have been. Nothing waits on them until a render asks for that very frame (see
+   * videoFrame); a request for a frame decoded on the way is skipped by the reader.
    */
   private readAhead(media: ItemMedia, sample: number, rate: number): void {
-    const last = Math.min(media.video!.frameCount - 1, sample + READ_AHEAD);
-    for (let p = sample + 1; p <= last; p++) {
+    const count = media.video!.frameCount;
+    const step = Math.max(1, media.stride);
+    for (let k = 1; k <= READ_AHEAD; k++) {
+      const p = sample + Math.round(k * step);
+      if (p >= count) return;
       const key = `${media.id}:${p}`;
       if (this.cache.has(key)) continue;
       if (media.requested.has(p)) return;
@@ -485,6 +517,7 @@ export class FootageStore {
    */
   private pending(media: ItemMedia, index: number): FrameState {
     const prefix = `${media.id}:`;
+    notePending(PENDING, `${prefix}${index}`);
     let best: { distance: number; frame: FootageFrame } | undefined;
     for (const [key, entry] of this.cache) {
       if (!key.startsWith(prefix)) continue;
@@ -550,3 +583,4 @@ export class FootageStore {
 }
 
 export const footageStore = new FootageStore();
+registerPendingSource(PENDING, { done: (key) => footageStore.decoded(key), busy: () => footageStore.busy });

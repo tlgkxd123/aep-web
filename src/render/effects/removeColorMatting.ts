@@ -17,4 +17,4 @@ void main() {
 registerEffect("ADBE Remove Color Matting", (input, effect, layer, time, ctx) => {
   const bg = effectVector(effect, 1, layer, time, [0, 0, 0, 1]);
   return mapPass(ctx, input, RCM_FS, (uniform) => ctx.gl.uniform3f(uniform("u_background"), bg[0], bg[1], bg[2]));
-});
+}, { cacheable: true, scalable: true });

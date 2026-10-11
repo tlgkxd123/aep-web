@@ -194,6 +194,8 @@ export const ProjectPanel = memo(function ProjectPanel({
   const [sort, setSort] = useState<{ key: SortKey; dir: 1 | -1 }>({ key: "name", dir: 1 });
   const [dropTarget, setDropTarget] = useState<number>();
   const renameTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  /** What pressed a row last: a click from a finger opens rather than renames. */
+  const pointerType = useRef("mouse");
   const rowsRef = useRef<HTMLDivElement>(null);
   useFootageVersion();
   // New solids and the Solids folder change the item tree inside the same project object.
@@ -288,11 +290,22 @@ export const ProjectPanel = memo(function ProjectPanel({
     select([item.id]);
   };
 
-  /** A click on the name of the only selected item renames it, like Explorer's slow double-click. */
+  /**
+   * A click on the name of the only selected item renames it, like Explorer's slow double-click. A tap on it opens it
+   * instead (a folder twirls), as touch lists do; renaming stays in its context menu.
+   */
   const clickName = (e: MouseEvent, item: Item) => {
     clearTimeout(renameTimer.current);
-    if (!ops || e.ctrlKey || e.metaKey || e.shiftKey || e.detail > 1) return;
-    if (selection.length === 1 && selection[0] === item.id) renameTimer.current = setTimeout(() => startRename(item.id), 500);
+    if (e.ctrlKey || e.metaKey || e.shiftKey || e.detail > 1) return;
+    const only = selection.length === 1 && selection[0] === item.id;
+    if (pointerType.current === "touch") {
+      if (only) {
+        if (item.kind === "folder") toggle(item.id);
+        else onOpenItem(item.id);
+      }
+      return;
+    }
+    if (ops && only) renameTimer.current = setTimeout(() => startRename(item.id), 500);
   };
 
   const selectedItems = () => selection.map((id) => project.items.get(id)).filter((i): i is Item => !!i);
@@ -412,6 +425,7 @@ export const ProjectPanel = memo(function ProjectPanel({
                   aria-selected={isSelected(item.id)}
                   aria-expanded={isFolder ? open : undefined}
                   className={`proj-row ${isSelected(item.id) ? "selected" : ""} ${missing ? "missing" : ""} ${dropTarget === item.id ? "drop-target" : ""}`}
+                  onPointerDown={(e) => (pointerType.current = e.pointerType)}
                   onClick={(e) => clickRow(e, item)}
                   onDoubleClick={() => {
                     clearTimeout(renameTimer.current);

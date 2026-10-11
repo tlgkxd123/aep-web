@@ -65,16 +65,17 @@ export async function chooseEncoder(
   quality: Quality = "good",
 ): Promise<{ config?: VideoEncoderConfig; error?: string }> {
   if (typeof VideoEncoder === "undefined") return { error: "This browser has no WebCodecs video encoder (it needs a secure context)." };
-  // Ultra fast asks for the GPU's encoder in real-time mode; the others let the browser pick its best.
-  const accelerations = quality === "fast" ? (["prefer-hardware", "no-preference", "prefer-software"] as const) : (["no-preference", "prefer-software"] as const);
+  // Ultra fast asks for the GPU's encoder in real-time mode; the others let the browser pick its best, then ask for the
+  // GPU's (Android has no software H.264 encoder), whose rate control may only be constant.
+  const accelerations = quality === "fast" ? (["prefer-hardware", "no-preference", "prefer-software"] as const) : (["no-preference", "prefer-software", "prefer-hardware"] as const);
   for (const codec of codecCandidates(format, width, height, fps)) {
-    for (const hardwareAcceleration of accelerations) {
+    for (const [hardwareAcceleration, bitrateMode] of accelerations.flatMap((a) => [[a, "variable"], [a, "constant"]] as const)) {
       const config: VideoEncoderConfig = {
         codec,
         width,
         height,
         bitrate,
-        bitrateMode: "variable",
+        bitrateMode,
         framerate: fps,
         hardwareAcceleration,
         latencyMode: quality === "fast" ? "realtime" : "quality",

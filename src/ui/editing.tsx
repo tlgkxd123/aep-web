@@ -26,6 +26,8 @@ export const useEditing = () => useContext(EditingContext);
 export const ITEM_MIME = "application/x-aep-item";
 /** Drag data type of a Timeline layer row (its id) being reordered. */
 export const LAYER_MIME = "application/x-aep-layer";
+/** Drag data type of an Effects & Presets effect (its match name) dropped on a layer. */
+export const EFFECT_MIME = "application/x-aep-effect";
 
 let dragSerial = 0;
 /** A fresh coalesce key: every event of one drag or scrub shares it, so the gesture is one undo step. */

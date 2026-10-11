@@ -3,7 +3,7 @@
 import { describe, expect, it } from "vitest";
 import type { CompItem } from "../src/aep/model.ts";
 import { FrameCache } from "../src/playback/frameCache.ts";
-import { DEFAULT_PREVIEW, playbackSpan, slotTime } from "../src/playback/usePlayback.ts";
+import { DEFAULT_PREVIEW, dueSlot, playbackSpan, slotTime } from "../src/playback/usePlayback.ts";
 import { TargetPool, type GL } from "../src/render/gl.ts";
 
 const comp = (over: Partial<CompItem> = {}) =>
@@ -26,6 +26,17 @@ describe("playback span", () => {
     expect(span.start).toBe(2);
     expect(span.end).toBeCloseTo(7 + 1 / 24, 9);
     expect(span.begin).toBe(7);
+  });
+
+  it("finds the slot due a time after the one shown when the clock started, across passes", () => {
+    const span = playbackSpan(comp(), 0, { ...DEFAULT_PREVIEW, range: "workArea" });
+    expect(dueSlot(span, 10, 0)).toBe(10);
+    expect(dueSlot(span, 10, 1 / 24 - 1e-9)).toBe(11);
+    expect(dueSlot(span, 10, 0.5)).toBe(22);
+    // Three seconds of a three-second work area later: the same frame, one pass on.
+    const later = slotTime(span, dueSlot(span, 10, 3))!;
+    expect(later.pass).toBe(1);
+    expect(later.time).toBeCloseTo(slotTime(span, 10)!.time, 9);
   });
 
   it("ends after one pass without Loop, and Frame Rate and Skip space the shown frames", () => {

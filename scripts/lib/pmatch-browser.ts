@@ -1,12 +1,15 @@
-// Headless Edge (real GPU) with the Particle Match harness (src/extra/pmatch/harness.ts)
-// for the scripts/pmatch-*.ts checks: builds the bundle, serves it with the files a
-// check names, collects what the page uploads, and calls window.pmatch.
+// Headless Edge (on the high-performance GPU) with the Particle Match harness
+// (src/extra/pmatch/harness.ts) for the scripts/pmatch-*.ts checks: builds the bundle,
+// serves it with the files a check names, collects what the page uploads, trains the
+// PyTorch model on analyses the page posts to /train (server/pmatch-trainer.ts), and
+// calls window.pmatch.
 import { createReadStream, mkdirSync, readFileSync, statSync } from "node:fs";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { join, resolve } from "node:path";
 import { chromium, type Browser, type Page } from "playwright-core";
 import { build } from "vite";
+import { handleTrainRequest } from "../../server/pmatch-trainer.ts";
 
 export const PMATCH_OUT = resolve("dist-tools/pmatch");
 
@@ -38,7 +41,8 @@ export async function buildHarness(): Promise<Buffer> {
   return readFileSync(join(outDir, "pmatch.js"));
 }
 
-export async function openPmatch(options: { harness?: Buffer } = {}): Promise<PmatchBrowser> {
+/** `trained`: where the trainer keeps the last analysis, raw model and PyTorch checkpoint. */
+export async function openPmatch(options: { harness?: Buffer; trained?: string } = {}): Promise<PmatchBrowser> {
   mkdirSync(PMATCH_OUT, { recursive: true });
   const harness = options.harness ?? (await buildHarness());
   const uploads = new Map<string, Buffer>();
@@ -46,6 +50,7 @@ export async function openPmatch(options: { harness?: Buffer } = {}): Promise<Pm
   const blobs = new Map<string, Uint8Array>();
   const server: Server = createServer((req, res) => {
     const url = decodeURIComponent(req.url ?? "/");
+    if (req.method === "POST" && url === "/train") return void handleTrainRequest(req, res, { keep: options.trained ?? join(PMATCH_OUT, "trained") });
     if (req.method === "POST" && url.startsWith("/upload/")) {
       const parts: Buffer[] = [];
       req.on("data", (c: Buffer) => parts.push(c));
@@ -66,7 +71,11 @@ export async function openPmatch(options: { harness?: Buffer } = {}): Promise<Pm
   });
   await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
   const port = (server.address() as AddressInfo).port;
-  const browser: Browser = await chromium.launch({ channel: "msedge", headless: true, args: ["--use-angle=d3d11", "--enable-gpu", "--ignore-gpu-blocklist", "--enable-unsafe-webgpu"] });
+  const browser: Browser = await chromium.launch({
+    channel: "msedge",
+    headless: true,
+    args: ["--use-angle=d3d11", "--enable-gpu", "--ignore-gpu-blocklist", "--enable-unsafe-webgpu", "--force-high-performance-gpu"],
+  });
   const page = await browser.newPage();
   page.on("pageerror", (e) => console.log(`page error: ${e.message}`));
   page.on("console", (m) => {

@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">aep-web</string>
+    <string name="title_activity_main">aep-web</string>
+    <string name="package_name">com.zionschxma.aev3</string>
+    <string name="custom_url_scheme">com.zionschxma.aev3</string>
+</resources>

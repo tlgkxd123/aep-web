@@ -86,4 +86,4 @@ registerEffect("ADBE Minimax", (input, effect, layer, time, ctx) => {
   if (order.includes(true)) image = grown(ctx, image, radius);
   for (const max of order) image = filter(ctx, image, max, radius, direction, mask, keepEdges);
   return mapPass(ctx, image, PREMULTIPLY_FS);
-});
+}, { cacheable: true });

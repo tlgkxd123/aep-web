@@ -13,7 +13,8 @@ out vec4 outColor;
 
 /** Runs `fragment` (which samples u_source at v_uv) over an image of the same size; releases `input`. */
 export function mapPass(ctx: RenderContext, input: LayerImage, fragment: string, setUniforms?: Uniforms, extra: LayerImage[] = []): LayerImage {
-  const out = ctx.pool.acquire(input.target.width, input.target.height);
+  // The pass writes every pixel.
+  const out = ctx.pool.acquire(input.target.width, input.target.height, false);
   ctx.pass(ctx.program(fragment), out, [input.target, ...extra.map((e) => e.target)], (uniform) => {
     ctx.gl.uniform1i(uniform("u_source"), 0);
     extra.forEach((_, i) => ctx.gl.uniform1i(uniform(`u_extra${i}`), i + 1));
@@ -27,7 +28,7 @@ export function mapPass(ctx: RenderContext, input: LayerImage, fragment: string,
 
 /** A new image with the same pixels as `input` (which stays valid). */
 export function copyImage(ctx: RenderContext, input: LayerImage): LayerImage {
-  const out = ctx.pool.acquire(input.target.width, input.target.height);
+  const out = ctx.pool.acquire(input.target.width, input.target.height, false);
   ctx.pass(ctx.program(`${PASS_HEADER}void main() { outColor = texture(u_source, v_uv); }`), out, [input.target], (uniform) =>
     ctx.gl.uniform1i(uniform("u_source"), 0),
   );

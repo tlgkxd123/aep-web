@@ -1,10 +1,13 @@
 // The Render Queue panel: compositions added with Composition > Add to Render
 // Queue (Ctrl+M), their render settings and output module, and the Render button.
 // Renders run in the browser (WebGL frames, WebCodecs H.264/VP9, AAC/Opus audio).
+import { Capacitor } from "@capacitor/core";
 import { useSyncExternalStore } from "react";
 import type { CompItem, Project } from "../aep/model.ts";
 import { canPickFiles, pickOutputFile } from "../export/output.ts";
 import { renderQueue, type QueueItem } from "../export/queue.ts";
+import { APP_FOLDER } from "../export/saveFile.ts";
+import { useCompact } from "./responsive.ts";
 import {
   FORMATS,
   QUALITY_LABELS,
@@ -135,7 +138,9 @@ function ItemRow({ item, index, busy }: { item: QueueItem; index: number; busy: 
               {item.fileName}
             </button>
           ) : (
-            <span>{item.fileName} (downloads)</span>
+            <span>
+              {item.fileName} ({Capacitor.isNativePlatform() ? `saved to Documents/${APP_FOLDER}` : "downloads"})
+            </span>
           )}
         </label>
       </div>
@@ -147,6 +152,7 @@ function ItemRow({ item, index, busy }: { item: QueueItem; index: number; busy: 
 
 export function RenderQueuePanel({ project, activeComp }: { project: Project | undefined; activeComp: CompItem | undefined }) {
   const snapshot = useSyncExternalStore(renderQueue.subscribe, renderQueue.getSnapshot);
+  const compact = useCompact();
   const current = snapshot.current;
   const busy = !!current;
   const queued = snapshot.items.some((i) => i.status === "Queued");
@@ -189,7 +195,13 @@ export function RenderQueuePanel({ project, activeComp }: { project: Project | u
         <span />
       </div>
       <div className="rq-list" role="list" aria-label="Render Queue">
-        {snapshot.items.length === 0 && <p className="panel-empty">Open a composition and press Ctrl+M (Composition &gt; Add to Render Queue) to render it to MP4.</p>}
+        {snapshot.items.length === 0 && (
+          <p className="panel-empty">
+            {compact
+              ? "Open a composition and tap Add Active Comp to render it to MP4."
+              : "Open a composition and press Ctrl+M (Composition > Add to Render Queue) to render it to MP4."}
+          </p>
+        )}
         {snapshot.items.map((item, i) => (
           <ItemRow key={item.id} item={item} index={i} busy={busy} />
         ))}

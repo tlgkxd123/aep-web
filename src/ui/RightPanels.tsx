@@ -1,7 +1,8 @@
-import { memo, useState, type ReactNode } from "react";
+import { memo, useEffect, useState, type ReactNode } from "react";
 import type { CompItem, Layer, Project } from "../aep/model.ts";
 import { moveLayers } from "../edit/transform-ops.ts";
 import { DEFAULT_PREVIEW, type PreviewSettings } from "../playback/usePlayback.ts";
+import { ChunkPanel } from "./ChunkPanel.tsx";
 import { attempt, useEditing } from "./editing.tsx";
 import { bitsPerChannel, bytesLabel, fpsLabel } from "./format.ts";
 import { bounds } from "./viewerOverlays.tsx";
@@ -238,7 +239,10 @@ function AlignPanel({ comp, layer, time }: { comp: CompItem | undefined; layer: 
   );
 }
 
-/** The right-hand stack of the Default workspace. */
+/**
+ * The right-hand stack of the Default workspace. Compact screens show it as their More panel: Effects & Presets has
+ * a tab of its own there, and RIFX Chunks (a viewer tab on desktop screens) joins the stack, opened by `showChunks`.
+ */
 export const RightPanels = memo(function RightPanels({
   project,
   comp,
@@ -251,6 +255,8 @@ export const RightPanels = memo(function RightPanels({
   onPreview,
   selectedLayer,
   time = 0,
+  compact = false,
+  showChunks = false,
 }: {
   project: Project;
   comp: CompItem | undefined;
@@ -263,8 +269,15 @@ export const RightPanels = memo(function RightPanels({
   onPreview?: (s: PreviewSettings) => void;
   selectedLayer?: Layer;
   time?: number;
+  compact?: boolean;
+  showChunks?: boolean;
 }) {
-  const [open, setOpen] = useState<Set<string>>(() => new Set(["Info", "Preview", "Effects & Presets"]));
+  const [open, setOpen] = useState<Set<string>>(
+    () => new Set(["Info", "Preview", ...(compact ? [] : ["Effects & Presets"]), ...(showChunks ? ["RIFX Chunks"] : [])]),
+  );
+  useEffect(() => {
+    if (showChunks) setOpen((prev) => (prev.has("RIFX Chunks") ? prev : new Set([...prev, "RIFX Chunks"])));
+  }, [showChunks]);
   const [localPreview, setLocalPreview] = useState(preview);
   const settings = onPreview ? preview : localPreview;
   const toggle = (name: string) =>
@@ -294,8 +307,9 @@ export const RightPanels = memo(function RightPanels({
           onSettings={onPreview ?? setLocalPreview}
         />,
       )}
-      {panel("Effects & Presets", <EffectsPresetsPanel project={project} />, true)}
+      {!compact && panel("Effects & Presets", <EffectsPresetsPanel project={project} target={selectedLayer} />, true)}
       {panel("Align", <AlignPanel comp={comp} layer={selectedLayer} time={time} />)}
+      {compact && panel("RIFX Chunks", <ChunkPanel root={project.file.root} />, true)}
       {panel("Libraries", <p className="panel-empty">Creative Cloud Libraries are not available in this viewer.</p>)}
     </div>
   );

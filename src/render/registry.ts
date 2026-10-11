@@ -15,6 +15,11 @@ export interface LayerImage {
   height: number;
   /** Layer-space position of the first content pixel (content may extend around the layer origin). */
   origin: [number, number];
+  /**
+   * Image pixels per layer pixel (1 when absent): at a reduced resolution, size and origin count image pixels,
+   * and a layer pixel position p is at p * scale. Only effects registered `scalable` are handed such images.
+   */
+  scale?: number;
 }
 
 export interface RendererOptions {
@@ -33,6 +38,11 @@ export interface RenderContext {
   readonly pool: TargetPool;
   /** Width of the transparent border around every image. */
   readonly pad: number;
+  /**
+   * The resolution the render wants layer content at (image pixels per layer pixel). A content provider may
+   * return its image at it (with LayerImage.scale set) or at full resolution, which the renderer then reduces.
+   */
+  readonly scale: number;
   readonly project: Project;
   /** Records something skipped or approximated in this frame; shown in the UI. */
   warn(message: string): void;
@@ -70,9 +80,26 @@ export type ContentProvider = (layer: Layer, time: number, ctx: RenderContext) =
  */
 export type EffectRenderer = (input: LayerImage, effect: PropertyGroup, layer: Layer, time: number, ctx: RenderContext) => LayerImage;
 
+export interface EffectOptions {
+  /**
+   * The effect's output depends only on its input image, its own parameter values and the layer: not on the time
+   * itself, audio, footage, other layers or state kept between frames. Layers whose effects all are can be
+   * reused from one frame to the next while those values stay the same (see layerKeys.ts).
+   */
+  cacheable?: boolean;
+  /**
+   * The effect renders images at a reduced resolution (LayerImage.scale): it multiplies what its parameters say in
+   * layer pixels (positions, radii, widths) by the scale, as After Effects effects follow the downsample factor.
+   * Layers with an effect that does not render at full resolution and are resampled when placed.
+   */
+  scalable?: boolean;
+}
+
 const providers: ContentProvider[] = [];
 const effects = new Map<string, EffectRenderer>();
-const prefixEffects: [string, EffectRenderer][] = [];
+const cacheableEffects = new Set<string>();
+const scalableEffects = new Set<string>();
+const prefixEffects: [string, EffectRenderer, EffectOptions][] = [];
 
 export function registerContentProvider(provider: ContentProvider): void {
   providers.push(provider);
@@ -82,15 +109,40 @@ export function contentProviders(): readonly ContentProvider[] {
   return providers;
 }
 
-export function registerEffect(matchName: string, renderer: EffectRenderer): void {
+export function registerEffect(matchName: string, renderer: EffectRenderer, options: EffectOptions = {}): void {
   effects.set(matchName, renderer);
+  for (const [set, on] of [
+    [cacheableEffects, options.cacheable],
+    [scalableEffects, options.scalable],
+  ] as const) {
+    if (on) set.add(matchName);
+    else set.delete(matchName);
+  }
+}
+
+/** Whether a layer using the effect may be reused between frames (EffectOptions.cacheable); false for effects with no renderer. */
+export function effectIsCacheable(matchName: string): boolean {
+  if (effects.has(matchName)) return cacheableEffects.has(matchName);
+  return !!prefixEffects.find(([prefix]) => matchName.startsWith(prefix))?.[2].cacheable;
+}
+
+/** Whether the effect renders at a reduced resolution (EffectOptions.scalable); true for effects with no renderer, which draw nothing. */
+export function effectIsScalable(matchName: string): boolean {
+  if (effects.has(matchName)) return scalableEffects.has(matchName);
+  const prefixed = prefixEffects.find(([prefix]) => matchName.startsWith(prefix));
+  return prefixed ? !!prefixed[2].scalable : true;
 }
 
 /** Registers a renderer for every effect whose match name starts with `prefix`. */
-export function registerEffectPrefix(prefix: string, renderer: EffectRenderer): void {
-  prefixEffects.push([prefix, renderer]);
+export function registerEffectPrefix(prefix: string, renderer: EffectRenderer, options: EffectOptions = {}): void {
+  prefixEffects.push([prefix, renderer, options]);
 }
 
 export function effectRenderer(matchName: string): EffectRenderer | undefined {
   return effects.get(matchName) ?? prefixEffects.find(([prefix]) => matchName.startsWith(prefix))?.[1];
+}
+
+/** Match names with a renderer of their own (not those covered by a prefix). */
+export function registeredEffects(): string[] {
+  return [...effects.keys()];
 }

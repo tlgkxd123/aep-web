@@ -3,7 +3,7 @@
 // masks and linked by the same tracker, so the statistics compare like with like.
 import { DETECTION_FLOATS, D_PEAK, D_SPREAD, D_X, D_Y } from "./detect.ts";
 import type { SpriteBank } from "./model.ts";
-import { canonical, correlation, type Crop } from "./sprites.ts";
+import { canonical, correlation, cropLight, type Crop } from "./sprites.ts";
 import { particleDetection, type FrameDetections, type Track } from "./track.ts";
 
 export interface Measures {
@@ -108,28 +108,120 @@ export interface SpriteMatch {
   correlation: number;
 }
 
-/** Each sprite class's template against the mean of the crops that look most like it. */
-export function spriteMatch(bank: SpriteBank, crops: readonly Crop[]): SpriteMatch[] {
+/**
+ * Crops resampled to a bank's templates, each with the class whose template it correlates with most. The
+ * crop's own mean and spread scale every correlation alike, so the class is the one whose centred, unit
+ * template has the largest dot product with the crop.
+ */
+function classified(bank: SpriteBank, crops: readonly Crop[]): { template: Float32Array; best: number }[] {
   const n = bank.size * bank.size;
-  const templates = Array.from({ length: bank.count }, (_, k) => bank.data.subarray(k * n, (k + 1) * n));
-  const sums = templates.map(() => new Float32Array(n));
-  const counts = templates.map(() => 0);
+  const units = Array.from({ length: bank.count }, (_, k) => {
+    const t = bank.data.subarray(k * n, (k + 1) * n);
+    let mean = 0;
+    for (let i = 0; i < n; i++) mean += t[i];
+    mean /= n;
+    const unit = new Float64Array(n);
+    let norm = 0;
+    for (let i = 0; i < n; i++) {
+      unit[i] = t[i] - mean;
+      norm += unit[i] * unit[i];
+    }
+    norm = Math.sqrt(norm);
+    for (let i = 0; i < n; i++) unit[i] = norm > 0 ? unit[i] / norm : 0;
+    return unit;
+  });
+  const out: { template: Float32Array; best: number }[] = [];
   for (const crop of crops) {
-    const c = canonical(crop);
-    if (!c || c.template.length !== n) continue;
+    const c = canonical(crop, bank.size, bank.size / 2 / bank.reach);
+    if (!c) continue;
     let best = 0;
-    let bestR = -Infinity;
-    templates.forEach((t, k) => {
-      const r = correlation(c.template, t);
-      if (r > bestR) {
-        bestR = r;
+    let bestScore = -Infinity;
+    units.forEach((unit, k) => {
+      let score = 0;
+      for (let i = 0; i < n; i++) score += c.template[i] * unit[i];
+      if (score > bestScore) {
+        bestScore = score;
         best = k;
       }
     });
-    for (let i = 0; i < n; i++) sums[best][i] += c.template[i];
+    out.push({ template: c.template, best });
+  }
+  return out;
+}
+
+/** Each sprite class's template against the mean of the crops that look most like it. */
+export function spriteMatch(bank: SpriteBank, crops: readonly Crop[]): SpriteMatch[] {
+  const n = bank.size * bank.size;
+  const sums = Array.from({ length: bank.count }, () => new Float32Array(n));
+  const counts = sums.map(() => 0);
+  for (const { template, best } of classified(bank, crops)) {
+    for (let i = 0; i < n; i++) sums[best][i] += template[i];
     counts[best]++;
   }
-  return templates.map((t, k) => ({ crops: counts[k], correlation: counts[k] ? correlation(sums[k], t) : NaN }));
+  return sums.map((sum, k) => ({ crops: counts[k], correlation: counts[k] ? correlation(sum, bank.data.subarray(k * n, (k + 1) * n)) : NaN }));
+}
+
+/** The share of crops that look most like each of the bank's sprites. */
+export function classShares(bank: SpriteBank, crops: readonly Crop[]): number[] {
+  const counts = new Array<number>(bank.count).fill(0);
+  const sorted = classified(bank, crops);
+  for (const { best } of sorted) counts[best]++;
+  return counts.map((c) => (sorted.length ? c / sorted.length : 0));
+}
+
+/** Reach (px) of the radial light profiles: a particle's halo. */
+const HALO = 16;
+
+/** Mean light at whole-pixel radii 0..HALO around the crops' centres over their peak, by thirds of `edges`. */
+function radialProfiles(crops: readonly Crop[], edges: readonly number[]): number[][] {
+  const sums = [0, 1, 2].map(() => new Float64Array(HALO + 1));
+  const counts = [0, 1, 2].map(() => new Float64Array(HALO + 1));
+  for (const crop of crops) {
+    const { lum, peak } = cropLight(crop);
+    if (!(peak > 1e-3)) continue;
+    const third = peak < edges[0] ? 0 : peak < edges[1] ? 1 : 2;
+    const side = Math.round(Math.sqrt(lum.length));
+    const half = (side - 1) / 2;
+    for (let y = 0; y < side; y++) {
+      for (let x = 0; x < side; x++) {
+        const r = Math.round(Math.hypot(x - half, y - half));
+        if (r > HALO) continue;
+        sums[third][r] += lum[y * side + x] / peak;
+        counts[third][r]++;
+      }
+    }
+  }
+  return sums.map((s, t) => Array.from(s, (v, r) => (counts[t][r] ? v / counts[t][r] : 0)));
+}
+
+export interface LightProfiles {
+  /** Peaks splitting the reference's crops into thirds (they split the model's too). */
+  edges: number[];
+  /** Mean light over the peak at radii 0..16 px, per third. */
+  reference: number[][];
+  model: number[][];
+  /** Per third: the summed difference of the light in each one-pixel ring, over the reference's light. */
+  distance: number[];
+}
+
+/** How the light of reference and model particles falls off from their centre out to their halo, by brightness third. */
+export function lightProfiles(reference: readonly Crop[], model: readonly Crop[]): LightProfiles {
+  const peaks = reference.map((c) => cropLight(c).peak).filter((p) => p > 1e-3).sort((a, b) => a - b);
+  const edges = [1 / 3, 2 / 3].map((q) => peaks[Math.floor(q * (peaks.length - 1))] ?? 0);
+  const ours = radialProfiles(reference, edges);
+  const theirs = radialProfiles(model, edges);
+  // A ring of radius r holds about 2πr pixels (the centre a quarter of one).
+  const ring = (r: number) => (r ? r : 0.25);
+  const distance = ours.map((profile, t) => {
+    let diff = 0;
+    let total = 0;
+    profile.forEach((v, r) => {
+      diff += ring(r) * Math.abs(v - theirs[t][r]);
+      total += ring(r) * v;
+    });
+    return total > 0 ? diff / total : NaN;
+  });
+  return { edges, reference: ours, model: theirs, distance };
 }
 
 export function compare(reference: Measures, ours: Measures, frameRate: number): Comparison {

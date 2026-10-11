@@ -1,13 +1,23 @@
 import { BT709, type I420 } from "./yuv.ts";
 
 export interface EncodedFrame {
-  chunk: EncodedVideoChunk;
   data: Uint8Array;
+  type: "key" | "delta";
+  timestamp: number;
+  duration: number;
   meta?: EncodedVideoChunkMetadata;
 }
 
+/** An encoder of I420 pictures whose frames are complete after `flush`. */
+export interface PictureEncoder {
+  readonly frames: EncodedFrame[];
+  encode(picture: I420, timestamp: number, duration: number, key: boolean): Promise<void>;
+  flush(): Promise<void>;
+  close(): void;
+}
+
 /** A VideoEncoder fed with I420 pictures, collecting chunks in output order with backpressure and error propagation. */
-export class StreamEncoder {
+export class StreamEncoder implements PictureEncoder {
   private readonly encoder: VideoEncoder;
   private failure: Error | null = null;
   private readonly waiters: (() => void)[] = [];
@@ -20,7 +30,7 @@ export class StreamEncoder {
         const data = new Uint8Array(chunk.byteLength);
         chunk.copyTo(data);
         if (meta?.decoderConfig) this.decoderConfig = { ...meta.decoderConfig, colorSpace: { ...BT709 } };
-        this.frames.push({ chunk, data, meta: meta?.decoderConfig ? { ...meta, decoderConfig: this.decoderConfig } : meta });
+        this.frames.push({ data, type: chunk.type, timestamp: chunk.timestamp, duration: chunk.duration ?? 0, meta: meta?.decoderConfig ? { ...meta, decoderConfig: this.decoderConfig } : meta });
       },
       error: (e) => {
         this.failure = e instanceof Error ? e : new Error(String(e));
