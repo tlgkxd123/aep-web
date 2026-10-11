@@ -36,7 +36,7 @@ import { attempt, EFFECT_MIME, ITEM_MIME, LAYER_MIME, nextDragKey, useEditing } 
 import { modeEntries, parentEntries, QUALITY, trackMatteEntries } from "./layerRowMenus.ts";
 import { followPointer } from "./pointer.ts";
 import { useCompact } from "./responsive.ts";
-import { workAreaAt } from "./workArea.ts";
+import { dragWorkArea, workAreaAt, workAreaAtTime, workAreaOf, type WorkAreaPart } from "./workArea.ts";
 import {
   blendingModeName,
   colorCss,
@@ -977,6 +977,74 @@ function revealKeys(project: Project, layer: Layer, prop: Property): string[] | 
   return walk(layerOutline(ctx), `L${layer.id}`, [`L${layer.id}`]);
 }
 
+/**
+ * The work area over the ruler. With an editor, its ends drag on their own and its middle moves it whole, snapped to
+ * frames and as one undo step; a double-click spans it over the comp. Presses stay off the ruler, which would scrub.
+ */
+function WorkAreaBar({ comp, view }: { comp: CompItem; view: View }) {
+  const editing = useEditing();
+  const { editor } = editing;
+  const [start, end] = workAreaOf(comp);
+  const frame = comp.frameDuration || 1 / (comp.frameRate || 24);
+  const set = (area: [number, number], coalesce?: string) => editor && attempt(editing, () => editor.setCompSettings(comp, { workArea: area }, { coalesce }));
+
+  const onDown = (e: ReactPointerEvent<HTMLElement>) => {
+    if (!editor || (e.button !== undefined && e.button > 0)) return;
+    const part = (e.target as HTMLElement).closest<HTMLElement>("[data-part]")?.dataset.part as WorkAreaPart | undefined;
+    if (!part) return;
+    e.stopPropagation();
+    e.preventDefault();
+    const lane = e.currentTarget.getBoundingClientRect();
+    const perPixel = view.span / (lane.width || 1);
+    const from: [number, number] = [start, end];
+    const key = nextDragKey(`work-area-${part}`);
+    const x0 = e.clientX;
+    followPointer(
+      e,
+      (ev) => set(dragWorkArea(comp, from, part, (ev.clientX - x0) * perPixel), key),
+      () => editor.commit(),
+    );
+  };
+
+  const onHandleKey = (part: "start" | "end") => (e: KeyboardEvent<HTMLSpanElement>) => {
+    const step = { ArrowLeft: -1, ArrowRight: 1 }[e.key];
+    if (step === undefined) return;
+    e.preventDefault();
+    e.stopPropagation();
+    set(dragWorkArea(comp, [start, end], part, step * frame * (e.shiftKey ? 10 : 1)));
+  };
+
+  const handle = (part: "start" | "end") => (
+    <span
+      className={`tl-workarea-handle ${part}`}
+      data-part={part}
+      role="slider"
+      tabIndex={0}
+      aria-label={part === "start" ? "Work area start" : "Work area end"}
+      aria-valuemin={part === "start" ? 0 : start + frame}
+      aria-valuemax={part === "start" ? end - frame : comp.duration}
+      aria-valuenow={part === "start" ? start : end}
+      aria-valuetext={timecode((part === "start" ? start : end) + comp.displayStartTime, comp.frameRate)}
+      onKeyDown={onHandleKey(part)}
+    />
+  );
+
+  return (
+    <div className={`tl-workarea-lane ${editor ? "editable" : ""}`} onPointerDown={editor ? onDown : undefined}>
+      <span
+        className="tl-workarea"
+        data-part={editor ? "move" : undefined}
+        style={{ left: pct(start, view), width: `${((end - start) / view.span) * 100}%` }}
+        title="Work Area"
+        onDoubleClick={editor ? () => set([0, comp.duration]) : undefined}
+      >
+        {editor && handle("start")}
+        {editor && handle("end")}
+      </span>
+    </div>
+  );
+}
+
 /** The layer outline's width on compact screens: about 60% of the Timeline, at least what names and values need. */
 const compactOutline = (width: number) => (width > 0 ? Math.round(Math.min(width - 100, Math.max(244, width * 0.6))) : 244);
 
@@ -1299,8 +1367,7 @@ export const TimelinePanel = memo(function TimelinePanel({
   };
 
   const tc = timecode(time + comp.displayStartTime, comp.frameRate);
-  const workStart = comp.workAreaStart;
-  const workEnd = Math.min(duration, comp.workAreaStart + comp.workAreaDuration);
+  const setWorkArea = (end: boolean) => editor && attempt(editing, () => editor.setCompSettings(comp, { workArea: workAreaAtTime(comp, time, end) }));
 
   return (
     <div
@@ -1330,6 +1397,16 @@ export const TimelinePanel = memo(function TimelinePanel({
                 <Icon name="comp" size={14} />
                 <span className="tl-comp-duration">Δ {timecode(comp.duration, comp.frameRate)}</span>
               </button>
+            )}
+            {compact && editor && (
+              <span className="tl-work-buttons">
+                <button type="button" className="tl-tool" title="Set Work Area Start to Current Time (B)" aria-label="Set work area start" onClick={() => setWorkArea(false)}>
+                  <Icon name="workStart" size={15} />
+                </button>
+                <button type="button" className="tl-tool" title="Set Work Area End to Current Time (N)" aria-label="Set work area end" onClick={() => setWorkArea(true)}>
+                  <Icon name="workEnd" size={15} />
+                </button>
+              </span>
             )}
             <span className="tl-tools">
               <span className="tl-tool" title="Composition Mini-Flowchart" aria-hidden="true">
@@ -1403,9 +1480,7 @@ export const TimelinePanel = memo(function TimelinePanel({
             onKeyDown={onRulerKey}
             onContextMenu={onRulerMenu}
           >
-            <div className="tl-workarea-lane">
-              <span className="tl-workarea" style={{ left: pct(workStart, view), width: `${((workEnd - workStart) / view.span) * 100}%` }} title="Work Area" />
-            </div>
+            <WorkAreaBar comp={comp} view={view} />
             <Ruler comp={comp} view={view} width={rulerWidth} />
             <CtiMark comp={comp} time={time} view={view} className="tl-cti-head">
               <svg width="11" height="12" viewBox="0 0 11 12">

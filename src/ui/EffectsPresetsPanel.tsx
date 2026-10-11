@@ -14,12 +14,19 @@ import { useCompact, useMedia } from "./responsive.ts";
 export function useEffectLibrary(): LibraryEffect[] | undefined {
   const [library, setLibrary] = useState(loadedEffectLibrary);
   useEffect(() => {
-    if (!library) {
-      void effectLibrary().then(setLibrary, (e: Error) => {
+    if (library) return;
+    // The load is shared and can outlive this component.
+    let live = true;
+    void effectLibrary().then(
+      (loaded) => live && setLibrary(loaded),
+      (e: Error) => {
         console.error(`The effect library could not be loaded: ${e.message}`);
-        setLibrary([]);
-      });
-    }
+        if (live) setLibrary([]);
+      },
+    );
+    return () => {
+      live = false;
+    };
   }, [library]);
   return library;
 }

@@ -19,6 +19,11 @@ const FIXTURE = resolve(import.meta.dirname, "../refs/fixtures/roundtrip.base.ae
 const COMP = "roundtrip_minimax";
 const CARD = "roundtrip_card";
 
+// jsdom has no PointerEvent: without one fireEvent drops clientX from pointer events.
+if (typeof window.PointerEvent === "undefined") {
+  Object.defineProperty(window, "PointerEvent", { configurable: true, value: class extends MouseEvent {} });
+}
+
 beforeEach(() => {
   // A phone in portrait: the compact layout's query matches, the others (landscape, coarse pointer) do not.
   Object.defineProperty(window, "matchMedia", {
@@ -110,6 +115,39 @@ test("menus and context menus open as sheets, submenus in their place", async ()
   expect(within(sheet()).getByRole("menuitem", { name: "Flip Horizontal" })).toBeTruthy();
   fireEvent.click(within(sheet()).getByRole("menuitem", { name: "Flip Horizontal" }));
   expect(screen.queryByRole("dialog")).toBeNull();
+});
+
+test("the Timeline sets the work area by touch: buttons at the current time, and its ends dragged", async () => {
+  await openComp();
+  const start = () => screen.getByRole("slider", { name: "Work area start" });
+  const end = () => screen.getByRole("slider", { name: "Work area end" });
+  const value = (el: HTMLElement) => Number(el.getAttribute("aria-valuenow"));
+  const duration = Number(end().getAttribute("aria-valuemax"));
+
+  // At time 0, the end button ends the work area after the first frame; the start button then starts it at 0.
+  fireEvent.click(screen.getByRole("button", { name: "Set work area end" }));
+  const oneFrame = value(end());
+  expect(value(start())).toBe(0);
+  expect(oneFrame).toBeGreaterThan(0);
+  expect(oneFrame).toBeLessThan(duration);
+  fireEvent.click(screen.getByRole("button", { name: "Set work area start" }));
+  expect([value(start()), value(end())]).toEqual([0, oneFrame]);
+
+  // The arrow keys move an end a frame.
+  fireEvent.keyDown(end(), { key: "ArrowRight" });
+  expect(value(end())).toBeCloseTo(2 * oneFrame, 6);
+
+  // Dragging the end across the whole lane takes it to the comp's end, as one undo step.
+  const lane = end().closest<HTMLElement>(".tl-workarea-lane")!;
+  lane.getBoundingClientRect = () => ({ left: 0, top: 0, right: 100, bottom: 12, width: 100, height: 12, x: 0, y: 0, toJSON: () => ({}) });
+  fireEvent.pointerDown(end(), { button: 0, clientX: 2, clientY: 6 });
+  fireEvent.pointerMove(window, { clientX: 50, clientY: 6 });
+  fireEvent.pointerMove(window, { clientX: 200, clientY: 6 });
+  fireEvent.pointerUp(window, { clientX: 200, clientY: 6 });
+  expect(value(end())).toBeCloseTo(duration, 6);
+  expect(value(start())).toBe(0);
+  fireEvent.click(screen.getByRole("button", { name: /^Undo/ }));
+  expect(value(end())).toBeCloseTo(2 * oneFrame, 6);
 });
 
 test("the Timeline's Composition Settings button changes the comp's duration, as one undo step", async () => {

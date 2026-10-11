@@ -950,8 +950,8 @@ export class Editor {
     });
   }
 
-  setCompSettings(comp: CompItem, edit: CompSettingsEdit): void {
-    this.run("Composition settings", this.allComps(), {}, (tx) => {
+  setCompSettings(comp: CompItem, edit: CompSettingsEdit, options: CommandOptions = {}): void {
+    this.run("Composition settings", this.allComps(), options, (tx) => {
       const list = comp.chunk;
       const cdta = findChild(list, "cdta");
       if (!list || !cdta) throw new Error(`composition "${comp.name}" has no cdta chunk`);

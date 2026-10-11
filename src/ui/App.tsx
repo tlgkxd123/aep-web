@@ -49,7 +49,7 @@ import { TimelinePanel } from "./TimelinePanel.tsx";
 import { Toolbar, type Workspace } from "./Toolbar.tsx";
 import { followPointer } from "./pointer.ts";
 import { useLongPressMenus } from "./touch.ts";
-import { workAreaAt } from "./workArea.ts";
+import { workAreaAtTime } from "./workArea.ts";
 
 /** Panel sizes per workspace: left frame share, right column px, Timeline share. */
 const WORKSPACE_LAYOUTS: Record<Workspace, { left: number; right: number; bottom: number }> = {
@@ -556,7 +556,8 @@ export function App() {
         // B: work area start at the current time; N: work area end after the current frame (AE).
         e.preventDefault();
         try {
-          editor.setCompSettings(activeComp, { workArea: workAreaAt(activeComp, currentTimeRef.current(activeComp), letter === "b" ? "start" : "end") });
+          editor.setCompSettings(activeComp, { workArea: workAreaAtTime(activeComp, currentTimeRef.current(activeComp), letter === "n") });
+          editor.setCompSettings(activeComp, { workArea: workAreaAtTime(activeComp, currentTimeRef.current(activeComp), letter === "n") });
         } catch (err) {
           setEditError((err as Error).message);
         }
