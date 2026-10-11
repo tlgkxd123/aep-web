@@ -1,0 +1,168 @@
+{
+ "project": "stockfx.aep",
+ "comps": [
+  {
+   "comp": "stockfx_tint",
+   "frames": [
+    0,
+    1,
+    2
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "stockfx_brightness_contrast",
+   "frames": [
+    0,
+    1,
+    2,
+    3
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "stockfx_brightness_contrast_legacy",
+   "frames": [
+    0,
+    1
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "stockfx_exposure",
+   "frames": [
+    0,
+    1,
+    2,
+    3
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "stockfx_exposure_bypass",
+   "frames": [
+    0
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "stockfx_hue_saturation_hue",
+   "frames": [
+    0
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "stockfx_hue_saturation_desaturate",
+   "frames": [
+    0
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "stockfx_hue_saturation_saturate",
+   "frames": [
+    0
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "stockfx_hue_saturation_darken",
+   "frames": [
+    0
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "stockfx_hue_saturation_colorize",
+   "frames": [
+    0
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "stockfx_gaussian",
+   "frames": [
+    0,
+    1,
+    2,
+    3
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "stockfx_gaussian_dims_repeat",
+   "frames": [
+    0,
+    1,
+    2
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "stockfx_gaussian_alpha",
+   "frames": [
+    0,
+    1
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "stockfx_drop_shadow",
+   "frames": [
+    0,
+    1,
+    2
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "stockfx_drop_shadow_only",
+   "frames": [
+    0
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "stockfx_glow",
+   "frames": [
+    0,
+    1,
+    2
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "stockfx_glow_alpha_ab",
+   "frames": [
+    0
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "stockfx_transform",
+   "frames": [
+    0,
+    1,
+    2
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "stockfx_set_matte",
+   "frames": [
+    0,
+    1
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "stockfx_fill",
+   "frames": [
+    0,
+    1
+   ],
+   "fps": 24.0
+  }
+ ]
+}

@@ -177,6 +177,9 @@ Gate ledgers follow the unlazy skill (`C:/Users/schxm/.claude/skills/unlazy/SKIL
  scripts take `--discrete` for the RTX.
  - Playback in the app: `node scripts/check-video-playback.ts <project> <comps> [s] [start] --serve
  [--require-fps n] [--require-audio] [--require-smooth ms] [--bench frames]`.
+ - The stock effects (`gates/stockfx.md`) run in any WebGL2 browser, SwiftShader included:
+ `node scripts/check-stock-effects.ts [--chrome <path>] [--out dir]` checks they compile, follow their formulas
+ and scale; it does not compare with After Effects.
  - The frame caches must not change a pixel: `node scripts/check-render-cache.ts <project>
  "<comp>@<start>:<frames>" --require`; reduced resolutions against Full: `node scripts/check-render-scale.ts`.
 
