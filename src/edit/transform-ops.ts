@@ -47,7 +47,8 @@ export function transformProp(layer: Layer, matchName: string): Property | undef
   return node?.kind === "property" ? node : undefined;
 }
 
-function current(layer: Layer, matchName: string, time: number): number[] {
+/** A Transform property's value at comp time `time`, as numbers (one for Rotation and Opacity). */
+export function transformValueAt(layer: Layer, matchName: string, time: number): number[] {
   const prop = transformProp(layer, matchName);
   if (!prop) return [];
   const value = valueAtTime(prop, time, layer, transformGroup(layer)?.children);
@@ -115,7 +116,7 @@ export function writeTransform(editor: Editor, comp: CompItem, layerId: number, 
     const layer = comp.layers.find((l) => l.id === layerId);
     const prop = layer && transformProp(layer, matchName);
     if (!layer || !prop) continue;
-    const before = current(layer, matchName, time);
+    const before = transformValueAt(layer, matchName, time);
     const values = typeof wanted === "number" ? [wanted] : wanted;
     const next = before.length ? before.map((v, i) => values[i] ?? v) : values;
     if (sameValue(before, next)) continue;
@@ -187,15 +188,15 @@ export function fitToComp(editor: Editor, comp: CompItem, layers: Layer[], mode:
     const fx = comp.width / w;
     const fy = comp.height / h;
     const [sx, sy] = mode === "both" ? [fx, fy] : mode === "width" ? [fx, fx] : [fy, fy];
-    const anchor = current(layer, "ADBE Anchor Point", time);
-    const rotation = current(layer, "ADBE Rotate Z", time)[0] ?? 0;
+    const anchor = transformValueAt(layer, "ADBE Anchor Point", time);
+    const rotation = transformValueAt(layer, "ADBE Rotate Z", time)[0] ?? 0;
     const parent = parentLin(comp, layer, time);
     const world = decomposeLin(mulLin(parent, rotLin(rotation)));
     const worldLin = mulLin(rotLin(world.rotation), [sx * Math.sign(world.scale[0] || 1), 0, 0, sy * Math.sign(world.scale[1] || 1)]);
     const local = decomposeLin(mulLin(invertLin(parent), worldLin));
     const offset = applyLin(worldLin, [(anchor[0] - layer.width / 2) * k, anchor[1] - layer.height / 2]);
     const position = compToParent(comp, layer, time, [comp.width / 2 + offset[0], comp.height / 2 + offset[1]]);
-    const scale = current(layer, "ADBE Scale", time);
+    const scale = transformValueAt(layer, "ADBE Scale", time);
     writeTransform(editor, comp, layer.id, { scale: [local.scale[0], local.scale[1], scale[2] ?? 100], position, rotation: local.rotation }, time);
   });
 }
@@ -210,12 +211,12 @@ export function centerInView(editor: Editor, comp: CompItem, layers: Layer[], ti
 /** Layer > Transform > Center Anchor Point in Layer Content; Position compensates so the layer stays put. */
 export function centerAnchorPoint(editor: Editor, comp: CompItem, layers: Layer[], time: number): void {
   each(editor, comp, "Center Anchor Point", layers.filter(hasSourceFrame), (layer) => {
-    const anchor = current(layer, "ADBE Anchor Point", time);
+    const anchor = transformValueAt(layer, "ADBE Anchor Point", time);
     const target: Vec2 = [layer.width / 2, layer.height / 2];
     const lin = linOf(localMatrixOf(layer, time));
     const k = sourcePixelAspect(editor, comp, layer);
     const shift = applyLin(lin, [(target[0] - anchor[0]) * k, target[1] - anchor[1]]);
-    const position = current(layer, "ADBE Position", time);
+    const position = transformValueAt(layer, "ADBE Position", time);
     writeTransform(editor, comp, layer.id, { anchor: target, position: [position[0] + shift[0], position[1] + shift[1]] }, time);
   });
 }
@@ -251,7 +252,7 @@ export function resetTransform(editor: Editor, comp: CompItem, layers: Layer[], 
 /** Layer > Transform > Flip Horizontal / Vertical: one Scale component times -1. */
 export function flipLayers(editor: Editor, comp: CompItem, layers: Layer[], axis: "horizontal" | "vertical", time: number): void {
   each(editor, comp, axis === "horizontal" ? "Flip Horizontal" : "Flip Vertical", layers.filter(hasTransform), (layer) => {
-    const scale = current(layer, "ADBE Scale", time);
+    const scale = transformValueAt(layer, "ADBE Scale", time);
     const i = axis === "horizontal" ? 0 : 1;
     scale[i] = -scale[i];
     writeTransform(editor, comp, layer.id, { scale }, time);
@@ -261,7 +262,7 @@ export function flipLayers(editor: Editor, comp: CompItem, layers: Layer[], axis
 /** Arrow keys: Position moves by `delta` (1 or 10 px) in its own units. */
 export function nudgeLayers(editor: Editor, comp: CompItem, layers: Layer[], delta: Vec2, time: number): void {
   each(editor, comp, "Nudge Position", layers.filter(hasTransform), (layer) => {
-    const position = current(layer, "ADBE Position", time);
+    const position = transformValueAt(layer, "ADBE Position", time);
     writeTransform(editor, comp, layer.id, { position: [position[0] + delta[0], position[1] + delta[1]] }, time);
   });
 }
@@ -286,8 +287,8 @@ export function setParentKeepingTransform(editor: Editor, comp: CompItem, layer:
           return { lin: linOf(m), origin: [m.m[3], m.m[7]] as Vec2 };
         })()
       : { lin: [1, 0, 0, 1], origin: [0, 0] };
-    const rotation = current(child, "ADBE Rotate Z", time)[0] ?? 0;
-    const scale = current(child, "ADBE Scale", time);
+    const rotation = transformValueAt(child, "ADBE Rotate Z", time)[0] ?? 0;
+    const scale = transformValueAt(child, "ADBE Scale", time);
     const local: Lin = mulLin(rotLin(rotation), [scale[0] / 100, 0, 0, scale[1] / 100]);
     const remapLin = mulLin(invertLin(newParent.lin), oldParent.lin);
     const remap = ([x, y]: number[]): Vec2 => {
@@ -306,7 +307,7 @@ export function setParentKeepingTransform(editor: Editor, comp: CompItem, layer:
         editor.setKeyframeValue(comp, fresh(), p, index, [x, y, ...value.slice(2)], {});
       });
     } else {
-      const position = current(child, "ADBE Position", time);
+      const position = transformValueAt(child, "ADBE Position", time);
       writeTransform(editor, comp, id, { position: remap(position) }, time);
     }
     const scaleProp = transformProp(fresh(), "ADBE Scale");
@@ -347,7 +348,7 @@ export function moveLayers(editor: Editor, comp: CompItem, layers: Layer[], delt
     layers.filter(hasTransform),
     (layer) => {
       const shift = applyLin(invertLin(parentLin(comp, layer, time)), [dx, dy]);
-      const position = current(layer, "ADBE Position", time);
+      const position = transformValueAt(layer, "ADBE Position", time);
       writeTransform(editor, comp, layer.id, { position: [position[0] + shift[0], position[1] + shift[1]] }, time);
     },
     { coalesce: options.coalesce },
@@ -380,9 +381,9 @@ export function scaleByHandle(
       const target = comp.layers.find((l) => l.id === id);
       if (!target || !hasTransform(target)) return;
       const k = sourcePixelAspect(editor, comp, target);
-      const anchor = current(target, "ADBE Anchor Point", time);
-      const scale = current(target, "ADBE Scale", time);
-      const rotation = current(target, "ADBE Rotate Z", time)[0] ?? 0;
+      const anchor = transformValueAt(target, "ADBE Anchor Point", time);
+      const scale = transformValueAt(target, "ADBE Scale", time);
+      const rotation = transformValueAt(target, "ADBE Rotate Z", time)[0] ?? 0;
       const toLayerFrame = invertLin(mulLin(parentLin(comp, target, time), rotLin(rotation)));
       const move = applyLin(toLayerFrame, [to[0] - from[0], to[1] - from[1]]);
       const grab: Vec2 = [((handle[0] + 1) / 2) * target.width - anchor[0], ((handle[1] + 1) / 2) * target.height - anchor[1]];
@@ -409,7 +410,7 @@ export function scaleByHandle(
 
 /** Where the layer's anchor point lands in the comp. */
 export function anchorInComp(comp: CompItem, layer: Layer, time: number): Vec2 {
-  const anchor = current(layer, "ADBE Anchor Point", time);
+  const anchor = transformValueAt(layer, "ADBE Anchor Point", time);
   const p = worldMatrix(layer, comp, time).transformPoint([anchor[0] ?? 0, anchor[1] ?? 0, anchor[2] ?? 0]);
   return [p[0], p[1]];
 }
@@ -427,7 +428,7 @@ export function rotateByDrag(editor: Editor, comp: CompItem, layer: Layer, from:
       let delta = (Math.atan2(to[1] - cy, to[0] - cx) - Math.atan2(from[1] - cy, from[0] - cx)) / DEG;
       delta = ((delta + 540) % 360) - 180;
       if (detLin(parentLin(comp, target, time)) < 0) delta = -delta;
-      const before = current(target, "ADBE Rotate Z", time)[0] ?? 0;
+      const before = transformValueAt(target, "ADBE Rotate Z", time)[0] ?? 0;
       let rotation = before + delta;
       if (options.snap) rotation = Math.round(rotation / 45) * 45;
       writeTransform(editor, comp, id, { rotation }, time);
@@ -452,11 +453,11 @@ export function panBehind(editor: Editor, comp: CompItem, layer: Layer, delta: V
       const k = sourcePixelAspect(editor, comp, target);
       const world = linOf(worldMatrix(target, comp, time));
       const inLayer = applyLin(invertLin(world), delta);
-      const anchor = current(target, "ADBE Anchor Point", time);
+      const anchor = transformValueAt(target, "ADBE Anchor Point", time);
       const edit: TransformEdit = { anchor: [anchor[0] + inLayer[0] / k, anchor[1] + inLayer[1]] };
       if (!options.anchorOnly) {
         const shift = applyLin(invertLin(parentLin(comp, target, time)), delta);
-        const position = current(target, "ADBE Position", time);
+        const position = transformValueAt(target, "ADBE Position", time);
         edit.position = [position[0] + shift[0], position[1] + shift[1]];
       }
       writeTransform(editor, comp, id, edit, time);

@@ -6,7 +6,9 @@ import type { LayerCommand } from "./layerCommands.ts";
 
 export type MenuCommand =
   | "open"
+  | "close"
   | "close-project"
+  | "exit"
   | "show-project"
   | "show-effect-controls"
   | "show-render-queue"
@@ -18,23 +20,84 @@ export type MenuCommand =
   | "new-project"
   | "new-folder"
   | "new-comp"
+  | "new-comp-from-selection"
   | "comp-settings"
+  | "trim-comp"
+  | "play-preview"
   | "save"
   | "save-as"
+  | "save-copy"
+  | "increment-save"
+  | "revert"
   | "import"
   | "replace-footage"
+  | "reload-footage"
+  | "remove-unused-footage"
+  | "reduce-project"
+  | "find"
+  | "cut"
+  | "copy"
+  | "paste"
   | "duplicate"
   | "clear"
+  | "split-layer"
+  | "select-all"
+  | "deselect-all"
+  | "keyboard-shortcuts"
+  | "open-layer-source"
+  | "reveal-layer-source"
+  | "layer-settings"
+  | "freeze-frame"
+  | "toggle-3d"
+  | "toggle-guide"
+  | "toggle-environment"
+  | "toggle-preserve-transparency"
+  | "next-blending-mode"
+  | "previous-blending-mode"
+  | "browse-presets"
+  | "zoom-in"
+  | "zoom-out"
+  | "toggle-grid"
+  | "toggle-layer-controls"
+  | "go-to-time"
   | "toggle-sapphire"
   | "particle-match"
   | "add-footage-to-comp"
   | "last-effect"
   | "remove-all-effects"
+  | `transform-dialog:${TransformDialogKind}`
+  | `panel:${string}`
+  | `help:${string}`
   | `apply-effect:${string}`;
+
+/** The Layer > Transform value dialogs. */
+export type TransformDialogKind = "anchor" | "position" | "scale" | "rotation" | "opacity";
 
 /** Prefix of the Effect menu commands that apply a library effect, followed by its match name. */
 export const APPLY_EFFECT = "apply-effect:";
 export const applyEffectCommand = (matchName: string): MenuCommand => `${APPLY_EFFECT}${matchName}`;
+/** Prefix of the Window menu commands that open a panel of the right-hand stack, followed by its name. */
+export const SHOW_PANEL = "panel:";
+/** Prefix of the Help menu commands that open a help page, followed by its address. */
+export const OPEN_HELP = "help:";
+export const TRANSFORM_DIALOG = "transform-dialog:";
+
+/**
+ * Submenus whose entries the app builds from the project (blending modes, labels, history...), keyed by these names.
+ * Without entries they open empty.
+ */
+export type DynamicMenu =
+  | "recent"
+  | "history"
+  | "label"
+  | "purge"
+  | "quality"
+  | "switches"
+  | "frame-blending"
+  | "blending-mode"
+  | "track-matte"
+  | "resolution"
+  | "workspace";
 
 interface Item {
   label: string;
@@ -43,85 +106,110 @@ interface Item {
   submenu?: boolean;
   /** The submenu's entries, for submenus this viewer can open. */
   items?: Entry[];
+  /** The app provides the submenu's entries. */
+  dynamic?: DynamicMenu;
   needsProject?: boolean;
+  /** Entries the app built: they carry their own action and state instead of a command. */
+  onSelect?: () => void;
+  checked?: boolean;
+  disabled?: boolean;
 }
 
 type Entry = Item | "-";
 
+const sub = (label: string, items: Entry[]): Item => ({ label, submenu: true, items });
+const dyn = (label: string, dynamic: DynamicMenu): Item => ({ label, submenu: true, dynamic });
+const help = (label: string, url: string, shortcut?: string): Item => ({ label, shortcut, command: `${OPEN_HELP}${url}` });
+const panel = (label: string, shortcut?: string): Item => ({ label, shortcut, command: `${SHOW_PANEL}${label}`, needsProject: true });
+
+const TRANSFORM_ITEMS: Entry[] = [
+  { label: "Reset", command: "reset-transform" },
+  { label: "Anchor Point...", command: "transform-dialog:anchor" },
+  { label: "Position...", shortcut: "Ctrl+Shift+P", command: "transform-dialog:position" },
+  { label: "Scale...", command: "transform-dialog:scale" },
+  { label: "Orientation...", shortcut: "Ctrl+Alt+Shift+R" },
+  { label: "Rotation...", shortcut: "Ctrl+Shift+R", command: "transform-dialog:rotation" },
+  { label: "Opacity...", shortcut: "Ctrl+Shift+O", command: "transform-dialog:opacity" },
+  "-",
+  { label: "Flip Horizontal", command: "flip-horizontal" },
+  { label: "Flip Vertical", command: "flip-vertical" },
+  { label: "Center Anchor Point in Layer Content", shortcut: "Ctrl+Alt+Home", command: "center-anchor" },
+  { label: "Center In View", shortcut: "Ctrl+Home", command: "center-in-view" },
+  "-",
+  { label: "Fit to Comp", shortcut: "Ctrl+Alt+F", command: "fit-to-comp" },
+  { label: "Fit to Comp Width", shortcut: "Ctrl+Alt+Shift+H", command: "fit-to-comp-width" },
+  { label: "Fit to Comp Height", shortcut: "Ctrl+Alt+Shift+G", command: "fit-to-comp-height" },
+  "-",
+  { label: "Auto-Orient...", shortcut: "Ctrl+Alt+O" },
+];
+
+/** Entries without a command, dynamic submenu or items stay disabled: they need Adobe services, other applications or features this app lacks. */
 const MENUS: { name: string; items: Entry[] }[] = [
   {
     name: "File",
     items: [
-      {
-        label: "New",
-        submenu: true,
-        items: [
-          { label: "New Project", shortcut: "Ctrl+Alt+N", command: "new-project" },
-          { label: "New Team Project..." },
-          { label: "New Folder", shortcut: "Ctrl+Alt+Shift+N", command: "new-folder", needsProject: true },
-          { label: "Adobe Photoshop File..." },
-          { label: "Maxon Cinema 4D File..." },
-        ],
-      },
+      sub("New", [
+        { label: "New Project", shortcut: "Ctrl+Alt+N", command: "new-project" },
+        { label: "New Team Project..." },
+        { label: "New Folder", shortcut: "Ctrl+Alt+Shift+N", command: "new-folder", needsProject: true },
+        { label: "Adobe Photoshop File..." },
+        { label: "Maxon Cinema 4D File..." },
+      ]),
       { label: "Open Project...", shortcut: "Ctrl+O", command: "open" },
       { label: "Open Team Project..." },
-      { label: "Open Recent", submenu: true },
+      dyn("Open Recent", "recent"),
       "-",
-      { label: "Close", shortcut: "Ctrl+W" },
+      { label: "Close", shortcut: "Ctrl+W", command: "close", needsProject: true },
       { label: "Close Project", command: "close-project", needsProject: true },
       { label: "Save", shortcut: "Ctrl+S", command: "save", needsProject: true },
-      {
-        label: "Save As",
-        submenu: true,
-        items: [
-          { label: "Save As...", shortcut: "Ctrl+Shift+S", command: "save-as", needsProject: true },
-          { label: "Save a Copy..." },
-          { label: "Save a Copy As XML..." },
-        ],
-      },
-      { label: "Increment and Save", shortcut: "Ctrl+Alt+Shift+S" },
-      { label: "Revert" },
+      sub("Save As", [
+        { label: "Save As...", shortcut: "Ctrl+Shift+S", command: "save-as", needsProject: true },
+        { label: "Save a Copy...", command: "save-copy", needsProject: true },
+        { label: "Save a Copy As XML..." },
+      ]),
+      { label: "Increment and Save", shortcut: "Ctrl+Alt+Shift+S", command: "increment-save", needsProject: true },
+      { label: "Revert", command: "revert", needsProject: true },
       "-",
-      {
-        label: "Import",
-        submenu: true,
-        items: [
-          { label: "File...", shortcut: "Ctrl+I", command: "import", needsProject: true },
-          { label: "Multiple Files...", shortcut: "Ctrl+Alt+I", command: "import", needsProject: true },
-          { label: "Dependencies", submenu: true },
-          { label: "Adobe Premiere Pro Project..." },
-          { label: "Placeholder..." },
-          { label: "Solid..." },
-        ],
-      },
+      sub("Import", [
+        { label: "File...", shortcut: "Ctrl+I", command: "import", needsProject: true },
+        { label: "Multiple Files...", shortcut: "Ctrl+Alt+I", command: "import", needsProject: true },
+        { label: "Dependencies", submenu: true },
+        { label: "Adobe Premiere Pro Project..." },
+        { label: "Placeholder..." },
+        { label: "Solid..." },
+      ]),
       { label: "Import Recent Footage", submenu: true },
-      { label: "Export", submenu: true },
+      sub("Export", [
+        { label: "Add to Adobe Media Encoder Queue...", shortcut: "Ctrl+Alt+M" },
+        { label: "Add to Render Queue", command: "add-to-render-queue", needsProject: true },
+      ]),
       "-",
-      { label: "Find...", shortcut: "Ctrl+F" },
+      { label: "Find...", shortcut: "Ctrl+F", command: "find", needsProject: true },
       { label: "Add Footage to Comp", shortcut: "Ctrl+/", command: "add-footage-to-comp", needsProject: true },
-      { label: "New Comp from Selection", shortcut: "Alt+\\" },
+      { label: "New Comp from Selection", shortcut: "Alt+\\", command: "new-comp-from-selection", needsProject: true },
       "-",
-      { label: "Dependencies", submenu: true },
+      sub("Dependencies", [
+        { label: "Collect Files..." },
+        { label: "Consolidate All Footage" },
+        { label: "Remove Unused Footage", command: "remove-unused-footage", needsProject: true },
+        { label: "Reduce Project", command: "reduce-project", needsProject: true },
+      ]),
       { label: "Watch Folder..." },
       { label: "Scripts", submenu: true },
       { label: "Create Proxy", submenu: true },
       { label: "Set Proxy", submenu: true },
       { label: "Interpret Footage", submenu: true },
-      {
-        label: "Replace Footage",
-        submenu: true,
-        items: [
-          { label: "File...", shortcut: "Ctrl+H", command: "replace-footage", needsProject: true },
-          { label: "With Layered Comp" },
-          { label: "Placeholder..." },
-          { label: "Solid..." },
-        ],
-      },
-      { label: "Reload Footage", shortcut: "Ctrl+Alt+L" },
+      sub("Replace Footage", [
+        { label: "File...", shortcut: "Ctrl+H", command: "replace-footage", needsProject: true },
+        { label: "With Layered Comp" },
+        { label: "Placeholder..." },
+        { label: "Solid..." },
+      ]),
+      { label: "Reload Footage", shortcut: "Ctrl+Alt+L", command: "reload-footage", needsProject: true },
       "-",
       { label: "Project Settings...", shortcut: "Ctrl+Alt+Shift+K" },
       "-",
-      { label: "Exit", shortcut: "Ctrl+Q" },
+      { label: "Exit", shortcut: "Ctrl+Q", command: "exit", needsProject: true },
     ],
   },
   {
@@ -129,30 +217,30 @@ const MENUS: { name: string; items: Entry[] }[] = [
     items: [
       { label: "Undo", shortcut: "Ctrl+Z", command: "undo", needsProject: true },
       { label: "Redo", shortcut: "Ctrl+Shift+Z", command: "redo", needsProject: true },
-      { label: "History", submenu: true },
+      dyn("History", "history"),
       "-",
-      { label: "Cut", shortcut: "Ctrl+X" },
-      { label: "Copy", shortcut: "Ctrl+C" },
+      { label: "Cut", shortcut: "Ctrl+X", command: "cut", needsProject: true },
+      { label: "Copy", shortcut: "Ctrl+C", command: "copy", needsProject: true },
       { label: "Copy with Property Links", shortcut: "Ctrl+Alt+C" },
       { label: "Copy Expression Only" },
-      { label: "Paste", shortcut: "Ctrl+V" },
+      { label: "Paste", shortcut: "Ctrl+V", command: "paste", needsProject: true },
       { label: "Clear", shortcut: "Delete", command: "clear", needsProject: true },
       "-",
       { label: "Duplicate", shortcut: "Ctrl+D", command: "duplicate", needsProject: true },
-      { label: "Split Layer", shortcut: "Ctrl+Shift+D" },
+      { label: "Split Layer", shortcut: "Ctrl+Shift+D", command: "split-layer", needsProject: true },
       { label: "Lift Work Area" },
       { label: "Extract Work Area" },
-      { label: "Select All", shortcut: "Ctrl+A" },
-      { label: "Deselect All", shortcut: "Ctrl+Shift+A" },
+      { label: "Select All", shortcut: "Ctrl+A", command: "select-all", needsProject: true },
+      { label: "Deselect All", shortcut: "Ctrl+Shift+A", command: "deselect-all", needsProject: true },
       "-",
-      { label: "Label", submenu: true },
-      { label: "Purge", submenu: true },
+      dyn("Label", "label"),
+      dyn("Purge", "purge"),
       "-",
       { label: "Edit Original...", shortcut: "Ctrl+E" },
       "-",
       { label: "Templates", submenu: true },
       { label: "Preferences", submenu: true },
-      { label: "Keyboard Shortcuts", shortcut: "Ctrl+Alt+'" },
+      { label: "Keyboard Shortcuts", shortcut: "Ctrl+Alt+'", command: "keyboard-shortcuts" },
     ],
   },
   {
@@ -162,15 +250,15 @@ const MENUS: { name: string; items: Entry[] }[] = [
       "-",
       { label: "Composition Settings...", shortcut: "Ctrl+K", command: "comp-settings", needsProject: true },
       { label: "Set Poster Time" },
-      { label: "Trim Comp to Work Area", shortcut: "Ctrl+Shift+X" },
+      { label: "Trim Comp to Work Area", shortcut: "Ctrl+Shift+X", command: "trim-comp", needsProject: true },
       { label: "Crop Comp to Region of Interest" },
       "-",
       { label: "Add to Render Queue", shortcut: "Ctrl+M", command: "add-to-render-queue", needsProject: true },
       { label: "Add Output Module" },
       "-",
-      { label: "Preview", submenu: true },
+      sub("Preview", [{ label: "Play Current Preview", shortcut: "Space", command: "play-preview", needsProject: true }]),
       { label: "Save Frame As", submenu: true },
-      { label: "Pre-render..." },
+      { label: "Pre-render...", command: "add-to-render-queue", needsProject: true },
       { label: "Save Current Preview...", shortcut: "Ctrl+Num 0" },
       "-",
       { label: "Composition Flowchart", shortcut: "Ctrl+Shift+F11" },
@@ -180,91 +268,60 @@ const MENUS: { name: string; items: Entry[] }[] = [
   {
     name: "Layer",
     items: [
-      {
-        label: "New",
-        submenu: true,
-        items: [
-          { label: "Text", shortcut: "Ctrl+Alt+Shift+T" },
-          { label: "Solid...", shortcut: "Ctrl+Y", command: "new-solid" },
-          { label: "Light...", shortcut: "Ctrl+Alt+Shift+L" },
-          { label: "Camera...", shortcut: "Ctrl+Alt+Shift+C" },
-          { label: "Null Object", shortcut: "Ctrl+Alt+Shift+Y", command: "new-null" },
-          { label: "Shape Layer", command: "new-shape" },
-          { label: "Adjustment Layer", shortcut: "Ctrl+Alt+Y", command: "new-adjustment" },
-          { label: "Content-Aware Fill Layer..." },
-          { label: "Adobe Photoshop File..." },
-          { label: "Maxon Cinema 4D File..." },
-        ],
-      },
-      { label: "Layer Settings...", shortcut: "Ctrl+Shift+Y" },
+      sub("New", [
+        { label: "Text", shortcut: "Ctrl+Alt+Shift+T" },
+        { label: "Solid...", shortcut: "Ctrl+Y", command: "new-solid" },
+        { label: "Light...", shortcut: "Ctrl+Alt+Shift+L" },
+        { label: "Camera...", shortcut: "Ctrl+Alt+Shift+C" },
+        { label: "Null Object", shortcut: "Ctrl+Alt+Shift+Y", command: "new-null" },
+        { label: "Shape Layer", command: "new-shape" },
+        { label: "Adjustment Layer", shortcut: "Ctrl+Alt+Y", command: "new-adjustment" },
+        { label: "Content-Aware Fill Layer..." },
+        { label: "Adobe Photoshop File..." },
+        { label: "Maxon Cinema 4D File..." },
+      ]),
+      { label: "Layer Settings...", shortcut: "Ctrl+Shift+Y", command: "layer-settings", needsProject: true },
       "-",
       { label: "Open Layer" },
-      { label: "Open Layer Source", shortcut: "Alt+Num Enter" },
+      { label: "Open Layer Source", shortcut: "Alt+Num Enter", command: "open-layer-source", needsProject: true },
       { label: "Reveal in Explorer" },
       "-",
       { label: "Mask", submenu: true },
       { label: "Mask and Shape Path", submenu: true },
-      { label: "Quality", submenu: true },
-      { label: "Switches", submenu: true },
-      {
-        label: "Transform",
-        submenu: true,
-        items: [
-          { label: "Reset", command: "reset-transform" },
-          { label: "Anchor Point..." },
-          { label: "Position...", shortcut: "Ctrl+Shift+P" },
-          { label: "Scale..." },
-          { label: "Orientation...", shortcut: "Ctrl+Alt+Shift+R" },
-          { label: "Rotation...", shortcut: "Ctrl+Shift+R" },
-          { label: "Opacity...", shortcut: "Ctrl+Shift+O" },
-          "-",
-          { label: "Flip Horizontal", command: "flip-horizontal" },
-          { label: "Flip Vertical", command: "flip-vertical" },
-          { label: "Center Anchor Point in Layer Content", shortcut: "Ctrl+Alt+Home", command: "center-anchor" },
-          { label: "Center In View", shortcut: "Ctrl+Home", command: "center-in-view" },
-          "-",
-          { label: "Fit to Comp", shortcut: "Ctrl+Alt+F", command: "fit-to-comp" },
-          { label: "Fit to Comp Width", shortcut: "Ctrl+Alt+Shift+H", command: "fit-to-comp-width" },
-          { label: "Fit to Comp Height", shortcut: "Ctrl+Alt+Shift+G", command: "fit-to-comp-height" },
-          "-",
-          { label: "Auto-Orient...", shortcut: "Ctrl+Alt+O" },
-        ],
-      },
-      {
-        label: "Time",
-        submenu: true,
-        items: [
-          { label: "Enable Time Remapping", shortcut: "Ctrl+Alt+T", command: "time-remap" },
-          { label: "Time-Reverse Layer", shortcut: "Ctrl+Alt+R" },
-          { label: "Time Stretch..." },
-          { label: "Freeze Frame" },
-        ],
-      },
-      { label: "Frame Blending", submenu: true },
-      { label: "3D Layer" },
-      { label: "Guide Layer" },
-      { label: "Environment Layer" },
+      dyn("Quality", "quality"),
+      dyn("Switches", "switches"),
+      sub("Transform", TRANSFORM_ITEMS),
+      sub("Time", [
+        { label: "Enable Time Remapping", shortcut: "Ctrl+Alt+T", command: "time-remap" },
+        { label: "Time-Reverse Layer", shortcut: "Ctrl+Alt+R" },
+        { label: "Time Stretch..." },
+        { label: "Freeze Frame", command: "freeze-frame", needsProject: true },
+      ]),
+      dyn("Frame Blending", "frame-blending"),
+      { label: "3D Layer", command: "toggle-3d", needsProject: true },
+      { label: "Guide Layer", command: "toggle-guide", needsProject: true },
+      { label: "Environment Layer", command: "toggle-environment", needsProject: true },
       { label: "Markers", submenu: true },
       "-",
-      { label: "Preserve Transparency" },
-      { label: "Blending Mode", submenu: true },
-      { label: "Next Blending Mode", shortcut: "Shift+=" },
-      { label: "Previous Blending Mode", shortcut: "Shift+-" },
-      { label: "Track Matte", submenu: true },
+      { label: "Preserve Transparency", command: "toggle-preserve-transparency", needsProject: true },
+      dyn("Blending Mode", "blending-mode"),
+      { label: "Next Blending Mode", shortcut: "Shift+=", command: "next-blending-mode", needsProject: true },
+      { label: "Previous Blending Mode", shortcut: "Shift+-", command: "previous-blending-mode", needsProject: true },
+      dyn("Track Matte", "track-matte"),
       { label: "Layer Styles", submenu: true },
       "-",
-      {
-        label: "Arrange",
-        submenu: true,
-        items: [
-          { label: "Bring Layer to Front", shortcut: "Ctrl+Shift+]", command: "bring-to-front" },
-          { label: "Bring Layer Forward", shortcut: "Ctrl+]", command: "bring-forward" },
-          { label: "Send Layer Backward", shortcut: "Ctrl+[", command: "send-backward" },
-          { label: "Send Layer to Back", shortcut: "Ctrl+Shift+[", command: "send-to-back" },
-        ],
-      },
+      sub("Arrange", [
+        { label: "Bring Layer to Front", shortcut: "Ctrl+Shift+]", command: "bring-to-front" },
+        { label: "Bring Layer Forward", shortcut: "Ctrl+]", command: "bring-forward" },
+        { label: "Send Layer Backward", shortcut: "Ctrl+[", command: "send-backward" },
+        { label: "Send Layer to Back", shortcut: "Ctrl+Shift+[", command: "send-to-back" },
+      ]),
       "-",
-      { label: "Reveal", submenu: true },
+      sub("Reveal", [
+        { label: "Reveal Layer Source in Project", command: "reveal-layer-source", needsProject: true },
+        { label: "Reveal Layer in Project Flowchart" },
+        { label: "Reveal Expression Errors" },
+      ]),
       { label: "Create", submenu: true },
       { label: "Camera", submenu: true },
       { label: "Auto-trace..." },
@@ -286,7 +343,7 @@ const MENUS: { name: string; items: Entry[] }[] = [
       { label: "Save Animation Preset..." },
       { label: "Apply Animation Preset..." },
       { label: "Recent Animation Presets", submenu: true },
-      { label: "Browse Presets..." },
+      { label: "Browse Presets...", command: "browse-presets", needsProject: true },
       "-",
       { label: "Add Keyframe" },
       { label: "Toggle Hold Keyframe", shortcut: "Ctrl+Alt+H" },
@@ -315,10 +372,10 @@ const MENUS: { name: string; items: Entry[] }[] = [
     items: [
       { label: "New Viewer", shortcut: "Ctrl+Alt+Shift+N" },
       "-",
-      { label: "Zoom In", shortcut: "." },
-      { label: "Zoom Out", shortcut: "," },
+      { label: "Zoom In", shortcut: ".", command: "zoom-in", needsProject: true },
+      { label: "Zoom Out", shortcut: ",", command: "zoom-out", needsProject: true },
       "-",
-      { label: "Resolution", submenu: true },
+      dyn("Resolution", "resolution"),
       "-",
       { label: "Use Display Color Management", shortcut: "Shift+Num /" },
       { label: "Simulate Output", submenu: true },
@@ -328,39 +385,39 @@ const MENUS: { name: string; items: Entry[] }[] = [
       { label: "Snap to Guides", shortcut: "Ctrl+Shift+;" },
       { label: "Lock Guides", shortcut: "Ctrl+Alt+Shift+;" },
       { label: "Clear Guides" },
-      { label: "Show Grid", shortcut: "Ctrl+'" },
+      { label: "Show Grid", shortcut: "Ctrl+'", command: "toggle-grid", needsProject: true },
       { label: "Snap to Grid", shortcut: "Ctrl+Shift+'" },
       "-",
       { label: "View Options...", shortcut: "Ctrl+Alt+U" },
-      { label: "Show Layer Controls", shortcut: "Ctrl+Shift+H" },
+      { label: "Show Layer Controls", shortcut: "Ctrl+Shift+H", command: "toggle-layer-controls", needsProject: true },
       { label: "Reset 3D View" },
       "-",
       { label: "Render Sapphire S_Blur and S_Shake", command: "toggle-sapphire" },
       "-",
-      { label: "Go To Time...", shortcut: "Alt+Shift+J" },
+      { label: "Go To Time...", shortcut: "Alt+Shift+J", command: "go-to-time", needsProject: true },
     ],
   },
   {
     name: "Window",
     items: [
-      { label: "Workspace", submenu: true },
+      dyn("Workspace", "workspace"),
       { label: "Find Extensions on Exchange..." },
       { label: "Extensions", submenu: true },
       "-",
-      { label: "Align" },
-      { label: "Audio" },
+      panel("Align"),
+      panel("Audio"),
       { label: "Brushes" },
       { label: "Character", shortcut: "Ctrl+6" },
       { label: "Composition", command: "show-composition", needsProject: true },
       { label: "Content-Aware Fill" },
       { label: "Effect Controls", shortcut: "F3", command: "show-effect-controls", needsProject: true },
-      { label: "Effects & Presets", shortcut: "Ctrl+5" },
+      panel("Effects & Presets", "Ctrl+5"),
       { label: "Essential Graphics" },
-      { label: "Info", shortcut: "Ctrl+2" },
-      { label: "Libraries" },
+      panel("Info", "Ctrl+2"),
+      panel("Libraries"),
       { label: "Lumetri Scopes" },
       { label: "Paragraph", shortcut: "Ctrl+7" },
-      { label: "Preview", shortcut: "Ctrl+3" },
+      panel("Preview", "Ctrl+3"),
       { label: "Project", shortcut: "Ctrl+0", command: "show-project", needsProject: true },
       { label: "Properties" },
       { label: "Render Queue", shortcut: "Ctrl+Alt+0", command: "show-render-queue", needsProject: true },
@@ -379,17 +436,47 @@ const MENUS: { name: string; items: Entry[] }[] = [
     items: [
       { label: "Home", command: "home" },
       "-",
-      { label: "After Effects Help", shortcut: "F1" },
-      { label: "Scripting Help" },
-      { label: "Expression Reference" },
-      { label: "Effect Reference" },
-      { label: "Keyboard Shortcuts" },
+      help("After Effects Help", "https://helpx.adobe.com/after-effects/user-guide.html", "F1"),
+      help("Scripting Help", "https://ae-scripting.docsforadobe.dev/"),
+      help("Expression Reference", "https://helpx.adobe.com/after-effects/using/expression-language-reference.html"),
+      help("Effect Reference", "https://helpx.adobe.com/after-effects/using/effects-animation-presets-overview.html"),
+      { label: "Keyboard Shortcuts", command: "keyboard-shortcuts" },
       "-",
       { label: "Enable Logging" },
       { label: "Show Log Files" },
     ],
   },
 ];
+
+/** Every menu command with its shortcut, menu by menu, for the Keyboard Shortcuts list. */
+export function menuShortcuts(): { menu: string; label: string; shortcut: string }[] {
+  const out: { menu: string; label: string; shortcut: string }[] = [];
+  const visit = (menu: string, entries: Entry[]) => {
+    for (const e of entries) {
+      if (e === "-") continue;
+      if (e.shortcut && e.command && !out.some((o) => o.shortcut === e.shortcut && o.label === e.label)) out.push({ menu, label: e.label, shortcut: e.shortcut });
+      if (e.items) visit(menu, e.items);
+    }
+  };
+  for (const m of MENUS) visit(m.name, m.items);
+  return out;
+}
+
+/** App-built entries as menu bar entries. */
+function fromEntries(entries: MenuEntries): Entry[] {
+  return entries.map((e): Entry =>
+    e === "-"
+      ? "-"
+      : {
+          label: e.label,
+          shortcut: e.shortcut,
+          onSelect: e.onSelect,
+          checked: e.checked,
+          disabled: e.disabled || (!e.onSelect && !e.submenu),
+          ...(e.submenu && { submenu: true, items: fromEntries(e.submenu) }),
+        },
+  );
+}
 
 interface MenuState {
   hasProject: boolean;
@@ -398,13 +485,34 @@ interface MenuState {
   label?: (command: MenuCommand) => string | undefined;
   /** Whether a command that toggles a setting has it on; undefined for other commands. */
   checked?: (command: MenuCommand) => boolean | undefined;
+  /** The entries of the dynamic submenus. */
+  dynamic?: (menu: DynamicMenu) => MenuEntries | undefined;
   run: (command: MenuCommand) => void;
+  /** Closes the menu before an app-built entry runs. */
+  close: () => void;
 }
 
-const runnable = (entry: Item, state: MenuState): boolean =>
-  entry.items
-    ? entry.items.some((e) => e !== "-" && runnable(e, state))
-    : !!entry.command && !(entry.needsProject && !state.hasProject) && (state.enabled?.(entry.command) ?? true);
+/** The submenu entries of `entry`, built by the app for dynamic submenus. */
+const subEntries = (entry: Item, state: MenuState): Entry[] | undefined =>
+  entry.dynamic ? fromEntries(state.dynamic?.(entry.dynamic) ?? []) : entry.items;
+
+const runnable = (entry: Item, state: MenuState): boolean => {
+  if (entry.disabled) return false;
+  const items = subEntries(entry, state);
+  if (items) return items.some((e) => e !== "-" && runnable(e, state));
+  if (entry.onSelect) return true;
+  return !!entry.command && !(entry.needsProject && !state.hasProject) && (state.enabled?.(entry.command) ?? true);
+};
+
+const isChecked = (entry: Item, state: MenuState): boolean | undefined =>
+  entry.checked ?? (entry.command ? state.checked?.(entry.command) : undefined);
+
+function choose(entry: Item, state: MenuState): void {
+  if (entry.onSelect) {
+    state.close();
+    entry.onSelect();
+  } else if (entry.command) state.run(entry.command);
+}
 
 function MenuList({ name, entries, state, className }: { name: string; entries: Entry[]; state: MenuState; className?: string }) {
   const [sub, setSub] = useState<number>();
@@ -421,21 +529,22 @@ function MenuList({ name, entries, state, className }: { name: string; entries: 
       {entries.map((entry, j) => {
         if (entry === "-") return <div key={j} className="menu-sep" role="separator" />;
         const label = (entry.command && state.label?.(entry.command)) || entry.label;
-        const checked = entry.command ? state.checked?.(entry.command) : undefined;
+        const checked = isChecked(entry, state);
+        const items = sub === j ? subEntries(entry, state) : entry.dynamic ? [] : entry.items;
         const button = (
           <button
             key={j}
             type="button"
             role={checked === undefined ? "menuitem" : "menuitemcheckbox"}
-            className={`menu-item ${entry.items && sub === j ? "open" : ""}`}
-            aria-haspopup={entry.items ? "menu" : undefined}
-            aria-expanded={entry.items ? sub === j : undefined}
+            className={`menu-item ${items && sub === j ? "open" : ""}`}
+            aria-haspopup={items ? "menu" : undefined}
+            aria-expanded={items ? sub === j : undefined}
             aria-checked={checked}
             disabled={!runnable(entry, state)}
-            onPointerEnter={() => setSub(entry.items ? j : undefined)}
+            onPointerEnter={() => setSub(items ? j : undefined)}
             onClick={() => {
-              if (entry.items) setSub(sub === j ? undefined : j);
-              else if (entry.command) state.run(entry.command);
+              if (items) setSub(sub === j ? undefined : j);
+              else choose(entry, state);
             }}
           >
             {checked && (
@@ -448,11 +557,11 @@ function MenuList({ name, entries, state, className }: { name: string; entries: 
             <span className="menu-sub">{entry.submenu && <Icon name="chevronRight" size={10} />}</span>
           </button>
         );
-        if (!entry.items) return button;
+        if (!items) return button;
         return (
           <div key={j} className="menu-item-wrap">
             {button}
-            {sub === j && <MenuList name={entry.label} entries={entry.items} state={state} className="menu-sub-pop" />}
+            {sub === j && <MenuList name={entry.label} entries={items} state={state} className="menu-sub-pop" />}
           </div>
         );
       })}
@@ -473,13 +582,13 @@ function sheetEntries(entries: Entry[], state: MenuState): MenuEntries {
   return entries.map((entry): MenuEntries[number] => {
     if (entry === "-") return "-";
     const text = (entry.command && state.label?.(entry.command)) || entry.label;
-    if (entry.submenu) return entry.items ? { label: text, submenu: sheetEntries(entry.items, state) } : { label: text, disabled: true };
-    const command = entry.command;
+    const items = subEntries(entry, state);
+    if (entry.submenu) return items ? { label: text, submenu: sheetEntries(items, state) } : { label: text, disabled: true };
     return {
       label: text,
       shortcut: entry.shortcut,
-      checked: command ? state.checked?.(command) : undefined,
-      onSelect: command && runnable(entry, state) ? () => state.run(command) : undefined,
+      checked: isChecked(entry, state),
+      onSelect: runnable(entry, state) ? () => choose(entry, state) : undefined,
     };
   });
 }
@@ -494,6 +603,7 @@ export const MenuBar = memo(function MenuBar({
   enabled,
   label,
   checked,
+  dynamic,
   effects,
   compact = false,
   title = "Menu",
@@ -503,6 +613,7 @@ export const MenuBar = memo(function MenuBar({
   enabled?: (command: MenuCommand) => boolean;
   label?: (command: MenuCommand) => string | undefined;
   checked?: (command: MenuCommand) => boolean | undefined;
+  dynamic?: (menu: DynamicMenu) => MenuEntries | undefined;
   /** The Effects & Presets categories, listed in the Effect menu. */
   effects?: readonly CatalogCategory[];
   compact?: boolean;
@@ -519,10 +630,12 @@ export const MenuBar = memo(function MenuBar({
     enabled,
     label,
     checked,
+    dynamic,
     run: (command) => {
       setOpen(undefined);
       onCommand(command);
     },
+    close: () => setOpen(undefined),
   };
 
   useEffect(() => {

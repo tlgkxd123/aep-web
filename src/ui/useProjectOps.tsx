@@ -3,7 +3,7 @@
 // opens the dialogs AE shows for it.
 import { useCallback, useMemo, useRef, useState, type ReactNode } from "react";
 import type { CompItem, FootageItem, Item, Project } from "../aep/model.ts";
-import type { Editor } from "../edit/editor.ts";
+import { Editor } from "../edit/editor.ts";
 import { nextName } from "../edit/items.ts";
 import {
   DEFAULT_COMP_SETTINGS,
@@ -15,6 +15,8 @@ import {
   newComposition,
   newFolder,
   newProject,
+  reduceProject,
+  removeUnusedFootage,
   renameItem,
   replaceFootage,
   validateCompSettings,
@@ -39,6 +41,8 @@ export interface Session {
   file: FileInfo;
   /** Where Save writes, when the browser gave the opened or saved file's handle. */
   handle?: ProjectHandle;
+  /** The file as last opened or saved, what File > Revert goes back to. */
+  bytes?: Uint8Array;
 }
 
 export interface ProjectOpsHost {
@@ -98,6 +102,13 @@ const compSettingsOf = (comp: CompItem): CompSettings => ({
 });
 
 const fileName = (name: string) => (/\.aep$/i.test(name) ? name : `${name}.aep`);
+
+/** File > Increment and Save's name: "Project.aep" becomes "Project 2.aep", "Project 2.aep" "Project 3.aep". */
+export function incrementedName(name: string): string {
+  const base = fileName(name).replace(/\.aep$/i, "");
+  const numbered = /^(.*?)[ _]?(\d+)$/.exec(base);
+  return numbered && numbered[1] ? `${numbered[1]} ${Number(numbered[2]) + 1}.aep` : `${base} 2.aep`;
+}
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 
 type CompDialog = { mode: "new"; folderId: number; initial: CompSettings } | { mode: "edit"; comp: CompItem };
@@ -143,14 +154,15 @@ export function useProjectOps(host: ProjectOpsHost) {
 
   // ------------------------------------------------------------ save / close
 
-  const save = async (saveAs: boolean): Promise<boolean> => {
-    if (!session) return false;
+  /** Save, Save As (`saveAs`), or Increment and Save, which saves as a new file under `name`. */
+  const save = async (saveAs: boolean, name = session?.file.name): Promise<boolean> => {
+    if (!session || !name) return false;
     try {
       const bytes = session.editor.save();
-      const saved = await saveProjectBytes(bytes, session.file.name, session.handle, saveAs || !session.handle);
+      const saved = await saveProjectBytes(bytes, name, session.handle, saveAs || !session.handle);
       if (!saved) return false;
       session.editor.markSaved();
-      host.updateSession({ ...session, file: { ...session.file, name: saved.name, size: bytes.length }, handle: saved.handle });
+      host.updateSession({ ...session, file: { ...session.file, name: saved.name, size: bytes.length }, handle: saved.handle, bytes });
       return true;
     } catch (error) {
       fail(error);
@@ -183,6 +195,63 @@ export function useProjectOps(host: ProjectOpsHost) {
         onCancel: () => done(false),
       });
     });
+  };
+
+  /** File > Save As > Save a Copy: writes the project to a new file and keeps working on the current one. */
+  const saveCopy = async () => {
+    if (!session) return;
+    try {
+      await saveProjectBytes(session.editor.save(), `${fileName(session.file.name).replace(/\.aep$/i, "")} copy.aep`, undefined, true);
+    } catch (error) {
+      fail(error);
+    }
+  };
+
+  /** File > Revert: back to the file as last saved, after AE's warning. */
+  const revert = () => {
+    const bytes = session?.bytes;
+    if (!session || !bytes || !session.editor.dirty) return;
+    setAlert({
+      message: `Revert to the last saved version of "${session.file.name}"? Changes since then will be lost.`,
+      actions: [
+        {
+          label: "Revert",
+          primary: true,
+          onClick: () => {
+            setAlert(undefined);
+            const reverted = attempt(() => Editor.fromBytes(bytes));
+            if (reverted) host.showSession({ ...session, editor: reverted });
+          },
+        },
+        { label: "Cancel", onClick: () => setAlert(undefined) },
+      ],
+      onCancel: () => setAlert(undefined),
+    });
+  };
+
+  const report = (message: string) =>
+    setAlert({ message, actions: [{ label: "OK", primary: true, onClick: () => setAlert(undefined) }], onCancel: () => setAlert(undefined) });
+
+  /** The compositions Reduce Project keeps: those selected in the Project panel, or the active one. */
+  const compsToKeep = (): CompItem[] => {
+    const selected = selectedItems().filter((i): i is CompItem => i.kind === "comp");
+    if (selected.length) return selected;
+    const active = activeComp && live(activeComp.id);
+    return active?.kind === "comp" ? [active] : [];
+  };
+
+  const removeUnused = () => {
+    if (!editor) return;
+    const removed = attempt(() => removeUnusedFootage(editor));
+    if (removed !== undefined) report(removed ? `Removed ${plural(removed, "item")} from the project.` : "There is no unused footage to remove.");
+  };
+
+  const reduce = () => {
+    if (!editor) return;
+    const removed = attempt(() => reduceProject(editor, compsToKeep()));
+    if (removed === undefined) return;
+    host.select(selectedIds.filter((id) => editor.project.items.has(id)));
+    report(removed ? `Removed ${plural(removed, "item")} from the project.` : "Every item is used by the selected compositions.");
   };
 
   const createProject = async () => {
@@ -375,6 +444,21 @@ export function useProjectOps(host: ProjectOpsHost) {
       case "save-as":
         void save(true);
         return true;
+      case "save-copy":
+        void saveCopy();
+        return true;
+      case "increment-save":
+        if (session) void save(true, incrementedName(session.file.name));
+        return true;
+      case "revert":
+        revert();
+        return true;
+      case "remove-unused-footage":
+        removeUnused();
+        return true;
+      case "reduce-project":
+        reduce();
+        return true;
       case "import":
         if (editor) startImport({ mode: "import", folderId: targetFolder() });
         return true;
@@ -408,6 +492,7 @@ export function useProjectOps(host: ProjectOpsHost) {
       "ctrl+K": "comp-settings",
       "ctrl+S": "save",
       "ctrl+shift+S": "save-as",
+      "ctrl+alt+shift+S": "increment-save",
       "ctrl+I": "import",
       "ctrl+alt+I": "import",
       "ctrl+H": "replace-footage",
@@ -435,7 +520,7 @@ export function useProjectOps(host: ProjectOpsHost) {
   // The panel and the context menus are memoized and the window's key listener
   // is re-attached only after a render commits: they get stable callbacks that
   // run the latest closures.
-  const fresh = { rename, move, remove, createFolder, openNewComp, openCompSettings, importFiles, replaceWith, handleKey, itemCommand };
+  const fresh = { rename, move, remove, createFolder, openNewComp, openCompSettings, importFiles, replaceWith, handleKey, itemCommand, removeUnused, reduce };
   const latest = useRef(fresh);
   latest.current = fresh;
   const keyDown = useCallback((e: KeyboardEvent) => latest.current.handleKey(e), []);
@@ -443,6 +528,8 @@ export function useProjectOps(host: ProjectOpsHost) {
     () => ({
       projectCommand: (cmd: ProjectItemCommand) => latest.current.itemCommand(cmd),
       openCompSettings: (compId: number) => latest.current.openCompSettings(compId),
+      removeUnusedFootage: () => latest.current.removeUnused(),
+      reduceProject: () => latest.current.reduce(),
     }),
     [],
   );
@@ -493,6 +580,11 @@ export function useProjectOps(host: ProjectOpsHost) {
       "comp-settings": !!activeComp,
       save: !!editor,
       "save-as": !!editor,
+      "save-copy": !!editor,
+      "increment-save": !!editor,
+      revert: !!session?.bytes && !!editor?.dirty,
+      "remove-unused-footage": !!editor,
+      "reduce-project": !!editor && compsToKeep().length > 0,
       import: !!editor,
       "replace-footage": live(selectedIds[0])?.kind === "footage",
       undo: !!editor?.undoLabel,

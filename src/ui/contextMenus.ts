@@ -4,8 +4,9 @@ import { createContext } from "react";
 import type { CompItem, Item, Layer, Project } from "../aep/model.ts";
 import type { LayerSwitch } from "../edit/editor.ts";
 import type { MenuEntries, MenuEntry } from "./ContextMenu.tsx";
-import { blendingModeName } from "./format.ts";
+import { blendingModeName, LABEL_NAMES } from "./format.ts";
 import type { LayerCommand } from "./layerCommands.ts";
+import type { TransformDialogKind } from "./MenuBar.tsx";
 
 /** What the app can do from a context menu. */
 export interface AppActions {
@@ -29,6 +30,18 @@ export interface AppActions {
   addToRenderQueue?: (compId: number) => void;
   /** Applies an Effects & Presets effect to layers of a comp (by default the active comp's selected layer). */
   applyEffect?: (matchName: string, target?: { compId: number; layerIds: number[] }) => void;
+  /** Opens a Layer > Transform value dialog for the selected layer. */
+  transformDialog?: (kind: TransformDialogKind) => void;
+  /** Layer > Time > Freeze Frame on the selected layer, at the current time. */
+  freezeFrame?: () => void;
+  canFreezeFrame?: (comp: CompItem, layer: Layer) => boolean;
+  setLayerLabel?: (comp: CompItem, layer: Layer, label: number) => void;
+  setLayerQuality?: (comp: CompItem, layer: Layer, quality: number) => void;
+  /** Project operations on the Project panel's selection. */
+  setItemLabel?: (label: number) => void;
+  newCompFromSelection?: () => void;
+  reduceProject?: () => void;
+  removeUnusedFootage?: () => void;
 }
 
 export type ProjectItemCommand = "rename" | "duplicate" | "delete" | "replace-footage" | "new-folder" | "new-comp" | "import";
@@ -49,6 +62,14 @@ function command(a: AppActions, label: string, cmd: LayerCommand, comp: CompItem
 export const AppActionsContext = createContext<AppActions | null>(null);
 
 const item = (label: string, onSelect?: () => void, shortcut?: string): MenuEntry => ({ label, onSelect, shortcut });
+const dialog = (a: AppActions, kind: TransformDialogKind) => (a.transformDialog ? () => a.transformDialog!(kind) : undefined);
+const dependencies = (a: AppActions): MenuEntry =>
+  sub("Dependencies", [
+    item("Collect Files..."),
+    item("Consolidate All Footage"),
+    item("Remove Unused Footage", a.removeUnusedFootage),
+    item("Reduce Project", a.reduceProject),
+  ]);
 const sub = (label: string, submenu: MenuEntries): MenuEntry => ({ label, submenu });
 
 /** AE's blending mode menu, in its groups. */
@@ -63,6 +84,9 @@ const BLEND_GROUPS = [
   [5244, 5245],
 ];
 
+/** The blending modes in menu order, which Layer > Next / Previous Blending Mode step through. */
+export const BLENDING_MODE_ORDER: readonly number[] = BLEND_GROUPS.flat();
+
 /** AE's blending mode list with the current mode checked; `pick` makes the entries live. */
 export function blendingModeEntries(current: number, pick?: (mode: number) => void): MenuEntries {
   const out: MenuEntries = [];
@@ -71,6 +95,39 @@ export function blendingModeEntries(current: number, pick?: (mode: number) => vo
     for (const mode of group) out.push({ label: blendingModeName(mode), checked: mode === current, onSelect: pick ? () => pick(mode) : undefined });
   });
   return out;
+}
+
+/** AE's label colours, with `current` checked; `pick` makes the entries live. */
+export function labelEntries(current: number | undefined, pick?: (label: number) => void): MenuEntries {
+  return LABEL_NAMES.map((name, label) => ({ label: name, checked: label === current, onSelect: pick ? () => pick(label) : undefined }));
+}
+
+export const QUALITY = { WIREFRAME: 4612, DRAFT: 4613, BEST: 4614 } as const;
+/** Quality, frame blending and track mattes do not apply to cameras and lights. */
+export const isAVLayer = (layer: Layer) => layer.layerType !== "CameraLayer" && layer.layerType !== "LightLayer";
+
+/** Layer > Quality: Best, Draft, Wireframe. */
+export function qualityEntries(layer: Layer, pick?: (quality: number) => void): MenuEntries {
+  const live = pick && isAVLayer(layer) ? pick : undefined;
+  return (
+    [
+      ["Best", QUALITY.BEST],
+      ["Draft", QUALITY.DRAFT],
+      ["Wireframe", QUALITY.WIREFRAME],
+    ] as const
+  ).map(([label, quality]) => ({ label, checked: layer.quality === quality, onSelect: live && (() => live(quality)) }));
+}
+
+/** Layer > Frame Blending: Off, Frame Mix, Pixel Motion. */
+export function frameBlendingEntries(layer: Layer, pick?: (type: number) => void): MenuEntries {
+  const live = pick && isAVLayer(layer) ? pick : undefined;
+  return (
+    [
+      ["Off", 4012],
+      ["Frame Mix", 4013],
+      ["Pixel Motion", 4014],
+    ] as const
+  ).map(([label, type]) => ({ label, checked: layer.frameBlendingType === type, onSelect: live && (() => live(type)) }));
 }
 
 function blendingModes(comp: CompItem, layer: Layer, a: AppActions): MenuEntries {
@@ -139,8 +196,9 @@ export function projectItemMenu(target: Item, a: AppActions, moveTo?: MenuEntrie
       projectEntry(a, "Duplicate", "duplicate", "Ctrl+D"),
       projectEntry(a, "Delete", "delete"),
       "-",
-      item("New Comp from Selection"),
-      sub("Dependencies", [item("Reduce Project"), item("Remove Unused Footage"), item("Consolidate All Footage")]),
+      item("New Comp from Selection", a.newCompFromSelection, "Alt+\\"),
+      dependencies(a),
+      sub("Label", labelEntries(target.label, a.setItemLabel)),
     ];
   }
   if (target.kind === "footage") {
@@ -158,7 +216,8 @@ export function projectItemMenu(target: Item, a: AppActions, moveTo?: MenuEntrie
       "-",
       projectEntry(a, "Rename", "rename"),
       ...move,
-      item("New Comp from Selection"),
+      item("New Comp from Selection", a.newCompFromSelection, "Alt+\\"),
+      sub("Label", labelEntries(target.label, a.setItemLabel)),
       "-",
       projectEntry(a, "Delete", "delete"),
     ];
@@ -167,6 +226,7 @@ export function projectItemMenu(target: Item, a: AppActions, moveTo?: MenuEntrie
     projectEntry(a, "Rename", "rename"),
     ...move,
     projectEntry(a, "New Folder", "new-folder", "Ctrl+Alt+Shift+N"),
+    sub("Label", labelEntries(target.label, a.setItemLabel)),
     "-",
     projectEntry(a, "Delete", "delete"),
   ];
@@ -186,6 +246,28 @@ export function projectPanelMenu(a: AppActions): MenuEntries {
     "-",
     item("Locate Footage...", a.locateFootage),
     item("Reload Footage", a.reloadFootage),
+    "-",
+    dependencies(a),
+  ];
+}
+
+/** Layer > Switches. */
+export function layerSwitchEntries(comp: CompItem, layer: Layer, a: AppActions): MenuEntries {
+  return [
+    switchAll(a, "Hide Other Video", comp, comp.layers.filter((l) => l.id !== layer.id), "enabled", false),
+    switchAll(a, "Show All Video", comp, comp.layers, "enabled", true),
+    switchAll(a, "Unlock All Layers", comp, comp.layers, "locked", false),
+    "-",
+    switchEntry(a, "Shy", comp, layer, "shy"),
+    switchEntry(a, "Lock", comp, layer, "locked"),
+    switchEntry(a, "Audio", comp, layer, "audioEnabled"),
+    switchEntry(a, "Video", comp, layer, "enabled"),
+    switchEntry(a, "Solo", comp, layer, "solo"),
+    switchEntry(a, "Effect", comp, layer, "effectsActive"),
+    switchEntry(a, "3D Layer", comp, layer, "threeDLayer"),
+    switchEntry(a, "Motion Blur", comp, layer, "motionBlur"),
+    switchEntry(a, "Adjustment Layer", comp, layer, "adjustmentLayer"),
+    switchEntry(a, "Collapse", comp, layer, "collapseTransformation"),
   ];
 }
 
@@ -201,11 +283,11 @@ export function layerMenu(project: Project, comp: CompItem, layer: Layer, a: App
     sub("Transform", [
       command(a, "Reset", "reset-transform", comp, layer),
       "-",
-      item("Anchor Point..."),
-      item("Position...", undefined, "Ctrl+Shift+P"),
-      item("Scale..."),
-      item("Rotation...", undefined, "Ctrl+Shift+R"),
-      item("Opacity...", undefined, "Ctrl+Shift+O"),
+      item("Anchor Point...", dialog(a, "anchor")),
+      item("Position...", dialog(a, "position"), "Ctrl+Shift+P"),
+      item("Scale...", dialog(a, "scale")),
+      item("Rotation...", dialog(a, "rotation"), "Ctrl+Shift+R"),
+      item("Opacity...", dialog(a, "opacity"), "Ctrl+Shift+O"),
       "-",
       command(a, "Flip Horizontal", "flip-horizontal", comp, layer),
       command(a, "Flip Vertical", "flip-vertical", comp, layer),
@@ -219,22 +301,13 @@ export function layerMenu(project: Project, comp: CompItem, layer: Layer, a: App
       { ...command(a, "Enable Time Remapping", "time-remap", comp, layer, "Ctrl+Alt+T"), checked: layer.timeRemapEnabled },
       item("Time-Reverse Layer", undefined, "Ctrl+Alt+R"),
       item("Time Stretch..."),
-      item("Freeze Frame"),
+      item("Freeze Frame", a.freezeFrame && a.canFreezeFrame?.(comp, layer) ? a.freezeFrame : undefined),
     ]),
     sub("Blending Mode", blendingModes(comp, layer, a)),
+    sub("Label", labelEntries(layer.label, a.setLayerLabel && ((label) => a.setLayerLabel!(comp, layer, label)))),
     sub("Layer Styles", [item("Drop Shadow"), item("Inner Shadow"), item("Outer Glow"), item("Inner Glow"), item("Bevel and Emboss"), item("Satin"), item("Color Overlay"), item("Gradient Overlay"), item("Stroke")]),
-    sub("Switches", [
-      switchAll(a, "Hide Other Video", comp, comp.layers.filter((l) => l !== layer), "enabled", false),
-      switchAll(a, "Show All Video", comp, comp.layers, "enabled", true),
-      switchAll(a, "Unlock All Layers", comp, comp.layers, "locked", false),
-      "-",
-      switchEntry(a, "Shy", comp, layer, "shy"),
-      switchEntry(a, "Lock", comp, layer, "locked"),
-      switchEntry(a, "3D Layer", comp, layer, "threeDLayer"),
-      switchEntry(a, "Motion Blur", comp, layer, "motionBlur"),
-      switchEntry(a, "Adjustment Layer", comp, layer, "adjustmentLayer"),
-      switchEntry(a, "Collapse", comp, layer, "collapseTransformation"),
-    ]),
+    sub("Quality", qualityEntries(layer, a.setLayerQuality && ((q) => a.setLayerQuality!(comp, layer, q)))),
+    sub("Switches", layerSwitchEntries(comp, layer, a)),
     sub("Arrange", [
       command(a, "Bring Layer to Front", "bring-to-front", comp, layer, "Ctrl+Shift+]"),
       command(a, "Bring Layer Forward", "bring-forward", comp, layer, "Ctrl+]"),

@@ -19,6 +19,7 @@ import { locateFootageFolder, missingFootage } from "./LocateFootage.tsx";
 import { followPointer } from "./pointer.ts";
 import { layerHasVideo } from "./properties.ts";
 import { Dropdown } from "./values.tsx";
+import { viewerControls } from "./viewerControls.ts";
 
 const ZOOMS = [0.015, 0.03, 0.06, 0.125, 0.25, 0.333, 0.5, 1, 2, 4, 8];
 /** Screen pixels within which a dragged layer snaps. */
@@ -146,6 +147,7 @@ export function CompositionPanel({
   const [grid, setGrid] = useState(false);
   const [showMasks, setShowMasks] = useState(true);
   const [guides, setGuides] = useState<GuideOptions>({ safe: false, proportional: false, grid: false });
+  const [layerControls, setLayerControls] = useState(true);
   const [channel, setChannel] = useState<Channel>("rgb");
   const [exposure, setExposure] = useState(0);
   const [snapshot, setSnapshot] = useState<string>();
@@ -302,6 +304,18 @@ export function CompositionPanel({
     el.addEventListener("wheel", wheel, { passive: false });
     return () => el.removeEventListener("wheel", wheel);
   }, []);
+
+  useEffect(
+    () =>
+      viewerControls.handle((command) => {
+        const { zoomAt: at, zoomStep: step } = latestZoom.current;
+        if (command === "zoom-in" || command === "zoom-out") at(step(command === "zoom-in" ? 1 : -1));
+        else if (command === "toggle-grid") setGuides((g) => ({ ...g, grid: !g.grid }));
+        else setLayerControls((on) => !on);
+      }),
+    [],
+  );
+  useEffect(() => viewerControls.publish({ grid: guides.grid, layerControls }), [guides.grid, layerControls]);
 
   /** Pans the view by dragging (Hand tool, Space, middle button, or a finger on no layer); a fitted view stays fitted until it moves. */
   const panDrag = (e: PointerEvent<Element>) => {
@@ -556,7 +570,7 @@ export function CompositionPanel({
                     .join(" ")}
                 />
               )}
-              {!playing && selected && selectedMatrix && (
+              {!playing && layerControls && selected && selectedMatrix && (
                 <g className="sel-box" style={{ color: labelColor(selected.label) }}>
                   <polygon
                     points={[

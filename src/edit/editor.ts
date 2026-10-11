@@ -183,6 +183,25 @@ export class Editor {
     return this.redoStack.at(-1)?.label;
   }
 
+  /** The undoable commands, oldest first (Edit > History). */
+  get history(): string[] {
+    return this.undoStack.map((e) => e.label);
+  }
+
+  /** Undoes commands until `count` remain. */
+  undoTo(count: number): void {
+    while (this.undoStack.length > Math.max(0, count)) this.undo();
+  }
+
+  /** Edit > Purge > Undo: forgets the history, keeping whether the project has unsaved changes. */
+  clearHistory(): void {
+    const dirty = this.dirty;
+    this.undoStack.length = 0;
+    this.redoStack.length = 0;
+    this.savedTop = dirty ? ({ label: "" } as HistoryEntry) : null;
+    this.notify();
+  }
+
   undo(): void {
     const entry = this.undoStack.pop();
     if (!entry) return;
@@ -803,6 +822,24 @@ export class Editor {
     assertAVLayer(layer, "Quality");
     this.run("Change quality", [comp], {}, (tx) => {
       tx.patch(this.ldta(layer), (view) => view.setUint16(LDTA.quality, Math.max(0, Math.min(2, quality - 4612))));
+    });
+  }
+
+  /** Edit > Label: one of the 17 label colours (0 = None). */
+  setLayerLabel(comp: CompItem, layer: Layer, label: number): void {
+    this.run("Change label", [comp], {}, (tx) => {
+      tx.patch(this.ldta(layer), (_, bytes) => (bytes[LDTA.label] = Math.max(0, Math.min(16, Math.round(label)))));
+    });
+  }
+
+  /** Layer > Frame Blending: 4012 Off, 4013 Frame Mix, 4014 Pixel Motion. */
+  setFrameBlending(comp: CompItem, layer: Layer, type: number): void {
+    assertAVLayer(layer, "Frame blending");
+    this.run("Change frame blending", [comp], {}, (tx) => {
+      tx.patch(this.ldta(layer), (_, bytes) => {
+        setBit(bytes, LDTA.frameBlendingByte, LDTA.frameBlendingBit, type !== 4012);
+        setBit(bytes, LDTA.frameBlendingModeByte, LDTA.frameBlendingModeBit, type === 4014);
+      });
     });
   }
 
