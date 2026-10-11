@@ -22,6 +22,7 @@ import { compSettingsFor, newComposition, setItemLabel } from "../edit/project.t
 import { nudgeLayers, setTransformValue, transformProp } from "../edit/transform-ops.ts";
 import { isMobileDevice } from "../device.ts";
 import { constrainMemory, releaseMemory } from "../playback/memory.ts";
+import { previewRenderer, nativeFrames } from "../playback/previewRenderer.ts";
 import { invalidate } from "../playback/ramCache.ts";
 import { autoResolution } from "../playback/viewer.ts";
 import { audioPreview } from "../media/audioPreview.ts";
@@ -1385,6 +1386,19 @@ export function App() {
                 : undefined,
           })),
           { label: "Auto", checked: auto, onSelect: () => autoResolution.set(true) },
+        ];
+      }
+      case "renderer": {
+        void nativeFrames.probe();
+        const device = nativeFrames.status;
+        const vulkan = previewRenderer.vulkan;
+        return [
+          { label: "WebGL", checked: !vulkan, onSelect: () => previewRenderer.set(false) },
+          {
+            label: !device ? "Vulkan (checking...)" : device.available ? `Vulkan (${device.device})` : "Vulkan (Android app)",
+            checked: vulkan,
+            onSelect: device?.available ? () => previewRenderer.set(true) : undefined,
+          },
         ];
       }
       case "workspace":

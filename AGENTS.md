@@ -50,6 +50,30 @@ frame by frame against After Effects 2025's own renders. React + TypeScript + Vi
   projects built through the editor around the user's song, with a Bass slider keyed from its low end
   (`bass.ts`). Masks come from `src/edit/masks.ts`. Gates: `gates/quickstart.md`; `node scripts/quickstart-sample.ts
   [--aerender]` writes (and has After Effects render) both templates.
+- `native/` - the C++17 Vulkan engine (aevk) the Android app runs. Gates: `gates/native.md`.
+ - The page builds a frame plan (`src/native/plan.ts`: evaluated layers, matrices, masks, mattes, nested comps, shape
+ paints from `planShapeLayer` in `shapes.ts`) with the same evaluator and expression engine, and `src/native/wire.ts`
+ encodes it. `src/render/composition.ts`
+ holds the draw order and matte rules both renderers follow.
+ - `native/src/engine.cpp` composites a plan pass for pass like `renderer.ts`, with the same image conventions
+ except that rows are top first. Shaders in `native/shaders/` are ported from `shaders.ts`.
+ - 8-bit outputs are rounded half up in the shaders (`quantize`), not by the device's rule for ties.
+ - `native/src/playback.cpp` ports playback's timing and the RAM cache.
+ - Masks and shape fills get their coverage as the exact pixel area inside the flattened path. Strokes are polygons
+ (`strokeOutline` in `geometry.cpp`, canvas caps and joins) that all wind the same way.
+ - What it cannot render yet (text layers, footage, effects, dashed strokes) is listed in `plan.unsupported`; those
+ frames stay the WebGL renderer's.
+ - After editing a shader, run `node scripts/native-shaders.ts`: it compiles the SPIR-V into `native/src/shaders.inc`
+ with glslc from the Vulkan SDK or the Android NDK. A vitest test checks the header is up to date.
+ - Build and test: `cmake -S native -B native/build -DCMAKE_BUILD_TYPE=Release && cmake --build native/build --config
+ Release && ctest --test-dir native/build -C Release`. Without the Vulkan SDK, CMake fetches the headers; the loader is
+ opened at run time.
+ - Against After Effects: `node scripts/native-report.ts [--suite s] [--require]` renders the suites' frames with
+ `aevk-render` and applies the pixel criterion of `pixel-report.ts` (`scripts/lib/pixel-criterion.ts`). Any Vulkan
+ device works, Mesa's lavapipe included (`AEVK_DEVICE=llvmpipe` picks it).
+ - Android: Gradle builds `native/` (`externalNativeBuild`) into `libaevk_jni.so`. `NativeEnginePlugin.java` serves
+ `src/native/engine.ts`. With Composition > Preview Renderer > Vulkan (`src/playback/previewRenderer.ts`), playback's
+ render-ahead renders frames natively, as pending work it waits on as it does for footage.
 - `scripts/` - verification and tooling. Run each with `node scripts/<name>.ts` (Node runs
  TypeScript directly).
 - `ml/pmatch/` - the Particle Match world model (Extra > Particle Match) in PyTorch, a uv project
@@ -80,6 +104,7 @@ frame by frame against After Effects 2025's own renders. React + TypeScript + Vi
 | G6 | `node scripts/vat-report.ts --require` | `valueAtTime` vs AE per-frame values |
 | G7 | `node scripts/geometry-report.ts --require` | matrices and cameras vs AE |
 | G8 | `node scripts/pixel-report.ts --require` | renders vs AE reference frames, all suites |
+| G9 | `node scripts/native-report.ts --suite fixtures --require --min 68` | the Vulkan engine vs AE reference frames |
 
 `npm run check` runs G1, the full vitest suite and G5 in that order (same as CI).
 
