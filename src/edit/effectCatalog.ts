@@ -30,6 +30,7 @@ const UNNAMED_CATEGORIES = ["Immersive Video"];
 const PLUGIN_CATEGORIES: Record<string, string> = {
   "Keller.io Superpose 2": "Keller.io",
   PEDG2: "Plugin Everything",
+  "tc Form": "RG Trapcode",
   "tc Particular": "RG Trapcode",
   "tc Sound Keys": "RG Trapcode",
   "Videocopilot Twitch": "Video Copilot",

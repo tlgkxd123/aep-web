@@ -1,4 +1,4 @@
-// Checks in the running dev server's app (headless Edge) that View > Render Sapphire S_Blur and S_Shake
+// Checks in the running dev server's app (headless Edge) that View > Render Sapphire effects
 // switches the viewer between the look-alikes and skipping them, and that the setting sticks.
 //
 //   node scripts/check-sapphire-toggle.ts <project.aep> <comp> <timecode> [http://localhost:5173]
@@ -27,11 +27,11 @@ await page.keyboard.press("Enter");
 
 const notes = async () => {
   await page.waitForTimeout(1500);
-  return (await page.locator(".render-notes").allInnerTexts()).join(" ").match(/Sapphire S_(Blur|Shake)[^|.]*/g)?.join(" / ") ?? "(no Sapphire notes)";
+  return (await page.locator(".render-notes").allInnerTexts()).join(" ").match(/Sapphire S_\w+[^|.]*/g)?.join(" / ") ?? "(no Sapphire notes)";
 };
 const menuItem = async () => {
   await page.getByRole("menuitem", { name: "View", exact: true }).click();
-  return page.getByRole("menuitemcheckbox", { name: "Render Sapphire S_Blur and S_Shake" });
+  return page.getByRole("menuitemcheckbox", { name: "Render Sapphire effects" });
 };
 const report = async (label: string) => {
   const item = await menuItem();

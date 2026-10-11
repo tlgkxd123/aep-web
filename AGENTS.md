@@ -183,6 +183,8 @@ Gate ledgers follow the unlazy skill (`C:/Users/schxm/.claude/skills/unlazy/SKIL
  - The stock effects (`gates/stockfx.md`) run in any WebGL2 browser, SwiftShader included:
  `node scripts/check-stock-effects.ts [--chrome <path>] [--out dir]` checks they compile, follow their formulas
  and scale; it does not compare with After Effects.
+ - The plugin look-alikes (Sapphire in `sapphire.ts`/`sapphireLight.ts`, Trapcode Form in `form.ts`, read by parameter
+ name through `namedParams.ts`) are checked the same way: `node scripts/check-plugin-lookalikes.ts [--chrome <path>]`.
  - The frame caches must not change a pixel: `node scripts/check-render-cache.ts <project>
  "<comp>@<start>:<frames>" --require`; reduced resolutions against Full: `node scripts/check-render-scale.ts`.
 

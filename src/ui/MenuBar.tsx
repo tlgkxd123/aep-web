@@ -392,7 +392,7 @@ const MENUS: { name: string; items: Entry[] }[] = [
       { label: "Show Layer Controls", shortcut: "Ctrl+Shift+H", command: "toggle-layer-controls", needsProject: true },
       { label: "Reset 3D View" },
       "-",
-      { label: "Render Sapphire S_Blur and S_Shake", command: "toggle-sapphire" },
+      { label: "Render Sapphire effects", command: "toggle-sapphire" },
       "-",
       { label: "Go To Time...", shortcut: "Alt+Shift+J", command: "go-to-time", needsProject: true },
     ],
