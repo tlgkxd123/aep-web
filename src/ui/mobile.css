@@ -26,7 +26,7 @@ body {
 }
 
 .ec-dial,
-.ec-curve-graph.live {
+.ec-curve-area.live {
   touch-action: none;
 }
 
@@ -110,6 +110,26 @@ button,
   .menu-item {
     padding-top: 7px;
     padding-bottom: 7px;
+  }
+
+  .ec-curve {
+    width: min(100%, 320px);
+  }
+
+  .ec-curve-area {
+    height: 150px;
+    padding: 8px;
+  }
+
+  .ec-curve-point {
+    width: 14px;
+    height: 14px;
+    border-width: 2px;
+  }
+
+  .ec-curve-delete {
+    width: 32px;
+    height: 28px;
   }
 }
 

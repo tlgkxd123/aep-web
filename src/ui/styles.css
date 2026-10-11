@@ -1370,19 +1370,95 @@ button.fx-switch:disabled {
   display: flex;
   flex-direction: column;
   gap: 2px;
-  width: min(100%, 220px);
+  width: min(100%, 260px);
   padding: 4px 0;
 }
 
-.ec-curve-graph {
-  width: 100%;
-  height: 90px;
+.ec-curve-area {
+  box-sizing: border-box;
+  height: 112px;
+  padding: 6px;
   background: #1a1a1a;
   border: 1px solid #4a4a4a;
 }
 
-.ec-curve-graph.live {
+.ec-curve-area.live {
   cursor: crosshair;
+}
+
+.ec-curve-plot {
+  position: relative;
+  height: 100%;
+}
+
+.ec-curve-graph {
+  position: absolute;
+  inset: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+}
+
+.ec-curve-point {
+  position: absolute;
+  width: 9px;
+  height: 9px;
+  box-sizing: border-box;
+  border: 1.5px solid var(--hot);
+  border-radius: 50%;
+  background: #1a1a1a;
+  transform: translate(-50%, -50%);
+  cursor: move;
+}
+
+.ec-curve-point.selected {
+  background: var(--hot);
+}
+
+.ec-curve-point:focus {
+  outline: none;
+}
+
+.ec-curve-point:focus-visible {
+  box-shadow: 0 0 0 2px #fff;
+}
+
+.ec-curve-thumb {
+  width: 64px;
+  height: 16px;
+  background: #1a1a1a;
+  border: 1px solid #3a3a3a;
+}
+
+.ec-curve-readout {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  min-height: 20px;
+}
+
+.ec-curve-delete {
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 18px;
+  margin-left: auto;
+  padding: 0;
+  border-radius: 2px;
+  color: var(--text-dim);
+  cursor: pointer;
+}
+
+.ec-curve-delete:hover:not(:disabled) {
+  color: #ff8a80;
+  background: #3a2a2a;
+}
+
+.ec-curve-delete:disabled {
+  opacity: 0.35;
+  cursor: default;
 }
 
 .ec-curve-grid {
