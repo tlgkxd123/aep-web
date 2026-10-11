@@ -132,7 +132,10 @@ export function writeTransform(editor: Editor, comp: CompItem, layerId: number, 
   }
 }
 
-/** The layer and Transform property, with the property's chunks written first when AE left them out. */
+/**
+ * The layer and Transform property, with the property's chunks written first when AE left them out (its value is
+ * kept). Run inside `editor.perform`, so the write joins the edit's undo step.
+ */
 export function editable(editor: Editor, comp: CompItem, layerId: number, matchName: string): { layer: Layer; prop: Property } | undefined {
   const find = () => {
     const layer = comp.layers.find((l) => l.id === layerId);
@@ -141,7 +144,11 @@ export function editable(editor: Editor, comp: CompItem, layerId: number, matchN
   };
   const found = find();
   if (!found?.prop.synthesized) return found;
+  const value = found.prop.value;
   editor.perform("", [comp], (tx) => materializeTransformProp(tx, comp, found.layer, matchName));
+  const stored = find();
+  // The template's chunks hold the template's value; the property keeps the default it showed.
+  if (stored && !stored.prop.synthesized && value !== null) editor.setValue(comp, stored.layer, stored.prop, value, 0);
   return find();
 }
 

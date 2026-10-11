@@ -9,7 +9,7 @@ import { containerText, decodePard, decodeTdb4, type Pard } from "../aep/decode.
 import { findChild, findList, type Chunk } from "../aep/riff.ts";
 import { flatCurve, OVER_LIFE } from "../render/effects/particularCurves.ts";
 import { doubles, leaf, readDoubles } from "./chunks.ts";
-import { clone, nameData, UNNAMED } from "./effects.ts";
+import { clone, setName, UNNAMED } from "./effects.ts";
 import { fixedUtf8, propertyClass, setExpressionFlags, staticCdat, staticTdb4 } from "./encode.ts";
 
 export const chunkText = (c: Chunk) => new TextDecoder().decode(c.data).replace(/\0.*$/s, "");
@@ -136,11 +136,9 @@ export function freshInstance(matchName: string, definition: Chunk, pool?: Strea
   if (!defs.size) throw new Error(`the definition of ${matchName} has no parameter list`);
   const tdgp = findList(sspc, "tdgp");
   if (!tdgp) throw new Error(`the definition of ${matchName} has no parameter group`);
-  // The effect is switched on (bit 0 of the tdsb's last byte) and named after its type.
+  // The effect is switched on (bit 0 of the tdsb's last byte).
   const tdsb = findChild(tdgp, "tdsb");
   if (tdsb) tdsb.data[3] |= 1;
-  const tdsn = findChild(tdgp, "tdsn");
-  if (tdsn) tdsn.data = nameData(UNNAMED);
   const counts = new Map<string, number>();
   const count = (change: string) => counts.set(change, (counts.get(change) ?? 0) + 1);
   // A parameter's lists follow its name: its stream (tdbs), then for arbitrary data (curves) an aRbs.
@@ -178,8 +176,39 @@ export function freshInstance(matchName: string, definition: Chunk, pool?: Strea
       else count("left out, no stream of its kind to copy");
     }
   }
+  const renamed = nameAsDefined(sspc);
+  if (renamed) counts.set("names reset", renamed);
   const changes = [...counts].map(([k, n]) => `${n} ${k}`).join(", ") || "nothing";
   return { sspc, summary: `${defs.size} parameters, ${stored} stored; ${changes}` };
+}
+
+/**
+ * Names an instance after its type and every parameter it stores after its definition, as
+ * After Effects writes them; returns how many names changed. A template's streams can come
+ * from other effects (writeStream), and its effect from a project that renamed it.
+ */
+export function nameAsDefined(sspc: Chunk): number {
+  const defs = paramDefs(sspc);
+  const tdgp = findList(sspc, "tdgp");
+  let renamed = 0;
+  const rename = (tdsn: Chunk | undefined, text: string) => {
+    if (!tdsn || containerText(tdsn) === text) return;
+    setName(tdsn, text);
+    renamed++;
+  };
+  rename(findChild(tdgp, "tdsn"), UNNAMED);
+  const visit = (group: Chunk | undefined) => {
+    let current = "";
+    for (const c of group?.children ?? []) {
+      if (c.type === "tdmn") current = chunkText(c);
+      else if (c.listType === "tdbs") {
+        const pard = defs.get(current)?.pard;
+        if (pard) rename(findChild(c, "tdsn"), pard.name);
+      } else if (c.listType === "tdgp") visit(c);
+    }
+  };
+  visit(tdgp);
+  return renamed;
 }
 
 /** Control types of parameters with a value stream (tdbs): numbers, angles, checkboxes, colours, points, popups. */
@@ -220,7 +249,7 @@ function writeStream(tdgp: Chunk, name: string, defs: Map<string, ParamDef>, don
   const tdbs = clone(donor);
   tdbs.children = (tdbs.children ?? []).filter((c) => c.type !== "Utf8");
   for (const c of tdbs.children) {
-    if (c.type === "tdsn") c.data = nameData(pard.name);
+    if (c.type === "tdsn") setName(c, pard.name);
     else if (c.type === "tdb4") setExpressionFlags(c.data, false, false);
     else if (c.type === "tdum" && pard.sliderMin !== undefined) c.data = doubles([pard.sliderMin]);
     else if (c.type === "tduM" && pard.sliderMax !== undefined) c.data = doubles([pard.sliderMax]);

@@ -6,7 +6,10 @@ import { describe, expect, it } from "vitest";
 import type { CompItem, Layer, Property, PropertyGroup, PropertyNode } from "../src/aep/model.ts";
 import { PropertyValueType } from "../src/aep/model.ts";
 import { Editor } from "../src/edit/editor.ts";
-import { canStore, setPropertyValue } from "../src/edit/stored-property.ts";
+import { addLayer } from "../src/edit/layers.ts";
+import { DEFAULT_COMP_SETTINGS, newComposition, newProject } from "../src/edit/project.ts";
+import { canStore, setPropertyValue, storedProperty } from "../src/edit/stored-property.ts";
+import { toggleTransformStopwatch } from "../src/edit/transform-ops.ts";
 import { complete, tokenize, type NameSource } from "../src/ui/expressionSyntax.ts";
 import { addressOf, resolveAddress } from "../src/ui/expressionCommands.ts";
 import { defaultExpression, expressionPath } from "../src/ui/expressionPath.ts";
@@ -165,5 +168,30 @@ describe("editing commands", () => {
     const restored = resolveAddress(audioSpectrumLayer(editor).layer, address)!;
     expect(restored.synthesized).toBe(true);
     expect(restored.value).toBe(left.value);
+  });
+
+  it("writes a Transform property After Effects left out with the value it showed, for an expression or a first keyframe", () => {
+    const editor = newProject();
+    const comp = newComposition(editor, { ...DEFAULT_COMP_SETTINGS, name: "Rig", width: 640, height: 360 });
+    const id = addLayer(editor, comp, { kind: "null" });
+    const layer = () => comp.layers.find((l) => l.id === id)!;
+    expect(prop(layer(), "ADBE Position").synthesized).toBe(true);
+    editor.perform("Add expression", [comp], () => {
+      const stored = storedProperty(editor, comp, layer(), prop(layer(), "ADBE Position"));
+      editor.setExpression(comp, stored.layer, stored.prop, "wiggle(2, 0)");
+    });
+    toggleTransformStopwatch(editor, comp, layer(), "ADBE Scale", 0);
+
+    const reopened = [...Editor.fromBytes(editor.save()).project.items.values()].find((i): i is CompItem => i.kind === "comp")!.layers[0];
+    const position = prop(reopened, "ADBE Position");
+    expect(position.synthesized).toBeFalsy();
+    expect(position.expression).toBe("wiggle(2, 0)");
+    expect(position.value).toEqual([320, 180, 0]);
+    expect(prop(reopened, "ADBE Scale").keyframes.map((k) => k.value)).toEqual([[100, 100, 100]]);
+
+    editor.undo();
+    editor.undo();
+    expect(prop(layer(), "ADBE Position").synthesized).toBe(true);
+    expect(prop(layer(), "ADBE Position").value).toEqual([320, 180, 0]);
   });
 });

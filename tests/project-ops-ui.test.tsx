@@ -84,7 +84,7 @@ test("File > New > New Project opens an empty, unmodified project", async () => 
   render(<App />);
   fireEvent.click(screen.getByRole("menuitem", { name: "File" }));
   fireEvent.click(screen.getByRole("menuitem", { name: "New" }));
-  fireEvent.click(within(screen.getByRole("menu", { name: "New" })).getByRole("menuitem", { name: /^New Project/ }));
+  fireEvent.click(within(screen.getByRole("menu", { name: "New" })).getByRole("menuitem", { name: /^New Project\s*Ctrl\+Alt\+N/ }));
   await screen.findByRole("tree", { name: "Project items" });
   expect(rowNames()).toEqual([]);
   await waitFor(() => expect(document.title).toBe("Untitled Project.aep - AEP Web"));

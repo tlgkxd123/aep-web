@@ -22,7 +22,7 @@ import { findChild, readRifx, type Chunk } from "../src/aep/riff.ts";
 import "../src/render/features.ts";
 import { effectRenderer, registeredEffects, type LayerImage, type RenderContext } from "../src/render/registry.ts";
 import { effectCategory } from "../src/edit/effectCatalog.ts";
-import { definitionName, freshInstance, projectDefinitions, streamPool } from "../src/edit/effectTemplates.ts";
+import { definitionName, freshInstance, nameAsDefined, projectDefinitions, streamPool } from "../src/edit/effectTemplates.ts";
 import { chunksFromBytes } from "../src/edit/layer-templates.ts";
 import { ChunkPacker } from "./lib/effect-templates.ts";
 import { PY_AEP } from "./lib/paths.ts";
@@ -210,7 +210,8 @@ export function buildLibrary(folders: string[] = []): LibraryBuild {
     const kept = committed.get(matchName);
     if (kept && !found.has(kept.entry.source)) {
       const { entry } = kept;
-      log.push(`${matchName} kept from the committed library (${entry.source} is not here)`);
+      const renamed = nameAsDefined(kept.instance);
+      log.push(`${matchName} kept from the committed library (${entry.source} is not here)${renamed ? `, ${renamed} names reset` : ""}`);
       const category = effectCategory(matchName) ?? OTHER;
       entries.push([matchName, { ...entry, category, definition: packer.add(kept.definition), instance: packer.add(kept.instance), lookalike: lookalike(matchName) }]);
       continue;
