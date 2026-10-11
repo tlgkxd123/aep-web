@@ -18,7 +18,7 @@ import { Agent, CursorAgentError, type Run } from "@cursor/sdk";
 const ROOT = process.env.GITHUB_WORKSPACE ?? process.cwd();
 const task = readFileSync(need("AGENT_TASK_FILE"), "utf8");
 const summaryFile = need("AGENT_SUMMARY_FILE");
-const model = process.env.AGENT_MODEL || "composer-2.5";
+const model = process.env.AGENT_MODEL || "claude-opus-5-5";
 const attempts = Math.max(1, Number(process.env.AGENT_ATTEMPTS || 3));
 
 const CHECKS: [name: string, command: string][] = [
