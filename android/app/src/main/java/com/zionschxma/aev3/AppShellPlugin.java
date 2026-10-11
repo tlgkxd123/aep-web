@@ -1,15 +1,24 @@
 package com.zionschxma.aev3;
 
+import android.content.ComponentCallbacks2;
 import android.content.Intent;
+import android.content.res.Configuration;
 import android.database.Cursor;
 import android.net.Uri;
+import android.os.Build;
+import android.os.SystemClock;
 import android.provider.OpenableColumns;
+import android.view.ViewGroup;
+import android.webkit.RenderProcessGoneDetail;
+import android.webkit.WebView;
 import androidx.activity.OnBackPressedCallback;
+import androidx.annotation.NonNull;
 import androidx.core.content.IntentCompat;
 import com.getcapacitor.JSObject;
 import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginCall;
 import com.getcapacitor.PluginMethod;
+import com.getcapacitor.WebViewListener;
 import com.getcapacitor.annotation.CapacitorPlugin;
 import java.io.File;
 import java.io.FileOutputStream;
@@ -18,12 +27,36 @@ import java.io.OutputStream;
 
 /**
  * What the web app needs from Android: the files other apps hand it (Open with, Share), copied into the cache where
- * the WebView can fetch them, as "file" events; and the back button, as "back" events while the web app listens.
+ * the WebView can fetch them, as "file" events; the back button, as "back" events while the web app listens; memory
+ * pressure, as "memory" events; and a new page, instead of the app closing, when the WebView's renderer dies.
  */
 @CapacitorPlugin(name = "AppShell")
 public class AppShellPlugin extends Plugin {
 
     private static final String INCOMING = "incoming";
+    /** A page that dies this soon after the last restart closes the app, rather than restarting it over and over. */
+    private static final long RESTART_LOOP_MS = 10_000;
+
+    /** Why the last page died ("memory" or "crash"), until the next page asks; the app's process outlives its pages. */
+    private static volatile String restartReason;
+    private static long lastRestart = -RESTART_LOOP_MS;
+
+    private final ComponentCallbacks2 memory = new ComponentCallbacks2() {
+        @Override
+        public void onTrimMemory(int level) {
+            String pressure = pressure(level);
+            if (pressure != null) notifyMemory(pressure);
+        }
+
+        @Override
+        @SuppressWarnings("deprecation")
+        public void onLowMemory() {
+            notifyMemory("low");
+        }
+
+        @Override
+        public void onConfigurationChanged(@NonNull Configuration configuration) {}
+    };
 
     @Override
     public void load() {
@@ -40,8 +73,22 @@ public class AppShellPlugin extends Plugin {
             }
         };
         getActivity().runOnUiThread(() -> getActivity().getOnBackPressedDispatcher().addCallback(getActivity(), back));
+        getBridge().addWebViewListener(
+            new WebViewListener() {
+                @Override
+                public boolean onRenderProcessGone(WebView view, RenderProcessGoneDetail detail) {
+                    return restart(view, Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && detail != null && detail.didCrash());
+                }
+            }
+        );
+        getContext().getApplicationContext().registerComponentCallbacks(memory);
         Intent launch = getActivity().getIntent();
         if (receive(launch)) getActivity().setIntent(new Intent(Intent.ACTION_MAIN));
+    }
+
+    @Override
+    protected void handleOnDestroy() {
+        getContext().getApplicationContext().unregisterComponentCallbacks(memory);
     }
 
     @Override
@@ -54,6 +101,49 @@ public class AppShellPlugin extends Plugin {
     public void exit(PluginCall call) {
         call.resolve();
         getActivity().runOnUiThread(() -> getActivity().finish());
+    }
+
+    /** Why the page before this one died ("memory" or "crash"), told once; nothing after a normal start. */
+    @PluginMethod
+    public void restartReason(PluginCall call) {
+        String reason = restartReason;
+        restartReason = null;
+        JSObject result = new JSObject();
+        if (reason != null) result.put("reason", reason);
+        call.resolve(result);
+    }
+
+    /**
+     * The WebView's renderer died: Android stopped it to reclaim memory, or it crashed. Unhandled, that closes the whole
+     * app; instead the dead WebView, which cannot be used again, leaves the window and the activity starts afresh with
+     * a new one, whose page learns why from restartReason.
+     */
+    private boolean restart(WebView view, boolean crashed) {
+        restartReason = crashed ? "crash" : "memory";
+        if (view.getParent() instanceof ViewGroup) ((ViewGroup) view.getParent()).removeView(view);
+        long now = SystemClock.elapsedRealtime();
+        boolean looping = now - lastRestart < RESTART_LOOP_MS;
+        lastRestart = now;
+        if (getActivity().isFinishing()) return true;
+        if (looping) getActivity().finish();
+        else getActivity().recreate();
+        return true;
+    }
+
+    /** The page's memory pressure (see memory.ts) for an onTrimMemory level; null for the levels it leaves alone. */
+    @SuppressWarnings("deprecation")
+    static String pressure(int level) {
+        if (level >= ComponentCallbacks2.TRIM_MEMORY_COMPLETE) return "low";
+        if (level >= ComponentCallbacks2.TRIM_MEMORY_BACKGROUND) return "background";
+        if (level >= ComponentCallbacks2.TRIM_MEMORY_UI_HIDDEN) return "hidden";
+        if (level >= ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW) return "low";
+        return null;
+    }
+
+    private void notifyMemory(String level) {
+        JSObject data = new JSObject();
+        data.put("level", level);
+        notifyListeners("memory", data);
     }
 
     private boolean receive(Intent intent) {

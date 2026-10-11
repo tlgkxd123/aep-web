@@ -23,7 +23,15 @@ const OPAQUE_LIST_TYPES = new Set(["btdk"]);
 
 const ascii = new TextDecoder("latin1");
 
+/** A chunk type. A project holds hundreds of thousands, so the ASCII ones skip the decoder (which reads them alike). */
 function fourCC(bytes: Uint8Array, at: number): string {
+  if (at + 4 <= bytes.length) {
+    const a = bytes[at];
+    const b = bytes[at + 1];
+    const c = bytes[at + 2];
+    const d = bytes[at + 3];
+    if ((a | b | c | d) < 0x80) return String.fromCharCode(a, b, c, d);
+  }
   return ascii.decode(bytes.subarray(at, at + 4));
 }
 

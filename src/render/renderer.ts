@@ -6,11 +6,12 @@
 import { currentValue, layerTimeAt, setExpressionScope } from "../aep/evaluate.ts";
 import type { CompItem, Layer, Project, Property, PropertyGroup, PropertyNode } from "../aep/model.ts";
 import { cameraAt, localTransform, Mat4, worldMatrix, type Camera } from "../aep/transform.ts";
+import { memoryBudgets, type MemoryBudgets } from "../device.ts";
 import { footageStore } from "../media/store.ts";
 import { ImageCache, LayerCache, valuesKey } from "./contentCache.ts";
 import "./features.ts";
 import { trimFloat } from "./floatTargets.ts";
-import { sourcePixelAspect } from "./footage.ts";
+import { releaseFootageTextures, sourcePixelAspect } from "./footage.ts";
 import { bindTarget, compile, filterRedundantState, finishGpu, TargetPool, unitQuad, type GL, type Target } from "./gl.ts";
 import { LayerKeys } from "./layerKeys.ts";
 import { MaskRenderer } from "./masks.ts";
@@ -27,12 +28,12 @@ const MATTE_MODES: Record<number, number> = {
   5016: MatteMode.LUMA_INVERTED,
 };
 const MAX_DEPTH = 16;
-/** Render target memory pooled between frames at most (8-bit and float). */
-const POOL_BYTES = 1024 * 1024 * 1024;
-const FLOAT_POOL_BYTES = 1024 * 1024 * 1024;
-/** Layer images (and adjustment layers' coverage) kept for reuse in later frames, at most. */
-const LAYER_CACHE_BYTES = 320 * 1024 * 1024;
-const COVERAGE_CACHE_BYTES = 64 * 1024 * 1024;
+
+/** What a renderer keeps between frames at most: pooled targets (8-bit and float), reused layer images, shape content and coverage. */
+export type RendererBudgets = Pick<MemoryBudgets, "targets" | "floatTargets" | "layers" | "shapes" | "coverage">;
+
+/** The budgets the renderer was tuned with, a desktop's. */
+const DEFAULT_BUDGETS: RendererBudgets = memoryBudgets({ mobile: false });
 
 /** A layer image kept between frames, with what rendering it warned about. */
 interface CachedImage {
@@ -103,10 +104,16 @@ export class Renderer {
   /** Per comp, what its layers drew the last time it rendered and how many bottom ones the kept composite holds. */
   private readonly prefixes = new Map<CompItem, { parts: (string | null)[]; held: number }>();
   private cachedProject?: Project;
+  private budgets: RendererBudgets;
 
   /** `options` may be shared with other renderers and changed between renders. */
-  constructor(canvas: HTMLCanvasElement | OffscreenCanvas, options: RendererOptions = { approximateMissingPlugins: false, sapphireLookalikes: false }) {
+  constructor(
+    canvas: HTMLCanvasElement | OffscreenCanvas,
+    options: RendererOptions = { approximateMissingPlugins: false, sapphireLookalikes: false },
+    budgets: RendererBudgets = DEFAULT_BUDGETS,
+  ) {
     this.options = options;
+    this.budgets = budgets;
     const gl = canvas.getContext("webgl2", { premultipliedAlpha: true, alpha: true, antialias: false, preserveDrawingBuffer: true });
     if (!gl) throw new Error("WebGL2 is not available");
     this.gl = gl as GL;
@@ -121,11 +128,35 @@ export class Renderer {
       reduce: compile(this.gl, FULLSCREEN_VS, REDUCE_FS),
     };
     this.masks = new MaskRenderer(this.gl, () => this.draw());
-    this.shapeCache = new LayerCache((image) => image && this.pool.release(image.target));
+    this.shapeCache = new LayerCache(
+      (image) => image && this.pool.release(image.target),
+      budgets.shapes,
+      (image) => (image ? image.target.width * image.target.height * 4 : 0),
+    );
     this.keys = this.newKeys();
     const dispose = (cached: CachedImage) => this.pool.release(cached.image.target);
-    this.images = new ImageCache(LAYER_CACHE_BYTES, dispose);
-    this.coverages = new ImageCache(COVERAGE_CACHE_BYTES, dispose);
+    this.images = new ImageCache(budgets.layers, dispose);
+    this.coverages = new ImageCache(budgets.coverage, dispose);
+  }
+
+  /** Keeps to new budgets from now on, dropping the reused images beyond them at once. */
+  setBudgets(budgets: RendererBudgets): void {
+    this.budgets = budgets;
+    this.images.setBudget(budgets.layers);
+    this.shapeCache.setBudget(budgets.shapes);
+    this.coverages.setBudget(budgets.coverage);
+  }
+
+  /**
+   * Gives back the memory kept between frames (layer caches, pooled targets, uploaded footage) for the system to
+   * reuse; the next frame renders every layer anew. Targets handed out (see `render`) stay valid.
+   */
+  releaseMemory(): void {
+    this.clearCaches();
+    this.pool.trim(0);
+    trimFloat(this.gl, 0);
+    this.masks.trim(true);
+    releaseFootageTextures(this.gl);
   }
 
   private newKeys(): LayerKeys {
@@ -175,8 +206,9 @@ export class Renderer {
     setExpressionScope({ project, warn: (message) => warnings.add(message) });
     this.keys.newFrame();
     const result = this.renderComp(comp, time, 0, options.scale ?? 1);
-    this.pool.trim(Math.max(POOL_BYTES, 8 * result.width * result.height * 4));
-    trimFloat(this.gl, FLOAT_POOL_BYTES);
+    this.pool.trim(Math.max(this.budgets.targets, 8 * result.width * result.height * 4));
+    trimFloat(this.gl, this.budgets.floatTargets);
+    this.masks.trim();
     return result;
   }
 

@@ -4,7 +4,8 @@ import { useSyncExternalStore } from "react";
 export interface HoverInfo {
   x: number;
   y: number;
-  rgba: [number, number, number, number];
+  /** Not sampled under a finger. */
+  rgba?: [number, number, number, number];
 }
 
 let current: HoverInfo | undefined;

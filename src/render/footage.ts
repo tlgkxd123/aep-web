@@ -187,6 +187,14 @@ function retire(gl: GL, planes: PlaneTexture[]): void {
   }
 }
 
+/** Deletes the textures of uploaded frames and the spare ones; frames upload again when they are drawn. */
+export function releaseFootageTextures(gl: GL): void {
+  for (const planes of uploads.get(gl)?.values() ?? []) for (const { texture } of planes) gl.deleteTexture(texture);
+  uploads.delete(gl);
+  for (const list of spares.get(gl)?.values() ?? []) for (const texture of list) gl.deleteTexture(texture);
+  spares.delete(gl);
+}
+
 /** Textures holding the frame's samples as stored (RGBA, or Y/Cb/Cr planes). */
 function frameTextures(gl: GL, frame: FootageFrame): WebGLTexture[] {
   let cache = uploads.get(gl);

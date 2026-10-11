@@ -38,6 +38,10 @@ frame by frame against After Effects 2025's own renders. React + TypeScript + Vi
  `input.scale` (as After Effects effects follow the downsample factor).
  - Reduced resolutions (`render(..., { scale })`, the viewer's Half/Third/Quarter and Fast Previews) render
  nested comps, content, masks and scalable effects at that scale; Full resolution is unaffected.
+ - What a renderer keeps between frames (pooled targets, layer images, shape content, coverage) stays within
+ `RendererBudgets`. With no budgets given, the renderer uses a desktop's, the values it was tuned with. The app's
+ caches follow `memoryBudgets` in `src/device.ts`: phones and tablets keep a share of their memory.
+ `src/playback/memory.ts` empties the caches under memory pressure.
   - `shapes.ts`: shape layers in Canvas2D.
   - `harness.ts`: `window.aepHarness` for the headless pixel tests.
 - `src/ui/` - the After Effects 2025-style workspace. `CompositionPanel.tsx` renders the viewer
@@ -102,9 +106,15 @@ Gate ledgers follow the unlazy skill (`C:/Users/schxm/.claude/skills/unlazy/SKIL
  checks, hands failures back to the agent, and opens a pull request (a draft when the checks still fail).
 - `release.yml` builds the signed APK when a GitHub release is published and attaches it to the release.
  The keystore is kept outside the repository, in `~/.android-keys/`.
-- The Android app's native side is the `AppShell` plugin (`android/app/src/main/java/.../AppShellPlugin.java`): `.aep`
- files from Open with and Share, and the back button. Its page side, with the installed web app's file handler, is
- `src/ui/system.ts`. Building the APK locally needs JDK 21.
+- The Android app's native side is the `AppShell` plugin (`android/app/src/main/java/.../AppShellPlugin.java`). It
+ handles:
+ - `.aep` files from Open with and Share;
+ - the back button;
+ - memory pressure (`onTrimMemory`, passed on as "memory" events);
+ - a new page when the WebView's renderer dies, with the reason given to the next page.
+
+ Its page side, with the installed web app's file handler, is `src/ui/system.ts`. Building the APK locally needs
+ JDK 21.
 
 ## Ground truth
 

@@ -1,5 +1,6 @@
 import type { CompItem, Project } from "../aep/model.ts";
 import { footageStore } from "../media/store.ts";
+import { appBudgets } from "../playback/memory.ts";
 import { appRenderOptions } from "../playback/renderOptions.ts";
 import { Renderer } from "../render/renderer.ts";
 import { EXPORT_CHANNELS, EXPORT_SAMPLE_RATE, mixCompAudio, type MixedAudio } from "./audio.ts";
@@ -72,7 +73,7 @@ export class RenderQueue {
   private resumeWaiters: (() => void)[] = [];
   private renderer: Renderer | null = null;
   /** Builds the renderer used for output; replaced in tests. */
-  createRenderer: () => Renderer = () => new Renderer(new OffscreenCanvas(1, 1), appRenderOptions);
+  createRenderer: () => Renderer = () => new Renderer(new OffscreenCanvas(1, 1), appRenderOptions, appBudgets());
   /** Opens the sink for an item; replaced by the export gate to keep bytes in memory. */
   openSink: (item: QueueItem) => Promise<Sink> = async (item) =>
     item.handle ? fileSink(item.handle) : downloadSink(item.fileName, FORMATS[item.output.format].mime);

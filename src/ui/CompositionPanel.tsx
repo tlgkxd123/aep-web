@@ -486,8 +486,9 @@ export function CompositionPanel({
     const [x, y] = toComp(e);
     const engine = render.engine.current;
     const inside = x >= 0 && y >= 0 && x < comp.width && y < comp.height;
-    const rgba: [number, number, number, number] =
-      engine && inside && !playing ? engine.readPixel(frameIndex(comp, time), x, y) : [0, 0, 0, 0];
+    // Reading a pixel back waits for the GPU to finish the frame, which would stall every move of a dragging finger.
+    const rgba: [number, number, number, number] | undefined =
+      e.pointerType === "touch" ? undefined : engine && inside && !playing ? engine.readPixel(frameIndex(comp, time), x, y) : [0, 0, 0, 0];
     setHover({ x: Math.round(x), y: Math.round(y), rgba });
   };
 

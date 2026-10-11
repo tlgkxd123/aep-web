@@ -97,13 +97,18 @@ interface FloatTarget {
   framebuffer: WebGLFramebuffer;
 }
 
+/** The targets of a size are deleted once this many frames in a row did not use them. */
+const KEEP_FRAMES = 2;
+
 export class MaskRenderer {
   private readonly gl: GL;
   private readonly draw: () => void;
   private readonly feather: WebGLProgram;
   private readonly combine: WebGLProgram;
   private readonly floatTargets: boolean;
-  private readonly targets = new Map<string, FloatTarget[]>();
+  /** Targets per size, with the frame that last used them. */
+  private readonly targets = new Map<string, { list: FloatTarget[]; frame: number }>();
+  private frame = 0;
   private readonly shapeTexture: WebGLTexture;
   private readonly kernelTexture: WebGLTexture;
   private canvas: OffscreenCanvas | undefined;
@@ -138,13 +143,32 @@ export class MaskRenderer {
     return map.get(name)!;
   }
 
+  /**
+   * Ends a frame: deletes the targets of the sizes the last KEEP_FRAMES frames did not use (masked content whose size
+   * changes every frame would otherwise leave three textures per size behind), or with `all` every one.
+   */
+  trim(all = false): void {
+    for (const [key, { list, frame }] of this.targets) {
+      if (!all && this.frame - frame < KEEP_FRAMES) continue;
+      for (const target of list) {
+        this.gl.deleteFramebuffer(target.framebuffer);
+        this.gl.deleteTexture(target.texture);
+      }
+      this.targets.delete(key);
+    }
+    this.frame++;
+  }
+
   /** Three single-channel targets of this size (stack, feather intermediate, spare), reused across frames. */
   private targetsFor(w: number, h: number): FloatTarget[] {
     const key = `${w}x${h}`;
-    let list = this.targets.get(key);
-    if (list) return list;
+    const kept = this.targets.get(key);
+    if (kept) {
+      kept.frame = this.frame;
+      return kept.list;
+    }
     const gl = this.gl;
-    list = Array.from({ length: 3 }, () => {
+    const list = Array.from({ length: 3 }, () => {
       const texture = this.nearestTexture();
       if (this.floatTargets) gl.texImage2D(gl.TEXTURE_2D, 0, gl.R32F, w, h, 0, gl.RED, gl.FLOAT, null);
       else gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA8, w, h, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
@@ -153,7 +177,7 @@ export class MaskRenderer {
       gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, texture, 0);
       return { texture, framebuffer };
     });
-    this.targets.set(key, list);
+    this.targets.set(key, { list, frame: this.frame });
     return list;
   }
 

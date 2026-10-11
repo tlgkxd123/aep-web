@@ -1,15 +1,10 @@
 import type { Project } from "../aep/model.ts";
+import { deviceBudgets } from "../device.ts";
 import type { Renderer } from "../render/renderer.ts";
 import { FrameCache } from "./frameCache.ts";
 
-/** RAM preview budget: an eighth of the device memory the browser reports, at most 1 GiB. */
-function defaultBudget(): number {
-  const gib = (globalThis.navigator as { deviceMemory?: number } | undefined)?.deviceMemory ?? 8;
-  return Math.min(1024, (gib * 1024) / 8) * 1024 * 1024;
-}
-
-/** The RAM preview cache shared by every viewer: rendered frames as ImageBitmaps. */
-export const ramCache = new FrameCache<ImageBitmap>(defaultBudget(), (bitmap) => bitmap.close());
+/** The RAM preview cache shared by every viewer: rendered frames as ImageBitmaps, within the device's budget. */
+export const ramCache = new FrameCache<ImageBitmap>(deviceBudgets().ramPreview, (bitmap) => bitmap.close());
 
 /** Cache view of a comp at a resolution divisor (1 Full ... 4 Quarter). */
 export function cacheView(compId: number, factor: number): string {
@@ -40,6 +35,11 @@ function invalidated(): void {
 export function registerRenderer(renderer: Renderer): () => void {
   renderers.add(renderer);
   return () => renderers.delete(renderer);
+}
+
+/** The viewers' renderers, as registered. */
+export function viewerRenderers(): Iterable<Renderer> {
+  return renderers;
 }
 
 /** Comp ids whose frames depend on `compId`: itself and every comp that nests it, directly or not. */

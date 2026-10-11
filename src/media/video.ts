@@ -78,6 +78,9 @@ async function toFootageFrame(frame: VideoFrame): Promise<FootageFrame> {
 /** How long to wait for a fed frame before flushing the decoder to force it out. */
 const OUTPUT_TIMEOUT_MS = 1500;
 
+/** What requests to a closed reader fail with. */
+export const CLOSED = "the video was closed";
+
 /**
  * Keeps one decoder per video and feeds it forward: playing or scrubbing ahead
  * continues from the last fed sample instead of restarting at the key frame, and
@@ -114,6 +117,7 @@ export class WebCodecsReader implements VideoReader {
   private failure: Error | undefined;
   private readonly waiting = new Map<number, () => void>();
   private conversions: Promise<void>[] = [];
+  private closed = false;
 
   constructor(blob: Blob, track: VideoTrack, config: VideoDecoderConfig) {
     this.blob = blob;
@@ -175,6 +179,7 @@ export class WebCodecsReader implements VideoReader {
   }
 
   private ensureDecoder(): VideoDecoder {
+    if (this.closed) throw new Error(CLOSED);
     if (this.decoder && this.decoder.state !== "closed") return this.decoder;
     this.decoder = new VideoDecoder({
       output: (frame) => {
@@ -296,10 +301,14 @@ export class WebCodecsReader implements VideoReader {
     if (this.failure) throw this.failure;
   }
 
+  /** Final: a run waiting for a picture fails at once (not after OUTPUT_TIMEOUT_MS) and no decoder opens again. */
   close(): void {
+    this.closed = true;
     if (this.decoder && this.decoder.state !== "closed") this.decoder.close();
     this.decoder = undefined;
     this.forgetDecoded();
+    this.failure = new Error(CLOSED);
+    for (const done of this.waiting.values()) done();
   }
 }
 
@@ -372,6 +381,9 @@ export class ElementReader implements VideoReader {
   private readonly video: HTMLVideoElement;
   private readonly url: string;
   private readonly frameRate: number;
+  private closed = false;
+  /** Fails the seek in progress. */
+  private abort: (() => void) | undefined;
 
   private constructor(video: HTMLVideoElement, url: string, frameRate: number) {
     this.video = video;
@@ -403,12 +415,15 @@ export class ElementReader implements VideoReader {
 
   decode(index: number, sink: FrameSink, needed?: () => boolean): Promise<void> {
     const run = this.queue.then(async () => {
+      if (this.closed) throw new Error(CLOSED);
       if (needed && !needed()) return;
       const video = this.video;
-      await new Promise<void>((resolve) => {
+      await new Promise<void>((resolve, reject) => {
+        this.abort = () => reject(new Error(CLOSED));
         video.onseeked = () => resolve();
         video.currentTime = Math.min(video.duration || Infinity, (index + 0.5) / this.frameRate);
       });
+      this.abort = undefined;
       const image = await createImageBitmap(video, { premultiplyAlpha: "none", colorSpaceConversion: "none" });
       sink(index, { kind: "bitmap", image, width: image.width, height: image.height });
     });
@@ -417,6 +432,8 @@ export class ElementReader implements VideoReader {
   }
 
   close(): void {
+    this.closed = true;
+    this.abort?.();
     this.video.removeAttribute("src");
     URL.revokeObjectURL(this.url);
   }

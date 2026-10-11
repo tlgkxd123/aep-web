@@ -5,6 +5,7 @@
 // gets "pending" the first time and is told to render again when they arrive.
 import type { FootageItem } from "../aep/model.ts";
 import { sequenceFrameName } from "../aep/footage.ts";
+import { deviceBudgets } from "../device.ts";
 import { decodeAudio, registeredAudio, type AudioData } from "./audio.ts";
 import { frameBytes, releaseFrame, type FootageFrame } from "./frames.ts";
 import { audioTrackRate } from "./mp4.ts";
@@ -74,7 +75,6 @@ interface Decoder {
 }
 
 const VIDEO_EXTENSIONS = new Set(["mp4", "m4v", "mov", "qt", "3gp", "webm", "mkv", "avi", "mxf"]);
-const CACHE_BYTES = 384 * 1024 * 1024;
 /**
  * Requested frames are kept out of eviction until the renderer takes them, so a video's lookahead cannot push
  * out the frame it was decoded for. Bounded, oldest first, for requests nobody comes back for.
@@ -109,6 +109,8 @@ export class FootageStore {
   private media = new WeakMap<FootageItem, ItemMedia>();
   private readonly cache = new Map<string, { frame: FootageFrame; bytes: number }>();
   private cacheBytes = 0;
+  /** Bytes of decoded frames kept at most, beyond the pinned ones. */
+  private budget: number;
   private readonly pinned = new Set<string>();
   /** Every open video reader, to close them (and their workers) with the files. */
   private readonly readers = new Set<VideoReader>();
@@ -124,6 +126,30 @@ export class FootageStore {
   private fileCount = 0;
   private notifyScheduled = false;
   private changes = 0;
+
+  constructor(budget = deviceBudgets().footage) {
+    this.budget = budget;
+  }
+
+  /** Changes how many bytes of decoded frames are kept, dropping the least recently used beyond it. */
+  setBudget(bytes: number): void {
+    this.budget = bytes;
+    this.evict();
+  }
+
+  /**
+   * Drops the decoded frames no render waits for; with `decoders`, also closes every open video decoder (and its
+   * worker) and forgets decoded audio, which all come back when footage is asked for again. Located files stay.
+   */
+  releaseMemory(decoders: boolean): void {
+    this.evict(0);
+    if (decoders) {
+      for (const reader of this.readers) reader.close();
+      this.readers.clear();
+      this.media = new WeakMap();
+    }
+    this.notify();
+  }
 
   /** Number of files located so far. */
   get size(): number {
@@ -548,9 +574,14 @@ export class FootageStore {
     const bytes = frameBytes(frame);
     this.cache.set(key, { frame, bytes });
     this.cacheBytes += bytes;
+    this.evict(this.budget, key);
+  }
+
+  /** Drops the least recently used frames, but the pinned ones and `keep`, until at most `budget` bytes stay. */
+  private evict(budget = this.budget, keep?: string): void {
     for (const [k, entry] of this.cache) {
-      if (this.cacheBytes <= CACHE_BYTES) break;
-      if (k === key || this.pinned.has(k)) continue;
+      if (this.cacheBytes <= budget) break;
+      if (k === keep || this.pinned.has(k)) continue;
       this.stats.evictions++;
       this.cache.delete(k);
       this.cacheBytes -= entry.bytes;

@@ -5,6 +5,7 @@ import { footageStore } from "../media/store.ts";
 import type { Target } from "../render/gl.ts";
 import { Renderer, scaledSize } from "../render/renderer.ts";
 import { frameDuration } from "./clock.ts";
+import { appBudgets } from "./memory.ts";
 import { attachProject, cacheView, contentGeneration, invalidate, ramCache, registerRenderer } from "./ramCache.ts";
 import { appRenderOptions } from "./renderOptions.ts";
 
@@ -112,7 +113,7 @@ export class ViewerEngine {
     this.display = display;
     this.context = display.getContext("2d");
     this.surface = new OffscreenCanvas(1, 1);
-    this.renderer = new Renderer(this.surface, appRenderOptions);
+    this.renderer = new Renderer(this.surface, appRenderOptions, appBudgets());
     this.unregister = registerRenderer(this.renderer);
     const gl = this.renderer.gl;
     const info = gl.getExtension("WEBGL_debug_renderer_info");

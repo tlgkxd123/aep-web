@@ -20,6 +20,8 @@ import { Editor, type LayerSwitch } from "../edit/editor.ts";
 import { addLayer, canRemapTime, copyLayers, deleteLayers, freezeFrame, pasteLayers, splitLayers, type LayerClipboard } from "../edit/layers.ts";
 import { compSettingsFor, newComposition, setItemLabel } from "../edit/project.ts";
 import { nudgeLayers, setTransformValue, transformProp } from "../edit/transform-ops.ts";
+import { isMobileDevice } from "../device.ts";
+import { constrainMemory, releaseMemory } from "../playback/memory.ts";
 import { invalidate } from "../playback/ramCache.ts";
 import { autoResolution } from "../playback/viewer.ts";
 import { audioPreview } from "../media/audioPreview.ts";
@@ -61,7 +63,7 @@ import { ProjectPanel } from "./ProjectPanel.tsx";
 import { RenderQueuePanel } from "./RenderQueuePanel.tsx";
 import { renderQueue } from "../export/queue.ts";
 import { isMobileOS, LANDSCAPE_QUERY, useCompact, useMedia } from "./responsive.ts";
-import { dismissTopmost, exitApp, onBackButton, onLaunchedProjects } from "./system.ts";
+import { dismissTopmost, exitApp, onBackButton, onLaunchedProjects, onMemoryPressure, pageRestart, type PageRestart } from "./system.ts";
 import { RightPanels } from "./RightPanels.tsx";
 import { SolidSettings } from "./SolidSettings.tsx";
 import { TimelinePanel } from "./TimelinePanel.tsx";
@@ -134,6 +136,31 @@ interface CompView {
   layerId?: number;
 }
 
+/** Resolves once the browser has painted what React committed last (at most ~100 ms on), before a long synchronous task. */
+function afterPaint(): Promise<void> {
+  if (typeof requestAnimationFrame !== "function") return Promise.resolve();
+  return new Promise((resolve) => {
+    // Hidden pages get no animation frames.
+    const fallback = setTimeout(resolve, 100);
+    requestAnimationFrame(() =>
+      setTimeout(() => {
+        clearTimeout(fallback);
+        resolve();
+      }, 0),
+    );
+  });
+}
+
+/** What the Android app's page restart notice says (see pageRestart). */
+export function restartNotice(reason: PageRestart, autoResolutionOn: boolean): string {
+  const what =
+    reason === "memory"
+      ? "Android stopped the app's page to free memory, so the app started again."
+      : "The app's page stopped unexpectedly, so the app started again.";
+  const advice = autoResolutionOn ? "" : " Setting the viewer's Resolution to Auto uses less memory still.";
+  return `${what} Changes that were not saved are lost. For the rest of this session the app keeps fewer frames and layers in memory.${advice}`;
+}
+
 async function readBytes(file: File): Promise<Uint8Array> {
   if (typeof file.arrayBuffer === "function") return new Uint8Array(await file.arrayBuffer());
   return new Promise((resolve, reject) => {
@@ -187,6 +214,7 @@ export function App() {
   const [tool, setTool] = useState<ToolId>("selection");
   const [revision, setRevision] = useState(0);
   const [editError, setEditError] = useState<string>();
+  const [restarted, setRestarted] = useState<PageRestart>();
   const [solidFor, setSolidFor] = useState<number>();
   const [particleMatch, setParticleMatch] = useState(false);
   const effects = useEffectLibrary();
@@ -298,6 +326,8 @@ export function App() {
       setPlaying(false);
       try {
         const bytes = await readBytes(file);
+        // A heavy project reads for seconds on a phone, with the page frozen: the status shows first.
+        await afterPaint();
         const started = performance.now();
         const opened = Editor.fromBytes(bytes);
         const parseMs = performance.now() - started;
@@ -424,6 +454,32 @@ export function App() {
   }, [playing, activeComp, stopPlayback]);
 
   usePlayback(project, activeComp, playing, view?.time ?? 0, preview, stopPlayback);
+
+  // A phone or tablet that puts the app out of sight stops its playback and gives back the memory its caches hold,
+  // as it does when Android asks for memory, so Android does not stop the page (and lose the session) to get it.
+  const hideRef = useRef<() => void>(undefined);
+  hideRef.current = () => {
+    if (playhead.get()) stopPlayback();
+    releaseMemory("hidden");
+  };
+  useEffect(() => {
+    const visibility = () => {
+      if (document.visibilityState === "hidden" && isMobileDevice()) hideRef.current?.();
+    };
+    document.addEventListener("visibilitychange", visibility);
+    const pressure = onMemoryPressure((level) => (level === "hidden" ? hideRef.current?.() : releaseMemory(level)));
+    let mounted = true;
+    void pageRestart().then((reason) => {
+      if (!reason) return;
+      constrainMemory();
+      if (mounted) setRestarted(reason);
+    });
+    return () => {
+      mounted = false;
+      document.removeEventListener("visibilitychange", visibility);
+      pressure();
+    };
+  }, []);
 
   // Decode the active comp's audio ahead of playback once its footage is located.
   const footageVersion = useFootageVersion();
@@ -1541,6 +1597,28 @@ export function App() {
             <p id="edit-error-text">{editError}</p>
             <div className="dialog-actions">
               <button type="button" className="ae-primary" autoFocus onClick={() => setEditError(undefined)}>
+                OK
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {restarted && (
+        <div className="modal-backdrop">
+          <div
+            className="dialog"
+            role="alertdialog"
+            aria-modal="true"
+            aria-labelledby="restart-title"
+            aria-describedby="restart-text"
+            onKeyDown={(e) => e.key === "Escape" && setRestarted(undefined)}
+          >
+            <h2 id="restart-title">
+              <Icon name="warning" size={16} /> {restarted === "memory" ? "Restarted to free memory" : "Restarted after a crash"}
+            </h2>
+            <p id="restart-text">{restartNotice(restarted, autoResolution.on)}</p>
+            <div className="dialog-actions">
+              <button type="button" className="ae-primary" autoFocus onClick={() => setRestarted(undefined)}>
                 OK
               </button>
             </div>
