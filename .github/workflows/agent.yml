@@ -138,4 +138,4 @@ jobs:
       - if: failure() && env.NUMBER != ''
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh issue comment "$NUMBER" --body "The agent run failed: $RUN_URL"
+        run: gh issue comment "$NUMBER" --body "The agent run failed, see $RUN_URL"
