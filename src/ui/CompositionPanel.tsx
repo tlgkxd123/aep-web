@@ -5,7 +5,7 @@ import { anchorInComp, moveLayers, panBehind, rotateByDrag, scaleByHandle, type 
 import { frameIndex } from "../playback/clock.ts";
 import { usePlaying } from "../playback/playhead.ts";
 import { useViewer } from "../playback/useViewer.ts";
-import { fastPreviews as fastPreviewSetting, isIntegratedGpu, viewerZooms } from "../playback/viewer.ts";
+import { autoResolution, fastPreviews as fastPreviewSetting, isIntegratedGpu, viewerFactor, viewerZooms } from "../playback/viewer.ts";
 import { apply, invert, layerAffine, type Matrix } from "./animate.ts";
 import { openContextMenu, openMenuBelow, type MenuEntries } from "./ContextMenu.tsx";
 import { AppActionsContext, layerMenu, viewerMenu } from "./contextMenus.ts";
@@ -164,8 +164,8 @@ export function CompositionPanel({
   const [canvas, setCanvas] = useState<HTMLCanvasElement | null>(null);
   const editing = useEditing();
   const { editor, revision, tool } = editing;
-  const downsample = Math.max(1, comp.resolutionFactor[0] || 1);
-  const render = useViewer(canvas, project, comp, time, downsample);
+  const compFactor = Math.max(1, comp.resolutionFactor[0] || 1);
+  const autoRes = useSyncExternalStore(autoResolution.subscribe, () => autoResolution.on);
   // Layer boxes would trail the picture during playback; they come back where it stops.
   const playing = usePlaying(comp.id);
 
@@ -183,8 +183,6 @@ export function CompositionPanel({
     };
   }, []);
   const missing = missingFootage(project, comp).length;
-  const gpu = render.engine.current?.gpu;
-  const integratedGpu = gpu && !gpuHintHidden && isIntegratedGpu(gpu) ? gpu : null;
   const svgRef = useRef<SVGSVGElement>(null);
   const [itemOver, setItemOver] = useState(false);
   /** The layer an effect being dragged over the viewer would apply to. */
@@ -205,6 +203,10 @@ export function CompositionPanel({
     viewer.width && viewer.height ? Math.min(1, (viewer.width - 40) / frameW, (viewer.height - 40) / comp.height) : 0.33;
   const scale = zoom === "fit" ? Math.max(0.01, fit) : zoom;
   useEffect(() => viewerZooms.set(comp.id, scale), [comp.id, scale]);
+  const downsample = viewerFactor(compFactor, scale, autoRes);
+  const render = useViewer(canvas, project, comp, time, downsample);
+  const gpu = render.engine.current?.gpu;
+  const integratedGpu = gpu && !gpuHintHidden && isIntegratedGpu(gpu) ? gpu : null;
   // A fitted view stays centred; panning applies to explicit zoom levels.
   const offset: [number, number] = zoom === "fit" ? [0, 0] : pan;
   const live = useRef({ scale, offset });
@@ -643,16 +645,23 @@ export function CompositionPanel({
           <Icon name="chevronDown" size={10} />
         </label>
         <Dropdown
-          text={resolution}
+          text={autoRes ? "Auto" : resolution}
           label="Resolution/Down Sample Factor"
           width={64}
-          menu={() =>
-            [1, 2, 3, 4].map((f) => ({
+          menu={() => [
+            ...[1, 2, 3, 4].map((f) => ({
               label: RESOLUTIONS[f],
-              checked: downsample === f,
-              onSelect: editor ? () => attempt(editing, () => editor.setCompSettings(comp, { resolutionFactor: [f, f] })) : undefined,
-            }))
-          }
+              checked: !autoRes && compFactor === f,
+              onSelect:
+                editor || f === compFactor
+                  ? () => {
+                      autoResolution.set(false);
+                      if (editor && f !== compFactor) attempt(editing, () => editor.setCompSettings(comp, { resolutionFactor: [f, f] }));
+                    }
+                  : undefined,
+            })),
+            { label: "Auto", checked: autoRes, onSelect: () => autoResolution.set(true) },
+          ]}
         />
         <ViewerButton
           icon="fastPreview"

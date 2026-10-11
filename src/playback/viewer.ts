@@ -1,4 +1,5 @@
 import type { CompItem, Project } from "../aep/model.ts";
+import { isMobileDevice } from "../device.ts";
 import { collectPending } from "../media/pending.ts";
 import { footageStore } from "../media/store.ts";
 import type { Target } from "../render/gl.ts";
@@ -354,6 +355,49 @@ export const fastPreviews = {
     return () => fastPreviewListeners.delete(listener);
   },
 };
+
+const AUTO_RESOLUTION_KEY = "aep-web.autoResolution";
+const autoResolutionListeners = new Set<() => void>();
+let autoOn = (() => {
+  try {
+    const stored = globalThis.localStorage?.getItem(AUTO_RESOLUTION_KEY);
+    if (stored === "on" || stored === "off") return stored === "on";
+  } catch {
+    // Falls back to the device's default.
+  }
+  return isMobileDevice();
+})();
+
+/**
+ * The Resolution menu's Auto: the viewer renders no finer than it shows the comp, nor than the comp's own
+ * Resolution, paused as well as playing. On by default on phones and tablets, whose GPUs would otherwise render a
+ * full HD comp at Full for a viewer a few hundred pixels wide.
+ */
+export const autoResolution = {
+  get on(): boolean {
+    return autoOn;
+  },
+  set(on: boolean): void {
+    if (on === autoOn) return;
+    autoOn = on;
+    try {
+      globalThis.localStorage?.setItem(AUTO_RESOLUTION_KEY, on ? "on" : "off");
+    } catch {
+      // Not kept between sessions where storage is unavailable.
+    }
+    for (const l of autoResolutionListeners) l();
+  },
+  subscribe(listener: () => void): () => void {
+    autoResolutionListeners.add(listener);
+    return () => autoResolutionListeners.delete(listener);
+  },
+};
+
+/** The divisor a viewer renders at: the comp's Resolution, or with Auto the coarser of it and the magnification's. */
+export function viewerFactor(compFactor: number, zoom: number, auto: boolean): number {
+  const factor = Math.max(1, compFactor || 1);
+  return auto ? Math.max(factor, autoFactor(zoom)) : factor;
+}
 
 const factors = new Map<number, number>();
 const factorListeners = new Set<() => void>();
