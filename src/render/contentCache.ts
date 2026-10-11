@@ -35,12 +35,21 @@ export function valuesKey(nodes: readonly PropertyNode[], time: number, layer: L
  */
 export class ImageCache<V> {
   private readonly entries = new Map<object, { key: string; value: V; bytes: number }>();
-  private readonly budget: number;
+  private budget: number;
   private readonly dispose: (value: V) => void;
   private held = 0;
   constructor(budget: number, dispose: (value: V) => void) {
     this.budget = budget;
     this.dispose = dispose;
+  }
+
+  /** Changes the budget, dropping the least recently used entries beyond it. */
+  setBudget(budget: number): void {
+    this.budget = budget;
+    for (const [owner] of this.entries) {
+      if (this.held <= this.budget) break;
+      this.delete(owner);
+    }
   }
 
   get(owner: object, key: string): V | undefined {
@@ -82,17 +91,35 @@ export class ImageCache<V> {
   }
 }
 
-/** One entry per layer: the last cached value and the key it was made for. */
+interface LayerEntry<V> {
+  key: string;
+  value: V | undefined;
+  bytes: number;
+  /** The value made for the key was beyond the budget alone: it is not made again. */
+  oversized?: boolean;
+}
+
+/**
+ * One entry per layer: the last cached value and the key it was made for. Values hold at most `budget` bytes in all
+ * (as `sizeOf` counts them), the least recently used dropped first.
+ */
 export class LayerCache<V> {
-  private readonly entries = new Map<Layer, { key: string; value: V | undefined }>();
+  private readonly entries = new Map<Layer, LayerEntry<V>>();
   private readonly dispose: (value: V) => void;
-  constructor(dispose: (value: V) => void) {
+  private readonly sizeOf: (value: V) => number;
+  private budget: number;
+  private held = 0;
+  constructor(dispose: (value: V) => void, budget = Infinity, sizeOf: (value: V) => number = () => 0) {
     this.dispose = dispose;
+    this.budget = budget;
+    this.sizeOf = sizeOf;
   }
 
   get(layer: Layer, key: string): V | undefined {
     const entry = this.entries.get(layer);
-    return entry && entry.key === key ? entry.value : undefined;
+    if (!entry || entry.key !== key) return undefined;
+    this.touch(layer, entry);
+    return entry.value;
   }
 
   /** The layer's cached value whatever its key, to reuse its storage. */
@@ -103,7 +130,12 @@ export class LayerCache<V> {
   set(layer: Layer, key: string, value: V): void {
     const old = this.entries.get(layer);
     if (old?.value !== undefined && old.value !== value) this.dispose(old.value);
-    this.entries.set(layer, { key, value });
+    this.held -= old?.bytes ?? 0;
+    this.entries.delete(layer);
+    const bytes = this.sizeOf(value);
+    this.entries.set(layer, { key, value, bytes });
+    this.held += bytes;
+    this.evict(layer);
   }
 
   /**
@@ -113,19 +145,63 @@ export class LayerCache<V> {
   offer(layer: Layer, key: string, make: () => V): void {
     const old = this.entries.get(layer);
     if (old?.key === key) {
-      old.value ??= make();
+      this.touch(layer, old);
+      if (old.value !== undefined || old.oversized) return;
+      const value = make();
+      const bytes = this.sizeOf(value);
+      if (bytes > this.budget) {
+        this.dispose(value);
+        old.oversized = true;
+        return;
+      }
+      old.value = value;
+      old.bytes = bytes;
+      this.held += bytes;
+      this.evict(layer);
       return;
     }
-    if (old?.value !== undefined) this.dispose(old.value);
-    this.entries.set(layer, { key, value: undefined });
+    this.delete(layer);
+    this.entries.set(layer, { key, value: undefined, bytes: 0 });
+  }
+
+  /** Changes the budget, dropping the least recently used values beyond it. */
+  setBudget(budget: number): void {
+    this.budget = budget;
+    this.evict();
   }
 
   clear(): void {
     for (const { value } of this.entries.values()) if (value !== undefined) this.dispose(value);
     this.entries.clear();
+    this.held = 0;
   }
 
   get size(): number {
     return this.entries.size;
+  }
+
+  /** Bytes the values hold. */
+  get bytes(): number {
+    return this.held;
+  }
+
+  private touch(layer: Layer, entry: LayerEntry<V>): void {
+    this.entries.delete(layer);
+    this.entries.set(layer, entry);
+  }
+
+  private delete(layer: Layer): void {
+    const entry = this.entries.get(layer);
+    if (!entry) return;
+    this.entries.delete(layer);
+    this.held -= entry.bytes;
+    if (entry.value !== undefined) this.dispose(entry.value);
+  }
+
+  private evict(keep?: Layer): void {
+    for (const [layer] of this.entries) {
+      if (this.held <= this.budget) break;
+      if (layer !== keep) this.delete(layer);
+    }
   }
 }

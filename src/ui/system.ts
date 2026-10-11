@@ -1,6 +1,7 @@
 // What the operating system hands the app: projects opened from outside it (Android's Open with and Share; the
-// installed web app's file handler) and, in the Android app, the back button.
+// installed web app's file handler) and, in the Android app, the back button, memory pressure and page restarts.
 import { Capacitor, registerPlugin, type PluginListenerHandle } from "@capacitor/core";
+import type { MemoryPressure } from "../playback/memory.ts";
 import type { ProjectHandle } from "./projectFiles.ts";
 
 /** A copy of a file another Android app handed over, or why it could not be made. */
@@ -10,11 +11,19 @@ interface SharedFile {
   error?: string;
 }
 
+/** Why the Android app loaded its page again: Android stopped the page to reclaim memory, or the page crashed. */
+export type PageRestart = "memory" | "crash";
+
 interface AppShellPlugin {
   addListener(event: "file", listener: (file: SharedFile) => void): Promise<PluginListenerHandle>;
   addListener(event: "back", listener: () => void): Promise<PluginListenerHandle>;
+  addListener(event: "memory", listener: (pressure: { level: string }) => void): Promise<PluginListenerHandle>;
   exit(): Promise<void>;
+  restartReason(): Promise<{ reason?: string }>;
 }
+
+const PRESSURES: readonly string[] = ["hidden", "background", "low"] satisfies MemoryPressure[];
+const RESTARTS: readonly string[] = ["memory", "crash"] satisfies PageRestart[];
 
 const AppShell = registerPlugin<AppShellPlugin>("AppShell");
 
@@ -86,6 +95,32 @@ export function onBackButton(onBack: () => void): () => void {
 /** Closes the Android app. */
 export function exitApp(): void {
   if (Capacitor.isNativePlatform()) void AppShell.exit().catch(() => {});
+}
+
+/** Calls `onPressure` when Android asks the app to use less memory (see MemoryPressure). A no-op elsewhere. */
+export function onMemoryPressure(onPressure: (pressure: MemoryPressure) => void): () => void {
+  if (!Capacitor.isNativePlatform()) return () => {};
+  const listening = AppShell.addListener("memory", ({ level }) => {
+    if (PRESSURES.includes(level)) onPressure(level as MemoryPressure);
+  });
+  return () => void listening.then((l) => l.remove(), () => {});
+}
+
+let restart: Promise<PageRestart | undefined> | undefined;
+
+/**
+ * Why the Android app loaded this page again after its last one stopped (see PageRestart); undefined after a normal
+ * start and outside the app. Android tells it once per page, so every caller gets the same answer.
+ */
+export function pageRestart(): Promise<PageRestart | undefined> {
+  if (!Capacitor.isNativePlatform()) return Promise.resolve(undefined);
+  restart ??= Promise.resolve()
+    .then(() => AppShell.restartReason())
+    .then(
+      ({ reason }) => (reason && RESTARTS.includes(reason) ? (reason as PageRestart) : undefined),
+      () => undefined,
+    );
+  return restart;
 }
 
 /**

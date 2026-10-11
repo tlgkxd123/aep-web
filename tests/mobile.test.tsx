@@ -118,6 +118,22 @@ test("menus and context menus open as sheets, submenus in their place", async ()
   expect(screen.queryByRole("dialog")).toBeNull();
 });
 
+test("a finger moving over the viewer shows where it is in the Info panel, without reading the pixel back", async () => {
+  await openComp();
+  fireEvent.click(tab("More panels"));
+  const viewer = screen.getByRole("img", { name: new RegExp(`^${COMP}, 160 x 120`) });
+  Object.defineProperty(viewer, "getBoundingClientRect", {
+    configurable: true,
+    value: () => ({ left: 0, top: 0, right: 160, bottom: 120, width: 160, height: 120, x: 0, y: 0 }),
+  });
+  const readout = () => Array.from(document.querySelectorAll(".info-readout dd"), (dd) => dd.textContent);
+  // A mouse samples the frame (nothing renders here, so it reads zeros).
+  fireEvent.pointerMove(viewer, { clientX: 40, clientY: 30 });
+  expect(readout()).toEqual(["0", "0", "0", "0", "40", "30"]);
+  touch("pointermove", viewer, 80, 60);
+  expect(readout()).toEqual(["", "", "", "", "80", "60"]);
+});
+
 /** A touch pointer event (jsdom has no PointerEvent). */
 function touch(type: string, target: EventTarget, x: number, y: number) {
   const event = new MouseEvent(type, { bubbles: true, cancelable: true, clientX: x, clientY: y });

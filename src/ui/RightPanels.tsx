@@ -20,7 +20,7 @@ export interface FileInfo {
 
 function InfoPanel({ project, comp, file }: { project: Project; comp: CompItem | undefined; file: FileInfo }) {
   const hover = useHover();
-  const [r, g, b, a] = hover?.rgba ?? [0, 0, 0, 0];
+  const [r, g, b, a] = hover ? (hover.rgba ?? ["", "", "", ""]) : [0, 0, 0, 0];
   return (
     <div className="info">
       <div className="info-readout">

@@ -1,7 +1,7 @@
 // Opening video files: WebCodecs in a worker per file where the browser has workers
 // (videoWorker.ts), WebCodecs on this thread otherwise, and an HTMLVideoElement
 // for what WebCodecs or the demuxer cannot handle.
-import { ElementReader, indexAtTimes, openWebCodecs, videoStats, type FrameSink, type VideoReader, type WorkerReply, type WorkerRequest } from "./video.ts";
+import { CLOSED, ElementReader, indexAtTimes, openWebCodecs, videoStats, type FrameSink, type VideoReader, type WorkerReply, type WorkerRequest } from "./video.ts";
 
 /** Proxies a WebCodecsReader running in a worker; requests queue as they do on the reader itself. */
 class WorkerReader implements VideoReader {
@@ -12,6 +12,7 @@ class WorkerReader implements VideoReader {
   private readonly pending = new Map<number, (error?: string) => void>();
   private nextId = 1;
   private reported = { resets: 0, fed: 0, frames: 0, convertMs: 0, waitMs: 0 };
+  private closed = false;
 
   private constructor(worker: Worker, times: number[]) {
     this.worker = worker;
@@ -70,6 +71,8 @@ class WorkerReader implements VideoReader {
   }
 
   private request(index: number, sink: FrameSink): Promise<void> {
+    // A terminated worker never replies.
+    if (this.closed) return Promise.reject(new Error(CLOSED));
     this.sink = sink;
     const id = this.nextId++;
     return new Promise((resolve, reject) => {
@@ -79,8 +82,9 @@ class WorkerReader implements VideoReader {
   }
 
   close(): void {
+    this.closed = true;
     this.worker.terminate();
-    for (const done of this.pending.values()) done("the video was closed");
+    for (const done of this.pending.values()) done(CLOSED);
     this.pending.clear();
   }
 }

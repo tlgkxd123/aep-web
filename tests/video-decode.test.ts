@@ -4,7 +4,7 @@ import { afterEach, beforeEach, expect, test } from "vitest";
 import type { FootageItem } from "../src/aep/model.ts";
 import { parseProject } from "../src/aep/parse.ts";
 import { FootageStore } from "../src/media/store.ts";
-import { openWebCodecs } from "../src/media/video.ts";
+import { CLOSED, openWebCodecs } from "../src/media/video.ts";
 
 const refs = resolve("refs");
 
@@ -13,6 +13,8 @@ class FakeDecoder {
   static resets = 0;
   static decoded: number[] = [];
   static instances: FakeDecoder[] = [];
+  /** Takes chunks without putting pictures out, as a decoder the system took back does. */
+  static stall = false;
   resets = 0;
   fed = 0;
   state = "unconfigured";
@@ -31,6 +33,7 @@ class FakeDecoder {
   decode(chunk: { timestamp: number }) {
     FakeDecoder.decoded.push(chunk.timestamp);
     this.fed++;
+    if (FakeDecoder.stall) return;
     const timer = setTimeout(() => {
       this.timers.delete(timer);
       this.output({
@@ -68,6 +71,7 @@ const globals = globalThis as Record<string, unknown>;
 beforeEach(() => {
   FakeDecoder.resets = 0;
   FakeDecoder.decoded = [];
+  FakeDecoder.stall = false;
   globals.VideoDecoder = FakeDecoder;
   globals.EncodedVideoChunk = class {
     timestamp: number;
@@ -82,11 +86,11 @@ afterEach(() => {
   delete globals.EncodedVideoChunk;
 });
 
-function clip(): { store: FootageStore; item: FootageItem } {
+function clip(budget?: number): { store: FootageStore; item: FootageItem } {
   const project = parseProject(new Uint8Array(readFileSync(join(refs, "fixtures", "footage.aep"))));
   const item = [...project.items.values()].find((i): i is FootageItem => i.kind === "footage" && i.name === "clip.mp4");
   if (!item) throw new Error("footage.aep has no clip.mp4");
-  const store = new FootageStore();
+  const store = new FootageStore(budget);
   store.addFiles([{ path: "media/clip.mp4", blob: new Blob([readFileSync(join(refs, "media", "clip.mp4"))]) }]);
   return { store, item };
 }
@@ -192,4 +196,61 @@ test("while a frame decodes, the layer holds the nearest earlier decoded frame i
   expect(held).toBeLessThan(25);
   await store.idle();
   expect(stamp(store.frame(item, 25))).toBe(25);
+});
+
+test("giving memory back drops the decoded frames, and with the decoders closes them until a frame is asked for again", async () => {
+  const before = FakeDecoder.instances.length;
+  const { store, item } = clip();
+  expect(stamp(await until(store, item, 3))).toBe(3);
+  await new Promise((r) => setTimeout(r, 60));
+  await store.idle();
+  const opened = FakeDecoder.instances.slice(before);
+  expect(opened.length).toBeGreaterThan(0);
+
+  // The app in sight: the frames go, the decoders playing stay open.
+  store.releaseMemory(false);
+  const dropped = store.frame(item, 3);
+  expect(dropped.status).toBe("pending");
+  expect(stamp(dropped)).toBeUndefined();
+  expect(stamp(await until(store, item, 3))).toBe(3);
+  expect(opened.every((d) => d.state !== "closed")).toBe(true);
+  await new Promise((r) => setTimeout(r, 60));
+  await store.idle();
+
+  // Out of sight: every decoder closes; the next frame asked for opens one again.
+  store.releaseMemory(true);
+  expect(FakeDecoder.instances.slice(before).every((d) => d.state === "closed")).toBe(true);
+  const closed = FakeDecoder.instances.length;
+  expect(stamp(await until(store, item, 3))).toBe(3);
+  expect(FakeDecoder.instances.length).toBeGreaterThan(closed);
+  await store.idle();
+});
+
+test("decoded frames stay within the store's budget, which can shrink at once", async () => {
+  const { store, item } = clip(16 * 20);
+  for (let i = 0; i < 30; i++) expect(stamp(await until(store, item, i))).toBe(i);
+  expect(store.stats.evictions).toBeGreaterThan(0);
+  await store.idle();
+  expect(store.frame(item, 29).status).toBe("ready");
+  store.setBudget(0);
+  expect(store.frame(item, 29).status).toBe("pending");
+  await store.idle();
+});
+
+test("closing a reader fails the run waiting for a picture at once, and every later request, without opening a decoder again", async () => {
+  const reader = await openWebCodecs(new Blob([readFileSync(join(refs, "media", "clip.mp4"))]));
+  const before = FakeDecoder.instances.length;
+  FakeDecoder.stall = true;
+  const started = performance.now();
+  const run = reader.decode(5, () => {});
+  const queued = reader.decode(40, () => {});
+  while ((FakeDecoder.instances[before]?.fed ?? 0) === 0) await new Promise((r) => setTimeout(r, 1));
+  reader.close();
+  await expect(run).rejects.toThrow(CLOSED);
+  await expect(queued).rejects.toThrow(CLOSED);
+  await expect(reader.decode(0, () => {})).rejects.toThrow(CLOSED);
+  // Well before a stalled decoder's output timeout.
+  expect(performance.now() - started).toBeLessThan(1000);
+  expect(FakeDecoder.instances.length).toBe(before + 1);
+  expect(FakeDecoder.instances[before].state).toBe("closed");
 });

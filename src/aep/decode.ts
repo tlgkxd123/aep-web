@@ -4,6 +4,28 @@ import type { Chunk } from "./riff.ts";
 
 const utf8 = new TextDecoder("utf-8");
 const ascii = new TextDecoder("latin1");
+/** Longest text read without a decoder (see asciiText). */
+const SHORT_TEXT = 256;
+
+/**
+ * Short all-ASCII bytes as text, which UTF-8 and latin1 decode alike; undefined otherwise. Match names and most other
+ * strings of a project are, and a call into TextDecoder costs more than reading them here.
+ */
+function asciiText(bytes: Uint8Array): string | undefined {
+  if (bytes.length > SHORT_TEXT) return undefined;
+  const codes: number[] = new Array(bytes.length);
+  for (let i = 0; i < bytes.length; i++) {
+    const c = bytes[i];
+    if (c >= 0x80) return undefined;
+    codes[i] = c;
+  }
+  return String.fromCharCode.apply(null, codes);
+}
+
+function untilNul(bytes: Uint8Array): Uint8Array {
+  const nul = bytes.indexOf(0);
+  return nul >= 0 ? bytes.subarray(0, nul) : bytes;
+}
 
 export class Bytes {
   readonly view: DataView;
@@ -40,27 +62,25 @@ export class Bytes {
     return ((this.u8(o) >> bit) & 1) === 1;
   }
   cstr(o: number, size: number): string {
-    const slice = this.bytes.subarray(o, Math.min(o + size, this.bytes.length));
-    const nul = slice.indexOf(0);
-    return utf8.decode(nul >= 0 ? slice.subarray(0, nul) : slice);
+    const text = untilNul(this.bytes.subarray(o, Math.min(o + size, this.bytes.length)));
+    return asciiText(text) ?? utf8.decode(text);
   }
   ascii(o: number, size: number): string {
-    const slice = this.bytes.subarray(o, Math.min(o + size, this.bytes.length));
-    const nul = slice.indexOf(0);
-    return ascii.decode(nul >= 0 ? slice.subarray(0, nul) : slice);
+    const text = untilNul(this.bytes.subarray(o, Math.min(o + size, this.bytes.length)));
+    return asciiText(text) ?? ascii.decode(text);
   }
 }
 
 const ratio = (dividend: number, divisor: number): number => (divisor ? dividend / divisor : 0);
 
 export function utf8Of(chunk: Chunk | undefined): string {
-  return chunk ? utf8.decode(chunk.data) : "";
+  return chunk ? (asciiText(chunk.data) ?? utf8.decode(chunk.data)) : "";
 }
 
 /** `tdmn`: 40-byte NUL-padded match name. */
 export function matchNameOf(chunk: Chunk): string {
-  const b = new Bytes(chunk.data);
-  return b.cstr(0, b.length);
+  const text = untilNul(chunk.data);
+  return asciiText(text) ?? utf8.decode(text);
 }
 
 /** Text of the Utf8 child of a container chunk (`tdsn`, `fnam`, `pdnm`). */
