@@ -180,6 +180,7 @@ test("a render whose file name is taken is saved under a numbered name, and the 
       readPixels: (_target: unknown, width: number, height: number) => new Uint8Array(width * height * 4).fill(200),
       release: () => {},
       clearCaches: () => {},
+      dispose: () => {},
       gl: { canvas: {} },
     }) as unknown as Renderer;
   const item = renderQueue.add(project, comp);

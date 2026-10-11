@@ -1,6 +1,8 @@
 import type { CompItem, Project } from "../aep/model.ts";
+import { isMobileDevice } from "../device.ts";
 import { footageStore } from "../media/store.ts";
 import { appBudgets } from "../playback/memory.ts";
+import { registerRenderer, viewerRenderers } from "../playback/ramCache.ts";
 import { appRenderOptions } from "../playback/renderOptions.ts";
 import { Renderer } from "../render/renderer.ts";
 import { EXPORT_CHANNELS, EXPORT_SAMPLE_RATE, mixCompAudio, type MixedAudio } from "./audio.ts";
@@ -64,6 +66,12 @@ export interface QueueSnapshot {
 
 type Listener = () => void;
 
+/** The renderer of one run of the queue: made for its first item, freed when the run ends. */
+interface OutputRenderer {
+  renderer?: Renderer;
+  unregister?: () => void;
+}
+
 export class RenderQueue {
   private project: Project | null = null;
   private snapshot: QueueSnapshot = { items: [], current: null };
@@ -74,7 +82,6 @@ export class RenderQueue {
   private pausedMs = 0;
   private pauseStart = 0;
   private resumeWaiters: (() => void)[] = [];
-  private renderer: Renderer | null = null;
   /** Builds the renderer used for output; replaced in tests. */
   createRenderer: () => Renderer = () => new Renderer(new OffscreenCanvas(1, 1), appRenderOptions, appBudgets());
   /** Opens the sink for an item; replaced by the export gate to keep bytes in memory. */
@@ -104,7 +111,6 @@ export class RenderQueue {
     if (project === this.project) return;
     if (this.snapshot.current) this.stop();
     this.project = project;
-    this.renderer = null;
     this.set({ items: [], current: null });
   }
 
@@ -117,7 +123,6 @@ export class RenderQueue {
     if (project === this.project || this.rendering) return;
     if (!project || !this.project) return this.attach(project);
     this.project = project;
-    this.renderer?.clearCaches();
     const items = this.snapshot.items.filter((item) => project.items.get(item.compId)?.kind === "comp");
     this.set({ items: items.map((item) => ({ ...item, compName: (project.items.get(item.compId) as CompItem).name })) });
   }
@@ -190,27 +195,44 @@ export class RenderQueue {
     return found?.kind === "comp" ? found : undefined;
   }
 
-  /** Renders every Queued item in order. Resolves when the queue finishes or is stopped. */
+  /**
+   * Renders every Queued item in order. Resolves when the queue finishes or is stopped. The output renderer is
+   * the app's second set of GPU caches beside the viewers': it is there for memory pressure to reach while the
+   * queue renders, and gone, context and all, once it stops.
+   */
   async render(): Promise<void> {
     if (this.rendering || !this.project) return;
     const project = this.project;
     this.abort = new AbortController();
     const signal = this.abort.signal;
     this.paused = false;
+    const output: OutputRenderer = {};
     try {
       for (;;) {
         const item = this.snapshot.items.find((i) => i.status === "Queued");
         if (!item || signal.aborted || this.project !== project) break;
-        await this.renderItem(project, item, signal);
+        await this.renderItem(project, item, signal, output);
       }
     } finally {
+      output.unregister?.();
+      output.renderer?.dispose();
       this.abort = null;
       this.paused = false;
       this.set({ current: null });
     }
   }
 
-  private async renderItem(project: Project, item: QueueItem, signal: AbortSignal): Promise<void> {
+  /** The run's renderer, made on first use. A phone has no memory for the viewers' caches beside it: they go first. */
+  private outputRenderer(output: OutputRenderer): Renderer {
+    if (output.renderer) return output.renderer;
+    if (isMobileDevice()) for (const viewer of viewerRenderers()) viewer.releaseMemory();
+    const renderer = this.createRenderer();
+    output.renderer = renderer;
+    output.unregister = registerRenderer(renderer);
+    return renderer;
+  }
+
+  private async renderItem(project: Project, item: QueueItem, signal: AbortSignal, output: OutputRenderer): Promise<void> {
     const comp = this.comp(item);
     const started = Date.now();
     const plan = comp ? framePlan(comp, item.settings) : null;
@@ -222,7 +244,7 @@ export class RenderQueue {
     const elapsed = () => Date.now() - started - this.pausedMs - (this.paused ? Date.now() - this.pauseStart : 0);
     try {
       if (!comp || !plan) throw new Error("The composition is no longer in the project.");
-      this.renderer ??= this.createRenderer();
+      const renderer = this.outputRenderer(output);
       Object.assign(footageStore.stats, { imageDecodes: 0, imageMs: 0, videoRuns: 0, videoMs: 0, evictions: 0 });
       const audioStart = performance.now();
       const audio = await this.mixAudio(project, comp, item.output, plan.start, plan.duration, warnings);
@@ -233,13 +255,13 @@ export class RenderQueue {
         comp,
         item.settings,
         item.output,
-        rendererSource(this.renderer, project, comp, plan, warnings),
+        rendererSource(renderer, project, comp, plan, warnings),
         sink,
         item.fileName,
         {
           signal,
           resume: () => this.waitWhilePaused(),
-          gpuFrames: rendererFrames(this.renderer, project, comp, plan, warnings, stats),
+          gpuFrames: rendererFrames(renderer, project, comp, plan, warnings, stats),
           stats,
           onFrame: (frame, frames) => {
             const ms = elapsed();

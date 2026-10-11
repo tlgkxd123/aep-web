@@ -63,7 +63,7 @@ export function Transport({
 }) {
   const button = (icon: IconName, label: string, onClick: () => void, className = "") => (
     <button type="button" className={`mtransport-btn ${className}`} aria-label={label} title={label} onClick={onClick}>
-      <Icon name={icon} size={className ? 22 : 18} />
+      <Icon name={icon} size={className === "mtransport-play" ? 22 : 18} />
     </button>
   );
   return (
@@ -72,11 +72,11 @@ export function Transport({
         <TimeDisplay comp={comp} time={time} onTime={onTime} title="Current time (tap to edit)" />
       </span>
       <span className="mtransport-buttons">
-        {button("first", "First Frame", () => onEdge(false))}
+        {button("first", "First Frame", () => onEdge(false), "mtransport-edge")}
         {button("prevFrame", "Previous Frame", () => onStep(-1))}
         {button(playing ? "pause" : "play", playing ? "Stop" : "Play", onPlay, "mtransport-play")}
         {button("nextFrame", "Next Frame", () => onStep(1))}
-        {button("last", "Last Frame", () => onEdge(true))}
+        {button("last", "Last Frame", () => onEdge(true), "mtransport-edge")}
       </span>
     </div>
   );

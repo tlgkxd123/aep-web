@@ -18,6 +18,8 @@ const DEVICES = [
   { name: "iphone-portrait", descriptor: devices["iPhone 13"], compact: true },
   { name: "android-portrait", descriptor: devices["Pixel 7"], compact: true },
   { name: "phone-landscape", descriptor: devices["iPhone 13 landscape"], compact: true },
+  { name: "android-landscape", descriptor: devices["Pixel 7 landscape"], compact: true },
+  { name: "small-phone-landscape", descriptor: devices["iPhone SE landscape"], compact: true },
   { name: "ipad-portrait", descriptor: devices["iPad (gen 7)"], compact: true },
   { name: "ipad-landscape", descriptor: devices["iPad (gen 7) landscape"], compact: false },
 ];
@@ -100,6 +102,16 @@ const centre = async (locator: Locator): Promise<Point> => {
   const b = (await locator.boundingBox())!;
   return { x: b.x + b.width / 2, y: b.y + b.height / 2 };
 };
+
+/** Whether a finger swiping across the middle of `locator` (up, or left for "x") scrolls it. */
+async function swipeScrolls(fingers: Fingers, locator: Locator, axis: "x" | "y"): Promise<boolean> {
+  const offset = () => locator.evaluate((e, a) => (a === "x" ? e.scrollLeft : e.scrollTop), axis);
+  const before = await offset();
+  const b = (await locator.boundingBox())!;
+  const c = await centre(locator);
+  await fingers.drag([c], [axis === "x" ? { x: c.x - b.width / 3, y: c.y } : { x: c.x, y: c.y - b.height / 3 }]);
+  return (await offset()) > before;
+}
 
 /** Waits for `test` to hold, up to `ms`. */
 async function until(test: () => Promise<boolean>, ms = 3000): Promise<boolean> {
@@ -190,10 +202,30 @@ async function interact(page: Page, fingers: Fingers) {
   const time = page.locator(".mtransport-time");
   const t0 = await time.innerText();
   const ruler = (await page.getByRole("slider", { name: "Current time" }).boundingBox())!;
-  // Clear of the outline splitter's grip at the ruler's left edge.
-  await fingers.drag([{ x: ruler.x + 16, y: ruler.y + ruler.height / 2 }], [{ x: ruler.x + ruler.width * 0.6, y: ruler.y + ruler.height / 2 }]);
+  // Clear of the outline splitter's grip at the ruler's left edge, which the browser's touch adjustment snaps to.
+  await fingers.drag([{ x: ruler.x + ruler.width * 0.25, y: ruler.y + ruler.height / 2 }], [{ x: ruler.x + ruler.width * 0.75, y: ruler.y + ruler.height / 2 }]);
   const t1 = await time.innerText();
   check(t1 !== t0, `dragging on the time ruler moves the current time (${t0} to ${t1})`);
+
+  // The playback strip shows its buttons whole, however narrow the viewer's column; the viewer's bar, wider than a
+  // phone, scrolls sideways under a finger.
+  const strip = (await boxes(page, ".mtransport"))[0];
+  const cut = (await boxes(page, ".mtransport-btn")).filter((b) => b.x < strip.x - 0.5 || b.x + b.width > strip.x + strip.width + 0.5);
+  check(!cut.length, `the playback strip shows its buttons whole (${Math.round(strip.width)} px wide${cut.length ? `; cut: ${cut.map((b) => b.label).join(", ")}` : ""})`);
+  const bar = page.locator(".viewer-bar");
+  if (await bar.evaluate((e) => e.scrollWidth > e.clientWidth + 1)) check(await swipeScrolls(fingers, bar, "x"), "a finger scrolls the viewer's bar sideways");
+
+  // Composition Settings fits the screen, and a finger scrolls what does not show into view, down to OK.
+  await page.getByRole("button", { name: "Composition Settings", exact: true }).first().tap();
+  const settings = page.getByRole("dialog", { name: "Composition Settings" });
+  check(await until(() => settings.isVisible()), "the Timeline's Composition Settings button opens the dialog");
+  const dialogBox = (await settings.boundingBox())!;
+  check(within(page, dialogBox), `Composition Settings fits the screen (${Math.round(dialogBox.width)} x ${Math.round(dialogBox.height)} at ${Math.round(dialogBox.y)})`);
+  const ok = settings.getByRole("button", { name: "OK", exact: true });
+  for (let swipe = 0; swipe < 8 && !within(page, (await ok.boundingBox())!); swipe++) await swipeScrolls(fingers, settings.locator(".ae-window-body"), "y");
+  check(within(page, (await ok.boundingBox())!), "a finger scrolls Composition Settings down to its OK button");
+  await settings.getByRole("button", { name: "Cancel", exact: true }).tap();
+  check(await until(async () => !(await settings.isVisible())), "Cancel closes Composition Settings");
 
   // Play starts and stops playback.
   await page.getByRole("button", { name: "Play", exact: true }).tap();

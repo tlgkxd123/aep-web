@@ -1,8 +1,9 @@
 // What the app keeps in memory follows the device: a desktop keeps the budgets the renderer was tuned with, a phone
 // or tablet a share of its memory, and half of that once Android reported memory running low. Giving memory back
-// empties the caches by how short of it the system is.
+// empties the caches by how short of it the system is, the Render Queue's included while it renders; its renderer
+// goes when the queue stops, and on a phone the viewers make room for it first.
 import { expect, test, vi } from "vitest";
-import type { Layer } from "../src/aep/model.ts";
+import type { CompItem, Layer, Project } from "../src/aep/model.ts";
 import { memoryBudgets, type MemoryBudgets } from "../src/device.ts";
 import { ImageCache, LayerCache } from "../src/render/contentCache.ts";
 import type { GL } from "../src/render/gl.ts";
@@ -158,6 +159,86 @@ test("giving memory back empties the caches by how short of it the system is", a
   expect(renderer.setBudgets).toHaveBeenCalledWith(appBudgets());
   expect(ramCache.budget).toBe(appBudgets().ramPreview);
   unregister();
+});
+
+/** A Render Queue with one PNG item of a 4 x 4 comp, rendered by stand-ins for the renderer, kept in `made`. */
+async function stubQueue(onWrite: () => void = () => {}) {
+  const { RenderQueue } = await import("../src/export/queue.ts");
+  const made: { releaseMemory: ReturnType<typeof vi.fn>; dispose: ReturnType<typeof vi.fn> }[] = [];
+  const queue = new RenderQueue();
+  queue.createRenderer = () => {
+    const renderer = {
+      requestFootage: () => true,
+      render: () => ({}),
+      lastComplete: true,
+      lastWarnings: [],
+      readPixels: (_target: unknown, width: number, height: number) => new Uint8Array(width * height * 4),
+      release: () => {},
+      releaseMemory: vi.fn(),
+      setBudgets: vi.fn(),
+      clearCaches: vi.fn(),
+      dispose: vi.fn(),
+      gl: { canvas: {} },
+    };
+    made.push(renderer);
+    return renderer as unknown as Renderer;
+  };
+  queue.openSink = async () => ({ write: async () => onWrite(), close: async () => {}, abort: async () => {} });
+  const comp = { kind: "comp", id: 3, name: "Shot", width: 4, height: 4, pixelAspect: 1, duration: 0.2, frameRate: 10, frameDuration: 0.1 } as unknown as CompItem;
+  Object.assign(comp, { workAreaStart: 0, workAreaDuration: 0.2, bgColor: [0, 0, 0], layers: [] });
+  const item = queue.add({ items: new Map([[comp.id, comp]]) } as unknown as Project, comp);
+  queue.setOutput(item.id, { ...item.output, format: "png" });
+  return { queue, made, item };
+}
+
+test("the Render Queue's renderer gives memory back under pressure while it renders, and goes, context and all, when it stops", async () => {
+  vi.resetModules();
+  const { releaseMemory } = await import("../src/playback/memory.ts");
+  const { viewerRenderers } = await import("../src/playback/ramCache.ts");
+  let registered: boolean[] = [];
+  const { queue, made, item } = await stubQueue(() => {
+    registered.push([...viewerRenderers()].includes(made.at(-1) as unknown as Renderer));
+    releaseMemory("hidden");
+  });
+
+  await queue.render();
+  expect(queue.getSnapshot().items[0].status).toBe("Done");
+  expect(registered.length).toBeGreaterThan(0);
+  expect(registered.every(Boolean)).toBe(true);
+  expect(made[0].releaseMemory).toHaveBeenCalled();
+  expect(made[0].dispose).toHaveBeenCalledOnce();
+  expect([...viewerRenderers()]).toEqual([]);
+
+  // The next run gets a renderer of its own.
+  registered = [];
+  queue.setQueued(item.id, true);
+  await queue.render();
+  expect(made).toHaveLength(2);
+  expect(made[1].dispose).toHaveBeenCalledOnce();
+  expect(registered.every(Boolean)).toBe(true);
+});
+
+test("on a phone the viewers give back what they keep before a render makes its own renderer; a desktop's keep it", async () => {
+  for (const mobile of [true, false]) {
+    vi.resetModules();
+    vi.doMock("../src/device.ts", async (original) => ({ ...(await original<typeof import("../src/device.ts")>()), isMobileDevice: () => mobile }));
+    const { registerRenderer } = await import("../src/playback/ramCache.ts");
+    const viewer = { releaseMemory: vi.fn(), setBudgets: vi.fn(), clearCaches: vi.fn() };
+    const unregister = registerRenderer(viewer as unknown as Renderer);
+    const { queue, made } = await stubQueue();
+    const create = queue.createRenderer;
+    let releasedFirst: boolean | undefined;
+    queue.createRenderer = () => {
+      releasedFirst = viewer.releaseMemory.mock.calls.length > 0;
+      return create();
+    };
+    await queue.render();
+    expect(made).toHaveLength(1);
+    expect(releasedFirst).toBe(mobile);
+    expect(viewer.releaseMemory).toHaveBeenCalledTimes(mobile ? 1 : 0);
+    unregister();
+    vi.doUnmock("../src/device.ts");
+  }
 });
 
 test("constraining memory shrinks every cache once, and the budgets new renderers get", async () => {

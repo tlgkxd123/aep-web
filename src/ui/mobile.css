@@ -304,6 +304,9 @@ button,
   flex: none;
   height: 48px;
   padding: 0 6px 0 10px;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scrollbar-width: none;
   border-top: 1px solid var(--line);
   background: var(--panel);
 }
@@ -378,6 +381,29 @@ button,
 
   .mtransport-btn.mtransport-play {
     width: 42px;
+  }
+}
+
+/* The first and last frame stay within reach on the Timeline's ruler; in a column narrower still the strip scrolls. */
+@container (max-width: 300px) {
+  .mtransport {
+    padding: 0 2px 0 4px;
+  }
+
+  .mtransport-time {
+    font-size: 12px;
+  }
+
+  .mtransport-btn {
+    width: 34px;
+  }
+
+  .mtransport-btn.mtransport-play {
+    width: 40px;
+  }
+
+  .mtransport-btn.mtransport-edge {
+    display: none;
   }
 }
 
@@ -963,9 +989,12 @@ button,
   height: 160px;
 }
 
+/* One cell of the backdrop's size: in an auto row a window's max-height of 100% has nothing to resolve against, and
+   a tall window runs past the screen with no way to scroll to its end. */
 .app.compact .modal-backdrop,
 .app.compact .dialog-backdrop {
   position: fixed;
+  grid-template: minmax(0, 1fr) / minmax(0, 1fr);
   padding: max(8px, env(safe-area-inset-top)) 8px max(8px, env(safe-area-inset-bottom));
 }
 
