@@ -2,7 +2,7 @@ import { memo, useContext, useEffect, useMemo, useRef, useState, type DragEvent,
 import type { FootageItem, Item, Project } from "../aep/model.ts";
 import { footageStore } from "../media/store.ts";
 import { openContextMenu } from "./ContextMenu.tsx";
-import { AppActionsContext, projectItemMenu, projectPanelMenu } from "./contextMenus.ts";
+import { AppActionsContext, moveToEntries, projectItemMenu, projectPanelMenu } from "./contextMenus.ts";
 import { ITEM_MIME, useEditing } from "./editing.tsx";
 import { bitsPerChannel, colorCss, fpsLabel, fpsShort, labelColor, labelName, timecode } from "./format.ts";
 import { Icon } from "./icons.tsx";
@@ -435,7 +435,8 @@ export const ProjectPanel = memo(function ProjectPanel({
                   onContextMenu={(e) => {
                     if (!actions) return;
                     if (!isSelected(item.id)) onSelect(item.id);
-                    openContextMenu(e, projectItemMenu(item, actions));
+                    const moving = isSelected(item.id) ? selectedItems() : [item];
+                    openContextMenu(e, projectItemMenu(item, actions, ops ? moveToEntries(project, moving, (folderId) => ops.move(moving, folderId)) : undefined));
                   }}
                   draggable={!renaming && (!!ops || !isFolder)}
                   onDragStart={(e) => {
