@@ -159,6 +159,12 @@ export class Renderer {
     releaseFootageTextures(this.gl);
   }
 
+  /** Gives back all the renderer's GPU memory, its context's included; it renders nothing afterwards. */
+  dispose(): void {
+    this.releaseMemory();
+    (this.gl.getExtension("WEBGL_lose_context") as { loseContext(): void } | null)?.loseContext();
+  }
+
   private newKeys(): LayerKeys {
     const project = () => this.project;
     return new LayerKeys({

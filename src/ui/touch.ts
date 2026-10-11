@@ -103,6 +103,22 @@ export function useLongPressGestures(enabled: boolean): void {
     let press: Press | undefined;
     let drag: Drag | undefined;
     let synthesizedAt = -Infinity;
+    let holding = false;
+    /** Keeps the page from scrolling under a held or dragging finger; window listeners are passive unless told otherwise. */
+    const holdStill = (e: TouchEvent) => {
+      if ((drag || press?.held) && e.cancelable) e.preventDefault();
+    };
+    /**
+     * Listens to touchmove only while a press is held or dragging: while the page has a listener that may cancel
+     * them, every touch waits for the main thread before it scrolls, and during playback that thread is busy.
+     */
+    const syncHold = () => {
+      const needed = Boolean(drag || press?.held);
+      if (needed === holding) return;
+      holding = needed;
+      if (needed) window.addEventListener("touchmove", holdStill, { capture: true, passive: false });
+      else window.removeEventListener("touchmove", holdStill, true);
+    };
     const menuAt = (target: Element, x: number, y: number) => {
       if (!target.isConnected) return;
       synthesizedAt = performance.now();
@@ -112,6 +128,7 @@ export function useLongPressGestures(enabled: boolean): void {
       clearTimeout(timer);
       if (press?.held && !drag) press.source?.classList.remove("touch-drag-armed");
       press = undefined;
+      syncHold();
     };
     const update = (d: Drag, x: number, y: number) => {
       d.x = x;
@@ -142,6 +159,7 @@ export function useLongPressGestures(enabled: boolean): void {
       source.dispatchEvent(start);
       if (start.defaultPrevented || !data.types.length) {
         source.classList.remove("touch-drag-armed");
+        syncHold();
         return;
       }
       drag = { id: held.id, source, data, ghost: ghostOf(source), over: null, accepted: false, x, y };
@@ -151,6 +169,7 @@ export function useLongPressGestures(enabled: boolean): void {
       const d = drag;
       if (!d) return;
       drag = undefined;
+      syncHold();
       d.ghost.remove();
       d.source.classList.remove("touch-drag-armed");
       if (dropped && d.over?.isConnected && d.accepted) d.over.dispatchEvent(dragEvent("drop", d.data, d.x, d.y));
@@ -160,6 +179,7 @@ export function useLongPressGestures(enabled: boolean): void {
     const arm = (current: Press, source: HTMLElement) => {
       clearTimeout(timer);
       current.held = true;
+      syncHold();
       source.classList.add("touch-drag-armed");
       navigator.vibrate?.(10);
     };
@@ -213,17 +233,12 @@ export function useLongPressGestures(enabled: boolean): void {
       cancel();
       finishDrag(false);
     };
-    /** Keeps the page from scrolling under a held or dragging finger; window listeners are passive unless told otherwise. */
-    const holdStill = (e: TouchEvent) => {
-      if ((drag || press?.held) && e.cancelable) e.preventDefault();
-    };
     window.addEventListener("pointerdown", down, true);
     window.addEventListener("pointermove", move, true);
     window.addEventListener("pointerup", end, true);
     window.addEventListener("pointercancel", end, true);
     window.addEventListener("contextmenu", native, true);
     window.addEventListener("dragstart", nativeDrag, true);
-    window.addEventListener("touchmove", holdStill, { capture: true, passive: false });
     return () => {
       cancel();
       finishDrag(false);
@@ -233,7 +248,6 @@ export function useLongPressGestures(enabled: boolean): void {
       window.removeEventListener("pointercancel", end, true);
       window.removeEventListener("contextmenu", native, true);
       window.removeEventListener("dragstart", nativeDrag, true);
-      window.removeEventListener("touchmove", holdStill, true);
     };
   }, [enabled]);
 }

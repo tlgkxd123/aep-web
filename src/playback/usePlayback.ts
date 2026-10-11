@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 import type { CompItem, Project } from "../aep/model.ts";
+import { isMobileDevice } from "../device.ts";
 import { audioPreview } from "../media/audioPreview.ts";
 import { pendingDone, workInFlight } from "../media/pending.ts";
 import { footageStore } from "../media/store.ts";
@@ -77,10 +78,28 @@ const AHEAD_PER_FRAME = 2;
 const GPU_QUEUE = 2;
 /**
  * Fast Previews: GPU time per frame above which playback lowers its resolution, so it keeps 30 frames per second
- * with room for decoding and the page; and the lowest resolution it goes to (Quarter).
+ * with room for decoding and the page.
  */
 const ADAPTIVE_MS = 26;
-const ADAPTIVE_LIMIT = 4;
+
+/**
+ * The lowest resolution Fast Previews goes to, as After Effects' Adaptive Resolution Limit: Quarter, or 1/8 on phones
+ * and tablets, whose GPUs have a fraction of a desktop's speed.
+ */
+export function adaptiveLimit(mobile = isMobileDevice()): number {
+  return mobile ? 8 : 4;
+}
+
+/**
+ * The resolution divisor Fast Previews moves to from `factor` once frames there take `typicalMs` of GPU time: GPU time
+ * goes about with the pixels rendered, so straight to the first expected to keep up, but no further than `limit`.
+ */
+export function adaptiveFactor(factor: number, typicalMs: number, limit: number): number {
+  let next = factor + 1;
+  while (next < limit && typicalMs * (factor / next) ** 2 > ADAPTIVE_MS) next++;
+  return Math.min(next, limit);
+}
+
 /** Renders measured at a resolution before Fast Previews judges it (the first ones fill the layer caches). */
 const ADAPTIVE_SAMPLES = 6;
 /** The same before the clock starts, when a wrong guess costs nothing but the wait (the first is left out). */
@@ -160,6 +179,7 @@ export function usePlayback(
     playhead.start(comp.id, startAt);
     // The viewer's resolution, or with Fast Previews no finer than the viewer shows the comp nor than it settled on.
     let factor = viewerFactors.get(comp.id);
+    const limit = adaptiveLimit();
     if (fastPreviews.adaptive) {
       const kept = adapted.get(comp.id);
       factor = Math.max(factor, autoFactor(viewerZooms.get(comp.id)), kept?.generation === contentGeneration() ? kept.factor : 1);
@@ -313,15 +333,12 @@ export function usePlayback(
      */
     const adapt = (now: number) => {
       const viewer = getViewer(comp.id);
-      if (!viewer || !fastPreviews.adaptive || factor >= ADAPTIVE_LIMIT) return;
+      if (!viewer || !fastPreviews.adaptive || factor >= limit) return;
       viewer.gpuQueue();
       const needed = phase === "preroll" ? PREROLL_SAMPLES : ADAPTIVE_SAMPLES;
       const typical = viewer.gpuTypicalMs();
       if (viewer.gpuSamples < needed || typical <= ADAPTIVE_MS) return;
-      // GPU time goes about with the pixels rendered: straight to the resolution expected to keep up.
-      const from = factor;
-      factor++;
-      while (factor < ADAPTIVE_LIMIT && typical * (from / factor) ** 2 > ADAPTIVE_MS) factor++;
+      factor = adaptiveFactor(factor, typical, limit);
       adapted.set(comp.id, { factor, generation: contentGeneration() });
       viewer.attach(project, comp, factor);
       viewer.resetGpuTiming();

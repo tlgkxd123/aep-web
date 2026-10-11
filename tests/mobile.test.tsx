@@ -152,6 +152,7 @@ const projectRow = (name: string) => {
 describe("touch drags", () => {
   afterEach(() => {
     vi.useRealTimers();
+    vi.restoreAllMocks();
     Reflect.deleteProperty(document, "elementFromPoint");
   });
 
@@ -223,6 +224,44 @@ describe("touch drags", () => {
     touch("pointerup", source, 20, 300);
     expect(source.classList.contains("touch-drag-armed")).toBe(false);
     expect(within(sheet()).getAllByRole("menuitem").length).toBeGreaterThan(0);
+  });
+
+  test("only a held or dragging press listens to touchmove, so scrolling never waits for the page's scripts", async () => {
+    const add = vi.spyOn(window, "addEventListener");
+    const remove = vi.spyOn(window, "removeEventListener");
+    const blocking = () =>
+      add.mock.calls.filter(([type, , options]) => type === "touchmove" && typeof options === "object" && options.passive === false).length -
+      remove.mock.calls.filter(([type]) => type === "touchmove").length;
+    await openComp();
+    fireEvent.click(tab("Project"));
+    const source = projectRow(CARD);
+    Object.defineProperty(document, "elementFromPoint", { configurable: true, value: () => source });
+    const moveCancelled = () => {
+      const move = new Event("touchmove", { bubbles: true, cancelable: true });
+      source.dispatchEvent(move);
+      return move.defaultPrevented;
+    };
+    vi.useFakeTimers();
+    expect(blocking()).toBe(0);
+
+    touch("pointerdown", source, 20, 300);
+    act(() => vi.advanceTimersByTime(300));
+    expect([blocking(), moveCancelled()]).toEqual([0, false]);
+    act(() => vi.advanceTimersByTime(300));
+    expect(source.classList.contains("touch-drag-armed")).toBe(true);
+    expect([blocking(), moveCancelled()]).toEqual([1, true]);
+    touch("pointermove", source, 60, 40);
+    expect(document.querySelector(".touch-drag-ghost")).toBeTruthy();
+    expect([blocking(), moveCancelled()]).toEqual([1, true]);
+    touch("pointercancel", source, 60, 40);
+    expect(document.querySelector(".touch-drag-ghost")).toBeNull();
+    expect([blocking(), moveCancelled()]).toEqual([0, false]);
+
+    touch("pointerdown", source, 20, 300);
+    act(() => vi.advanceTimersByTime(600));
+    expect(blocking()).toBe(1);
+    touch("pointercancel", source, 20, 300);
+    expect([blocking(), moveCancelled()]).toEqual([0, false]);
   });
 });
 

@@ -6,7 +6,7 @@ import { FrameCache } from "./frameCache.ts";
 /** The RAM preview cache shared by every viewer: rendered frames as ImageBitmaps, within the device's budget. */
 export const ramCache = new FrameCache<ImageBitmap>(deviceBudgets().ramPreview, (bitmap) => bitmap.close());
 
-/** Cache view of a comp at a resolution divisor (1 Full ... 4 Quarter). */
+/** Cache view of a comp at a resolution divisor (1 Full ... 4 Quarter, and below while Fast Previews plays). */
 export function cacheView(compId: number, factor: number): string {
   return `${compId}@${factor}`;
 }
@@ -31,13 +31,16 @@ function invalidated(): void {
   for (const l of invalidationListeners) l();
 }
 
-/** Viewer renderers register so that `invalidate` also drops their content caches. */
+/**
+ * Renderers register (the viewers', and the Render Queue's while it renders) so that `invalidate` also drops their
+ * content caches, and memory pressure what they keep (memory.ts).
+ */
 export function registerRenderer(renderer: Renderer): () => void {
   renderers.add(renderer);
   return () => renderers.delete(renderer);
 }
 
-/** The viewers' renderers, as registered. */
+/** The renderers registered: the viewers', and the Render Queue's while it renders. */
 export function viewerRenderers(): Iterable<Renderer> {
   return renderers;
 }

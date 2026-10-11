@@ -1,9 +1,9 @@
-// Playback timing (the Preview panel's range, Play From, Frame Rate, Skip and Loop), the RAM preview cache, and
-// render target pools that keep a frame's working set for the next frame.
+// Playback timing (the Preview panel's range, Play From, Frame Rate, Skip and Loop), the resolutions Fast Previews
+// steps down to, the RAM preview cache, and render target pools that keep a frame's working set for the next frame.
 import { describe, expect, it } from "vitest";
 import type { CompItem } from "../src/aep/model.ts";
 import { FrameCache } from "../src/playback/frameCache.ts";
-import { DEFAULT_PREVIEW, dueSlot, playbackSpan, slotTime } from "../src/playback/usePlayback.ts";
+import { adaptiveFactor, adaptiveLimit, DEFAULT_PREVIEW, dueSlot, playbackSpan, slotTime } from "../src/playback/usePlayback.ts";
 import { TargetPool, type GL } from "../src/render/gl.ts";
 
 const comp = (over: Partial<CompItem> = {}) =>
@@ -44,6 +44,28 @@ describe("playback span", () => {
     expect(span.step).toBeCloseTo(2 / 12, 9);
     expect(slotTime(span, 17)!.time).toBeCloseTo(2 + 17 / 6, 9);
     expect(slotTime(span, 18)).toBeNull();
+  });
+});
+
+describe("Fast Previews", () => {
+  it("goes down to Quarter on desktops and to 1/8 on phones and tablets", () => {
+    expect(adaptiveLimit(false)).toBe(4);
+    expect(adaptiveLimit(true)).toBe(8);
+  });
+
+  it("steps straight to the resolution whose share of the pixels brings GPU time under budget", () => {
+    // 30 ms at Full: Half takes about a quarter of it.
+    expect(adaptiveFactor(1, 30, 4)).toBe(2);
+    expect(adaptiveFactor(1, 400, 4)).toBe(4);
+    // 1000 ms at Full takes about 20 ms at 1/7.
+    expect(adaptiveFactor(1, 1000, 8)).toBe(7);
+  });
+
+  it("stops at the limit however slow the GPU is", () => {
+    expect(adaptiveFactor(1, 1000, 4)).toBe(4);
+    expect(adaptiveFactor(3, 1000, 4)).toBe(4);
+    // A phone still too slow at Quarter goes on down to 1/8, where it has a quarter of the pixels to render.
+    expect(adaptiveFactor(4, 260, 8)).toBe(8);
   });
 });
 
