@@ -17,3 +17,4 @@ refs/probe*
 /*.zip
 *.jks
 *.keystore
+native/build*

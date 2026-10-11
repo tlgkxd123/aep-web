@@ -603,6 +603,120 @@ function dashPattern(r: Reader, paint: PropertyGroup): { dashes: number[]; offse
   return { dashes, offset: r.num(group, "ADBE Vector Stroke Offset", 0) };
 }
 
+/** One fill or stroke of a shape layer as the native engine draws it (src/native/plan.ts). */
+export interface ShapePaintPlan {
+  stroke: boolean;
+  /** Paint space -> image pixels of the padded raster, [a, b, c, d, e, f]. */
+  matrix: Affine;
+  /** Paths in paint space; per vertex x, y, in tangent, out tangent (tangents relative), as mask paths. */
+  paths: { closed: boolean; vertices: number[] }[];
+  evenOdd: boolean;
+  /** Stroke width in paint space, Line Cap (1 butt, 2 round, 3 square), Line Join (1 miter, 2 round, 3 bevel). */
+  width: number;
+  cap: number;
+  join: number;
+  miterLimit: number;
+  /** Straight RGBA, opacities included, quantized as canvas colors are. */
+  color: [number, number, number, number];
+  gradient?: {
+    radial: boolean;
+    /** Paint space: the start (a radial gradient's center), the end, and the radial highlight. */
+    start: [number, number];
+    end: [number, number];
+    focus: [number, number];
+    /** Straight RGBA at GRADIENT_STOPS + 1 even steps from start to end. */
+    ramp: number[];
+  };
+}
+
+export interface ShapeLayerPlan {
+  /** Image position of the first content pixel, relative to the layer origin (image pixels). */
+  origin: [number, number];
+  width: number;
+  height: number;
+  /** Bottom first. */
+  paints: ShapePaintPlan[];
+  /** Dashed strokes, which the native engine does not draw yet. */
+  dashed: boolean;
+}
+
+/** Steps of a gradient ramp: the color stops addGradientStops gives the canvas. */
+export const GRADIENT_STOPS = 64;
+
+const unorm8 = (v: number) => Math.round(Math.min(1, Math.max(0, v)) * 255) / 255;
+
+/**
+ * What rasterizeShapeLayer draws, as paths and paint values for the native engine, at `scale` image pixels per layer
+ * pixel with a `pad` border; null when it draws nothing.
+ */
+export function planShapeLayer(layer: Layer, time: number, imageScale: number, pad: number): ShapeLayerPlan | null {
+  const root = layer.properties.find((n): n is PropertyGroup => n.kind === "group" && n.matchName === "ADBE Root Vectors Group");
+  if (!root) return null;
+  const r = new Reader(layer, time);
+  const { draws } = evaluateItems(r, root.children);
+  const visible = draws.filter((d) => d.opacity > 0 && d.targets.some((t) => t.path.pieces.length));
+  const bounds = drawBounds(visible, r);
+  if (!bounds) return null;
+  const x0 = Math.floor(bounds[0] * imageScale);
+  const y0 = Math.floor(bounds[1] * imageScale);
+  const width = Math.min(MAX_RASTER, Math.ceil(bounds[2] * imageScale) - x0);
+  const height = Math.min(MAX_RASTER, Math.ceil(bounds[3] * imageScale) - y0);
+  if (width <= 0 || height <= 0) return null;
+  const toImage = mul(translate(pad - x0, pad - y0), scale(imageScale, imageScale));
+  const paints: ShapePaintPlan[] = [];
+  let dashed = false;
+  for (const d of [...visible].reverse()) {
+    const kind = d.paint.matchName;
+    const stroke = kind === "ADBE Vector Graphic - Stroke" || kind === "ADBE Vector Graphic - G-Stroke";
+    const strokeWidth = stroke ? r.num(d.paint, "ADBE Vector Stroke Width", 2) : 0;
+    if (stroke && strokeWidth <= 0) continue;
+    if (stroke && dashPattern(r, d.paint)) dashed = true;
+    const paths = d.targets
+      .flatMap((t) => t.path.pieces.map((piece) => transformShape(piece, t.toPaint)))
+      .filter((s) => s.vertices.length)
+      .map((s) => ({ closed: s.closed, vertices: s.vertices.flatMap((v, i) => [v[0], v[1], s.inTangents[i][0], s.inTangents[i][1], s.outTangents[i][0], s.outTangents[i][1]]) }));
+    const paint: ShapePaintPlan = {
+      stroke,
+      matrix: mul(toImage, d.toGroup),
+      paths,
+      evenOdd: !stroke && r.num(d.paint, "ADBE Vector Fill Rule", 1) === 2,
+      width: strokeWidth,
+      cap: stroke ? r.num(d.paint, "ADBE Vector Stroke Line Cap", 1) : 1,
+      join: stroke ? r.num(d.paint, "ADBE Vector Stroke Line Join", 1) : 1,
+      miterLimit: stroke ? r.num(d.paint, "ADBE Vector Stroke Miter Limit", 4) : 4,
+      color: [1, 1, 1, 1],
+    };
+    if (kind === "ADBE Vector Graphic - Fill" || kind === "ADBE Vector Graphic - Stroke") {
+      const [cr, cg, cb] = r.vec(d.paint, stroke ? "ADBE Vector Stroke Color" : "ADBE Vector Fill Color", [1, 1, 1, 1]);
+      const a = (r.num(d.paint, stroke ? "ADBE Vector Stroke Opacity" : "ADBE Vector Fill Opacity", 100) / 100) * d.opacity;
+      paint.color = [unorm8(cr), unorm8(cg), unorm8(cb), unorm8(a)];
+    } else {
+      const [sx, sy] = r.vec(d.paint, "ADBE Vector Grad Start Pt", [0, 0]);
+      const [ex, ey] = r.vec(d.paint, "ADBE Vector Grad End Pt", [100, 0]);
+      const ramp = r.gradient(d.paint, "ADBE Vector Grad Colors") ?? DEFAULT_RAMP;
+      const opacity = (r.num(d.paint, "ADBE Vector Fill Opacity", r.num(d.paint, "ADBE Vector Stroke Opacity", 100)) / 100) * d.opacity;
+      const radial = r.num(d.paint, "ADBE Vector Grad Type", 1) === 2;
+      let focus: [number, number] = [sx, sy];
+      if (radial) {
+        const radius = Math.hypot(ex - sx, ey - sy);
+        const length = Math.max(-0.99, Math.min(0.99, r.num(d.paint, "ADBE Vector Grad HiLite Length", 0) / 100));
+        const angle = Math.atan2(ey - sy, ex - sx) + r.num(d.paint, "ADBE Vector Grad HiLite Angle", 0) * DEG;
+        focus = [sx + Math.cos(angle) * radius * length, sy + Math.sin(angle) * radius * length];
+      }
+      const stops: number[] = [];
+      for (let i = 0; i <= GRADIENT_STOPS; i++) {
+        const at = i / GRADIENT_STOPS;
+        const [cr, cg, cb] = sampleStops(ramp.colorStops, at, (s) => s.color);
+        const [a] = ramp.alphaStops.length ? sampleStops(ramp.alphaStops, at, (s) => [s.alpha]) : [1];
+        stops.push(unorm8(cr), unorm8(cg), unorm8(cb), unorm8(a * opacity));
+      }
+      paint.gradient = { radial, start: [sx, sy], end: [ex, ey], focus, ramp: stops };
+    }
+    paints.push(paint);
+  }
+  return { origin: [x0, y0], width, height, paints, dashed };
+}
+
 /** Rasterizes a shape layer's contents at `time` in layer space; null when it draws nothing. */
 export function rasterizeShapeLayer(layer: Layer, time: number, pad: number): ShapeRaster | null {
   const root = layer.properties.find((n): n is PropertyGroup => n.kind === "group" && n.matchName === "ADBE Root Vectors Group");

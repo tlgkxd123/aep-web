@@ -102,6 +102,7 @@ export type DynamicMenu =
   | "blending-mode"
   | "track-matte"
   | "resolution"
+  | "renderer"
   | "workspace";
 
 interface Item {
@@ -266,6 +267,7 @@ const MENUS: { name: string; items: Entry[] }[] = [
       { label: "Add Output Module" },
       "-",
       sub("Preview", [{ label: "Play Current Preview", shortcut: "Space", command: "play-preview", needsProject: true }]),
+      dyn("Preview Renderer", "renderer"),
       { label: "Save Frame As", submenu: true },
       { label: "Pre-render...", command: "add-to-render-queue", needsProject: true },
       { label: "Save Current Preview...", shortcut: "Ctrl+Num 0" },

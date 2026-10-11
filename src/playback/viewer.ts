@@ -6,6 +6,7 @@ import type { Target } from "../render/gl.ts";
 import { Renderer, scaledSize } from "../render/renderer.ts";
 import { frameDuration } from "./clock.ts";
 import { appBudgets } from "./memory.ts";
+import { nativeFrames } from "./previewRenderer.ts";
 import { attachProject, cacheView, contentGeneration, invalidate, ramCache, registerRenderer } from "./ramCache.ts";
 import { appRenderOptions } from "./renderOptions.ts";
 
@@ -216,11 +217,19 @@ export class ViewerEngine {
     return "waiting";
   }
 
-  /** Renders a frame into the RAM cache without showing it. False when its footage is still loading, and nothing was cached. */
+  /**
+   * Renders a frame into the RAM cache without showing it. False when nothing was cached yet: its footage is still
+   * loading, or the Vulkan engine (Preview Renderer) is rendering it; `lastWaiting` says which.
+   */
   prefetch(frame: number): boolean {
     if (!this.project || !this.comp) return true;
     checkFootageFiles();
     if (this.cached(frame)) return true;
+    const native = nativeFrames.prefetch(this.project, this.comp, this.view, frame, frame * frameDuration(this.comp), 1 / this.factor);
+    if (native) {
+      this.lastWaiting = [native];
+      return false;
+    }
     const { bitmap, complete } = this.render(frame);
     if (complete) ramCache.put(this.view, frame, bitmap, bitmap.width * bitmap.height * 4);
     else bitmap.close();

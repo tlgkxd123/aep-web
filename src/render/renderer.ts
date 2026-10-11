@@ -18,16 +18,9 @@ import { MaskRenderer } from "./masks.ts";
 import { contentProviders, effectIsScalable, effectRenderer, type LayerImage, type RenderContext, type RendererOptions } from "./registry.ts";
 import { rasterizeShapeLayer } from "./shapes.ts";
 import { COMPOSITE_FS, FILL_FS, FULLSCREEN_VS, LAYER_FS, LAYER_VS, MASK_FS, MatteMode, REDUCE_FS } from "./shaders.ts";
+import { anySolo, drawOrder, isActive, MATTE_MODES, matteLayerOf, MAX_DEPTH, NO_MATTE, PAD, scaledSize } from "./composition.ts";
 
-const PAD = 1;
-const NO_MATTE = 5012;
-const MATTE_MODES: Record<number, number> = {
-  5013: MatteMode.ALPHA,
-  5014: MatteMode.ALPHA_INVERTED,
-  5015: MatteMode.LUMA,
-  5016: MatteMode.LUMA_INVERTED,
-};
-const MAX_DEPTH = 16;
+export { scaledSize };
 
 /** What a renderer keeps between frames at most: pooled targets (8-bit and float), reused layer images, shape content and coverage. */
 export type RendererBudgets = Pick<MemoryBudgets, "targets" | "floatTargets" | "layers" | "shapes" | "coverage">;
@@ -48,11 +41,6 @@ export interface RenderOptions {
    * (one not registered `scalable`) renders at full resolution and is resampled when placed.
    */
   scale?: number;
-}
-
-/** Pixels of a comp dimension rendered at `scale` (1/3 of 1920 is 640, not 641). */
-export function scaledSize(size: number, scale: number): number {
-  return scale === 1 ? size : Math.max(1, Math.ceil(size * scale - 1e-6));
 }
 
 interface Programs {
@@ -173,7 +161,7 @@ export class Renderer {
       },
       drawOrder: (comp, time) => {
         if (comp.layers.some((l) => l.threeDLayer)) return null;
-        return this.drawOrder(comp, time, undefined, comp.layers.some((l) => l.solo && this.isRenderable(l)));
+        return this.drawOrder(comp, time, undefined, anySolo(comp));
       },
       matteLayerOf: (layer, comp) => this.matteLayerOf(layer, comp),
       isActive: (layer, time) => this.isActive(layer, time),
@@ -368,9 +356,8 @@ export class Renderer {
       this.warnings.add(`compositions nested deeper than ${MAX_DEPTH} levels were not rendered`);
       return accumulated;
     }
-    const anySolo = comp.layers.some((l) => l.solo && this.isRenderable(l));
     const camera = comp.layers.some((l) => l.threeDLayer) ? cameraAt(comp, time) : undefined;
-    const drawOrder = this.drawOrder(comp, time, camera, anySolo);
+    const drawOrder = this.drawOrder(comp, time, camera, anySolo(comp));
 
     // The bottom layers draw what they drew last frame: the composite of them is kept and drawn on from.
     const parts = this.reuseLayers && !camera ? this.keys.parts(comp, time) : null;
@@ -512,57 +499,17 @@ export class Renderer {
     return { target: out, width, height, origin: [x0, y0], scale };
   }
 
-  private isRenderable(layer: Layer): boolean {
-    return layer.layerType === "AVLayer" || layer.layerType === "ShapeLayer" || layer.layerType === "TextLayer";
-  }
-
   private isActive(layer: Layer, time: number): boolean {
-    // A time-reversed layer (negative stretch) has its in point after its out point.
-    return time >= Math.min(layer.inPoint, layer.outPoint) && time < Math.max(layer.inPoint, layer.outPoint);
+    return isActive(layer, time);
   }
 
   private matteLayerOf(layer: Layer, comp: CompItem): Layer | undefined {
-    if (layer.trackMatteLayerId) return comp.layers.find((l) => l.id === layer.trackMatteLayerId);
-    return comp.layers[layer.index - 2];
+    return matteLayerOf(layer, comp);
   }
 
   /** Layers to composite, bottom first; runs of adjacent 3D layers are sorted back to front. */
-  private drawOrder(comp: CompItem, time: number, camera: Camera | undefined, anySolo: boolean): Layer[] {
-    const candidates = [...comp.layers]
-      .reverse()
-      .filter(
-        (l) =>
-          this.isRenderable(l) &&
-          l.enabled &&
-          (!anySolo || l.solo) &&
-          !l.nullLayer &&
-          !l.guideLayer &&
-          this.isActive(l, time),
-      );
-    if (!camera) return candidates;
-    const viewInverse = camera.rotation.inverse();
-    const depthOf = (layer: Layer) => {
-      const t = localTransform(layer, time);
-      const world = worldMatrix(layer, comp, time).transformPoint(t.anchor);
-      return viewInverse.transformVector([world[0] - camera.position[0], world[1] - camera.position[1], world[2] - camera.position[2]])[2];
-    };
-    const result: Layer[] = [];
-    let run: { layer: Layer; depth: number }[] = [];
-    const flush = () => {
-      // Back to front; ties keep stack order (lower layers first).
-      run.sort((a, b) => b.depth - a.depth);
-      result.push(...run.map((r) => r.layer));
-      run = [];
-    };
-    for (const layer of candidates) {
-      if (layer.threeDLayer) run.push({ layer, depth: depthOf(layer) });
-      else {
-        flush();
-        result.push(layer);
-      }
-    }
-    flush();
-    return result;
+  private drawOrder(comp: CompItem, time: number, camera: Camera | undefined, solo: boolean): Layer[] {
+    return drawOrder(comp, time, camera, solo);
   }
 
   /** The layer's image transformed into comp space (comp-sized target), or null if it draws nothing. */
