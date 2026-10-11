@@ -10,12 +10,12 @@
 // spread are fitted to After Effects renders (scripts/particular-stats.ts): Size Random
 // varies the size by up to ±half its percentage, and with Depth of Field on, particles
 // off the focal plane (at the camera's zoom distance) spread over a circle of confusion.
-import type { CompItem, Layer, Project, PropertyGroup } from "../../aep/model.ts";
-import type { Chunk } from "../../aep/riff.ts";
+import type { CompItem, Layer, Project } from "../../aep/model.ts";
 import { cameraAt, Mat4 } from "../../aep/transform.ts";
 import { effectNumber, effectProperty, effectVector } from "../effectParams.ts";
 import { compile, type GL } from "../gl.ts";
 import { registerEffect } from "../registry.ts";
+import { OPACITY_OVER_LIFE, overLifeCurve, sampleCurve, SIZE_OVER_LIFE } from "./particularCurves.ts";
 
 /** Deterministic uniform random numbers in [0, 1). */
 function random(seed: number): () => number {
@@ -125,45 +125,6 @@ function defocused(out: number[], cx: number, cy: number, inner: number, outer: 
   const i2 = Math.max(0, inner - blur);
   const o2 = outer + blur;
   splat(out, cx, cy, i2, o2, opacity * Math.min(1, light(inner, outer) / light(i2, o2)));
-}
-
-/** Samples of an "over Life" curve (Size, Opacity...): 201 float32 values from birth to death after a 28-byte header. */
-const OVER_LIFE_SAMPLES = 201;
-const overLifeCurves = new WeakMap<object, Map<string, Float32Array | null>>();
-
-function overLife(effect: PropertyGroup, param: number): Float32Array | null {
-  const chunk = effect.chunk;
-  if (!chunk) return null;
-  let curves = overLifeCurves.get(chunk);
-  if (!curves) overLifeCurves.set(chunk, (curves = new Map()));
-  const matchName = `${effect.matchName}-${String(param).padStart(4, "0")}`;
-  if (curves.has(matchName)) return curves.get(matchName)!;
-  let found: Float32Array | null = null;
-  // The curve is arbitrary data (LIST:aRbs) following the parameter's tdmn.
-  const visit = (children: Chunk[]) => {
-    let current = "";
-    for (const c of children) {
-      if (found) return;
-      if (c.type === "tdmn") current = new TextDecoder().decode(c.data).replace(/\0[\s\S]*$/, "");
-      else if (c.type === "LIST" && c.listType === "aRbs" && current === matchName) {
-        const data = c.children?.find((x) => x.type === "aRbp")?.data;
-        if (data && data.length >= 28 + OVER_LIFE_SAMPLES * 4) {
-          const view = new DataView(data.buffer, data.byteOffset, data.byteLength);
-          found = Float32Array.from({ length: OVER_LIFE_SAMPLES }, (_, i) => view.getFloat32(28 + i * 4, true));
-        }
-      } else if (c.children) visit(c.children);
-    }
-  };
-  visit(chunk.children ?? []);
-  curves.set(matchName, found);
-  return found;
-}
-
-function sampleCurve(curve: Float32Array | null, u: number): number {
-  if (!curve) return 1;
-  const x = Math.max(0, Math.min(1, u)) * (OVER_LIFE_SAMPLES - 1);
-  const i = Math.min(OVER_LIFE_SAMPLES - 2, Math.floor(x));
-  return Math.max(0, curve[i] + (curve[i + 1] - curve[i]) * (x - i));
 }
 
 const compOfLayer = new WeakMap<Layer, CompItem>();
@@ -312,8 +273,8 @@ registerEffect("tc Particular", (input, effect, layer, time, ctx) => {
     const far = farVanish > farFade ? (farVanish - z) / (farVanish - farFade) : z <= farVanish ? 1 : 0;
     return Math.max(0, Math.min(1, near, far));
   };
-  const sizeOverLife = overLife(effect, 569);
-  const opacityOverLife = overLife(effect, 570);
+  const sizeOverLife = overLifeCurve(effect.chunk, SIZE_OVER_LIFE);
+  const opacityOverLife = overLifeCurve(effect.chunk, OPACITY_OVER_LIFE);
 
   // Particle space -> comp space: World Transform rotates about the comp centre, then offsets.
   const cx = compW / 2;

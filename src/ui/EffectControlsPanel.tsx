@@ -24,6 +24,8 @@ import { setPropertyValue, toggleStopwatch } from "../edit/stored-property.ts";
 import { attempt, EFFECT_MIME, nextDragKey, useEditing } from "./editing.tsx";
 import { followPointer } from "./pointer.ts";
 import { canEditEffectValue, EffectValue } from "./EffectValue.tsx";
+import { OverLifeRow } from "./OverLifeCurve.tsx";
+import { OVER_LIFE, overLifeCurve, PARTICULAR } from "../render/effects/particularCurves.ts";
 
 /** Drags of a slider or dial: `onChange` per move with one coalesce key, `onEnd` when released. */
 type DragHandlers = { onChange?: (value: number, coalesce: string) => void; onEnd?: () => void };
@@ -147,6 +149,12 @@ function ParamRow({ node, depth, effect, ctx, time, expanded, toggle, path }: Ro
   const { prop } = node;
   if (effect.matchName === SOUND_KEYS && prop.matchName === SOUND_KEYS_COMMANDS) {
     return <SoundKeysCommands effect={effect} ctx={ctx} indent={indent} depth={depth} />;
+  }
+  if (effect.matchName === PARTICULAR && prop.controlType === EffectControlType.ARBITRARY) {
+    const n = Number(prop.matchName.slice(PARTICULAR.length + 1));
+    if (OVER_LIFE.has(n) && overLifeCurve(effect.chunk, n)) {
+      return <OverLifeRow {...{ comp: ctx.comp, layer: ctx.layer, effect, n, name: node.name, depth, indent, open, onToggle: () => toggle(key) }} />;
+    }
   }
   const value = shownValue(ctx.project, prop, time, ctx.layer);
   const range = typeof value === "number" ? sliderRange(prop, effect, ctx) : undefined;
