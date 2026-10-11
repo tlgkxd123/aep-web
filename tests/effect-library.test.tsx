@@ -16,7 +16,7 @@ import { SAMPLES } from "../scripts/lib/paths.ts";
 const FIXTURE = resolve(import.meta.dirname, "../refs/fixtures/roundtrip.base.aep");
 const COMP = "roundtrip_minimax";
 const CARD = "roundtrip_card";
-/** A project After Effects saved whose one layer has two Gaussian Blurs (Blurriness 20 and 30), an effect the library lacks. */
+/** A project After Effects saved whose one layer has two Gaussian Blurs (Blurriness 20 and 30). */
 const GAUSSIAN = resolve(SAMPLES, "models/property/2_gaussian_20_30.aep");
 /** A project After Effects saved that defines Lens Flare and CC Sphere, which the viewer does not render. */
 const EFFECTS = resolve(SAMPLES, "models/property/effects.aep");
@@ -208,11 +208,11 @@ test("every After Effects effect is listed; those without a template are unavail
   await libraryEffect("Distort", "Mirror");
 
   // Effects the library lacks and the project does not define are found by name and category, but do not apply.
-  fireEvent.change(search(), { target: { value: "gaussian" } });
-  const gaussian = await libraryEffect("Blur & Sharpen", "Gaussian Blur", false);
-  expect(gaussian.getAttribute("aria-disabled")).toBe("true");
-  expect(gaussian.getAttribute("draggable")).toBe("false");
-  fireEvent.doubleClick(gaussian);
+  fireEvent.change(search(), { target: { value: "invert" } });
+  const invert = await libraryEffect("Channel", "Invert", false);
+  expect(invert.getAttribute("aria-disabled")).toBe("true");
+  expect(invert.getAttribute("draggable")).toBe("false");
+  fireEvent.doubleClick(invert);
   fireEvent.keyDown(search(), { key: "Enter" });
   expect(effectNames()).toEqual([]);
   fireEvent.change(search(), { target: { value: "noise & grain" } });
@@ -232,18 +232,58 @@ test("every After Effects effect is listed; those without a template are unavail
   fireEvent.click(screen.getByRole("menuitem", { name: "Effect" }));
   fireEvent.click(screen.getByRole("menuitem", { name: /^Blur & Sharpen/ }));
   const blurs = within(screen.getByRole("menu", { name: "Blur & Sharpen" }));
-  expect(blurs.getByRole("menuitem", { name: /^Gaussian Blur/ }).hasAttribute("disabled")).toBe(true);
+  expect(blurs.getByRole("menuitem", { name: /^Sharpen/ }).hasAttribute("disabled")).toBe(true);
   expect(blurs.getByRole("menuitem", { name: /^Fast Box Blur/ }).hasAttribute("disabled")).toBe(false);
 });
 
-test("effects the project defines that the viewer does not draw are tagged Not rendered", async () => {
+test("plug-ins the viewer draws are listed under their vendors' categories; those with a template apply", async () => {
+  await openComp(readFileSync(FIXTURE), "roundtrip.base.aep");
+  fireEvent.click(screen.getByRole("tab", { name: /^Effect Controls/ }));
+
+  fireEvent.change(search(), { target: { value: "s_shake" } });
+  const shake = await libraryEffect("Sapphire Distort", "S_Shake");
+  expect(shake.getAttribute("draggable")).toBe("true");
+  expect(shake.textContent).not.toContain("Not rendered");
+  fireEvent.doubleClick(shake);
+  expect(effectNames()).toEqual(["S_Shake"]);
+
+  fireEvent.change(search(), { target: { value: "sapphire" } });
+  for (const [category, name] of [
+    ["Sapphire Blur+Sharpen", "S_Blur"],
+    ["Sapphire Lighting", "S_Glow"],
+    ["Sapphire Lighting", "S_ZGlow"],
+    ["Sapphire Adjust", "S_Flicker"],
+  ]) {
+    expect(await libraryEffect(category, name)).toBeTruthy();
+  }
+
+  // Form has a renderer but no template: listed, unavailable.
+  fireEvent.change(search(), { target: { value: "trapcode" } });
+  expect((await libraryEffect("RG Trapcode", "Form", false)).getAttribute("aria-disabled")).toBe("true");
+  expect(await libraryEffect("RG Trapcode", "Particular")).toBeTruthy();
+
+  fireEvent.click(screen.getByRole("menuitem", { name: "Effect" }));
+  fireEvent.click(screen.getByRole("menuitem", { name: /^Sapphire Distort/ }));
+  fireEvent.click(within(screen.getByRole("menu", { name: "Sapphire Distort" })).getByRole("menuitem", { name: /^S_Shake/ }));
+  expect(effectNames()).toEqual(["S_Shake", "S_Shake"]);
+
+  const effects = savedEffects(await save(), COMP);
+  expect(effects.map((e) => e.matchName)).toEqual(["S_Shake", "S_Shake"]);
+});
+
+test("effects the library lacks apply from the project's definitions; those the viewer does not draw are tagged Not rendered", async () => {
   await openComp(readFileSync(EFFECTS), "effects.aep", "effect_2dPoint", "TestLayer");
+  fireEvent.click(screen.getByRole("tab", { name: /^Effect Controls/ }));
+  const before = effectNames();
   fireEvent.change(search(), { target: { value: "lens flare" } });
   const listed = await libraryEffect("Generate", "Lens Flare");
   expect(listed.textContent).toContain("Not rendered");
+  expect(listed.getAttribute("draggable")).toBe("true");
+  fireEvent.doubleClick(listed);
+  expect(effectNames()).toEqual([...before, "Lens Flare"]);
 });
 
-test("effects the project defines apply from its own definitions, from Used in This Project too", async () => {
+test("library effects the project defines too apply, from Used in This Project as well", async () => {
   await openComp(readFileSync(GAUSSIAN), "2_gaussian_20_30.aep", "Comp 1", "Gray Solid 1");
   fireEvent.click(screen.getByRole("tab", { name: /^Effect Controls/ }));
   const original = ["Gaussian Blur", "Gaussian Blur 2"];
@@ -264,13 +304,13 @@ test("effects the project defines apply from its own definitions, from Used in T
   dragDrop(within(used).getByRole("treeitem", { name: "Gaussian Blur" }).querySelector(".fxp-row")!, layerRow("Gray Solid 1"));
   expect(effectNames()).toEqual([...original, "Gaussian Blur"]);
 
-  // Effect > Blur & Sharpen > Gaussian Blur, enabled since the project defines it.
+  // Effect > Blur & Sharpen > Gaussian Blur, enabled.
   fireEvent.click(screen.getByRole("menuitem", { name: "Effect" }));
   fireEvent.click(screen.getByRole("menuitem", { name: /^Blur & Sharpen/ }));
   fireEvent.click(within(screen.getByRole("menu", { name: "Blur & Sharpen" })).getByRole("menuitem", { name: /^Gaussian Blur/ }));
   expect(effectNames()).toEqual([...original, "Gaussian Blur", "Gaussian Blur"]);
 
-  // Saved, the originals keep their values and the added instances are at the definition's default, 25, which After
+  // Saved, the originals keep their values and the added instances are at the template's default, 25, which After
   // Effects reports unmodified Gaussian Blurs at (py-aep's ExtendScript export of models/property/2_gaussian.aep).
   const effects = savedEffects(await save(), "Comp 1");
   const blurriness = (e: PropertyGroup) => e.children.find((c): c is Property => c.kind === "property" && c.matchName === "ADBE Gaussian Blur 2-0001")?.value;

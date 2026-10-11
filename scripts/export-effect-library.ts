@@ -6,20 +6,24 @@
 // Definitions come from projects After Effects saved (AEP_EFFECT_DONOR, the py-aep
 // corpus, the user's projects and Downloads, extra folders given), newest After Effects
 // version first, then from fixture projects under refs/fixtures that aerender rendered.
-// Renderers that only skip an effect whose plug-in After Effects lacks here, as After
-// Effects does, get no template: applying one would draw nothing in either. Instances
+// An effect the committed library holds from a donor this machine does not have keeps
+// its committed template. Renderers that only skip an effect whose plug-in After Effects
+// lacks here, as After Effects does, get no template: applying one would draw nothing in
+// either. Look-alikes the app draws by default (Sapphire) do get one. Instances
 // store every value parameter (those their definition leaves out are written at their
 // defaults from a stream of the same kind), so each can be set in Effect Controls.
 //
 //   node scripts/export-effect-library.ts [folder...]
 import { readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
+import { gunzipSync } from "node:zlib";
 import type { Layer, PropertyGroup } from "../src/aep/model.ts";
 import { findChild, readRifx, type Chunk } from "../src/aep/riff.ts";
 import "../src/render/features.ts";
 import { effectRenderer, registeredEffects, type LayerImage, type RenderContext } from "../src/render/registry.ts";
 import { effectCategory } from "../src/edit/effectCatalog.ts";
 import { definitionName, freshInstance, projectDefinitions, streamPool } from "../src/edit/effectTemplates.ts";
+import { chunksFromBytes } from "../src/edit/layer-templates.ts";
 import { ChunkPacker } from "./lib/effect-templates.ts";
 import { PY_AEP } from "./lib/paths.ts";
 import { framePath, loadSuites, ROOT } from "./lib/suites.ts";
@@ -41,6 +45,11 @@ export interface LibraryEntry {
   source: string;
   definition: [number, number];
   instance: [number, number];
+  /**
+   * The app draws it with a look-alike of a plug-in After Effects lacks here, which skips it: the roundtrip suite
+   * leaves it out, as After Effects cannot render it.
+   */
+  lookalike?: true;
 }
 
 export interface Library {
@@ -140,12 +149,12 @@ function donors(wanted: string[], folders: string[]): { donor: Donor; defs: Map<
 
 const versionText = (v: number) => `${Math.floor(v / 100)}.${v % 100}`;
 
-/** Whether the effect's renderer only reports a missing plug-in and passes the layer through. */
-function onlySkips(matchName: string): boolean {
+/** Whether the effect's renderer only reports a missing plug-in and passes the layer through, with or without the app's look-alikes. */
+function onlySkips(matchName: string, lookalikes: boolean): boolean {
   const render = effectRenderer(matchName);
   if (!render) return false;
   const warnings: string[] = [];
-  const known = { options: { approximateMissingPlugins: false, sapphireLookalikes: false }, warn: (m: string) => warnings.push(m) };
+  const known = { options: { approximateMissingPlugins: false, sapphireLookalikes: lookalikes }, warn: (m: string) => warnings.push(m) };
   const ctx = new Proxy(known, {
     get(target, key) {
       if (key in target) return target[key as keyof typeof target];
@@ -161,20 +170,51 @@ function onlySkips(matchName: string): boolean {
   }
 }
 
+interface Committed {
+  entry: LibraryEntry;
+  definition: Chunk;
+  instance: Chunk;
+}
+
+/** The templates of the committed library, by match name. */
+function committedLibrary(): Map<string, Committed> {
+  let library: Library;
+  try {
+    library = JSON.parse(readFileSync(LIBRARY, "utf8")) as Library;
+  } catch {
+    return new Map();
+  }
+  const raw = gunzipSync(Buffer.from(library.data, "base64"));
+  const chunk = ([at, length]: [number, number]) => chunksFromBytes([raw.subarray(at, at + length)])[0];
+  return new Map(Object.entries(library.effects).map(([matchName, entry]) => [matchName, { entry, definition: chunk(entry.definition), instance: chunk(entry.instance) }]));
+}
+
+const lookalike = (matchName: string): true | undefined => onlySkips(matchName, false) || undefined;
+
 export function buildLibrary(folders: string[] = []): LibraryBuild {
   const log: string[] = [];
   const excluded = new Map<string, string>();
   const wanted: string[] = [];
   for (const matchName of registeredEffects().sort()) {
-    if (NOT_INSTALLED.has(matchName) || onlySkips(matchName)) {
+    if (NOT_INSTALLED.has(matchName) || onlySkips(matchName, true)) {
       excluded.set(matchName, "its plug-in is not installed in After Effects here; the renderer draws the layer unchanged, as After Effects does");
     } else wanted.push(matchName);
   }
   const sources = donors(wanted, folders);
   const pool = streamPool(sources.flatMap((s) => [...s.defs]));
+  const committed = committedLibrary();
+  const found = new Set(sources.map((s) => s.donor.path.replace(/^.*[\\/]/, "")));
   const packer = new ChunkPacker();
   const entries: [string, LibraryEntry][] = [];
   for (const matchName of wanted) {
+    const kept = committed.get(matchName);
+    if (kept && !found.has(kept.entry.source)) {
+      const { entry } = kept;
+      log.push(`${matchName} kept from the committed library (${entry.source} is not here)`);
+      const category = effectCategory(matchName) ?? OTHER;
+      entries.push([matchName, { ...entry, category, definition: packer.add(kept.definition), instance: packer.add(kept.instance), lookalike: lookalike(matchName) }]);
+      continue;
+    }
     const from = sources.find((s) => s.defs.has(matchName));
     if (!from) {
       excluded.set(matchName, "no project After Effects saved or rendered defines it");
@@ -187,7 +227,7 @@ export function buildLibrary(folders: string[] = []): LibraryBuild {
     const source = from.donor.path.replace(/^.*[\\/]/, "");
     log.push(`${matchName} from ${from.donor.path} (${from.donor.fixture ? "fixture" : `After Effects ${versionText(from.donor.version)}`}): ${summary}`);
     const name = definitionName(definition) ?? matchName;
-    entries.push([matchName, { name, category, source, definition: packer.add(definition), instance: packer.add(sspc) }]);
+    entries.push([matchName, { name, category, source, definition: packer.add(definition), instance: packer.add(sspc), lookalike: lookalike(matchName) }]);
   }
   const { raw, gzipped, base64 } = packer.pack();
   log.push(`${raw} bytes, ${gzipped} gzipped`);
