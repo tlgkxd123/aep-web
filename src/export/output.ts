@@ -1,3 +1,4 @@
+import { Capacitor } from "@capacitor/core";
 import type { Sink } from "./pipeline.ts";
 import { saveBlob } from "./saveFile.ts";
 import { FORMATS, type Format } from "./settings.ts";
@@ -10,6 +11,8 @@ interface SavePickerWindow {
 }
 
 export function canPickFiles(): boolean {
+  // The Android WebView exposes the File System Access API but cannot write through it; use Documents/aep-web instead.
+  if (Capacitor.isNativePlatform()) return false;
   return typeof (globalThis as SavePickerWindow).showSaveFilePicker === "function";
 }
 
@@ -18,8 +21,8 @@ export function canPickFiles(): boolean {
  * save picker (the render then downloads).
  */
 export async function pickOutputFile(suggestedName: string, format: Format): Promise<FileSystemFileHandle | null | undefined> {
-  const picker = (globalThis as SavePickerWindow).showSaveFilePicker;
-  if (!picker) return undefined;
+  if (!canPickFiles()) return undefined;
+  const picker = (globalThis as SavePickerWindow).showSaveFilePicker!;
   const info = FORMATS[format];
   try {
     return await picker({ suggestedName, types: [{ description: info.label, accept: { [info.mime]: [`.${info.extension}`] } }] });
