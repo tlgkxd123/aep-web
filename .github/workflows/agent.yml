@@ -2,8 +2,9 @@
 #
 # Start it by labelling an issue `agent`, commenting `/agent <instructions>` on an issue or pull request
 # (on a pull request the agent continues its branch), or `gh workflow run agent.yml -f task="..."`.
-# Only the repository owner can start it. Needs the CURSOR_API_KEY secret; the AGENT_MODEL and
-# AGENT_ATTEMPTS variables override the model and the number of agent turns.
+# Only the repository owner can start it. Needs the CURSOR_API_KEY secret; the AGENT_MODEL, AGENT_EFFORT
+# (xhigh or high) and AGENT_ATTEMPTS variables override the model, its reasoning effort and the number of
+# agent turns.
 name: Agent
 
 on:
@@ -17,7 +18,10 @@ on:
         description: What to build or fix
         required: true
       model:
-        description: Model id (default AGENT_MODEL, else composer-2.5)
+        description: Model id (default AGENT_MODEL, else claude-opus-5-5)
+        required: false
+      effort:
+        description: Reasoning effort, xhigh or high (default AGENT_EFFORT, else xhigh)
         required: false
 
 permissions:
@@ -97,6 +101,7 @@ jobs:
         env:
           CURSOR_API_KEY: ${{ secrets.CURSOR_API_KEY }}
           AGENT_MODEL: ${{ inputs.model || vars.AGENT_MODEL }}
+          AGENT_EFFORT: ${{ inputs.effort || vars.AGENT_EFFORT }}
           AGENT_ATTEMPTS: ${{ vars.AGENT_ATTEMPTS }}
         run: AGENT_TASK_FILE="$TASK_FILE" AGENT_SUMMARY_FILE="$SUMMARY_FILE" node .github/agent/run.ts
 
