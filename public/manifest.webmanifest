@@ -1,0 +1,19 @@
+{
+  "name": "AEP Web",
+  "short_name": "AEP Web",
+  "description": "Opens After Effects projects in the browser.",
+  "id": ".",
+  "start_url": ".",
+  "scope": ".",
+  "display": "standalone",
+  "background_color": "#1b1b1b",
+  "theme_color": "#1b1b1b",
+  "icons": [{ "src": "icon-192.png", "sizes": "192x192", "type": "image/png" }],
+  "file_handlers": [
+    {
+      "action": ".",
+      "accept": { "application/vnd.adobe.aftereffects.project": [".aep"] },
+      "launch_type": "single-client"
+    }
+  ]
+}

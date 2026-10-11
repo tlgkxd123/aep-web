@@ -22,6 +22,38 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
 
+            <!-- Open with: Android has no type for .aep, so file managers hand it over as binary data, or by name. -->
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:scheme="content" />
+                <data android:scheme="file" />
+                <data android:mimeType="application/octet-stream" />
+                <data android:mimeType="application/vnd.adobe.aftereffects.project" />
+                <data android:mimeType="application/x-aep" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:scheme="content" />
+                <data android:scheme="file" />
+                <data android:host="*" />
+                <data android:mimeType="*/*" />
+                <data android:pathPattern=".*\\.aep" />
+                <data android:pathPattern=".*\\..*\\.aep" />
+                <data android:pathPattern=".*\\..*\\..*\\.aep" />
+                <data android:pathPattern=".*\\.AEP" />
+            </intent-filter>
+
+            <!-- Share -->
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="application/octet-stream" />
+                <data android:mimeType="application/vnd.adobe.aftereffects.project" />
+                <data android:mimeType="application/x-aep" />
+            </intent-filter>
+
         </activity>
 
         <provider

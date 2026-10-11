@@ -11,6 +11,13 @@ const footageVersion = () => footageStore.version;
 const ignore = () => () => {};
 const noVersion = () => -1;
 
+/** Why this browser cannot render frames, or undefined when it can. */
+export function missingRenderSupport(scope: { WebGL2RenderingContext?: unknown; OffscreenCanvas?: unknown }): string | undefined {
+  const lacks = [!scope.WebGL2RenderingContext && "WebGL2", !scope.OffscreenCanvas && "OffscreenCanvas"].filter(Boolean);
+  if (!lacks.length) return undefined;
+  return `this browser has no ${lacks.join(" or ")}, so frames cannot render. Use a current Chrome, Edge, Firefox or Safari 17 or later`;
+}
+
 /**
  * Shows `comp` at `time` in the canvas through a ViewerEngine, one frame per animation frame however fast
  * `time` changes, at resolution divisor `factor`. Returns the engine (for pixel readback) and what the renderer
@@ -26,27 +33,47 @@ export function useViewer(canvas: HTMLCanvasElement | null, project: Project, co
   // footage store itself, so the panel does not re-render for every frame decoded while playing.
   const footage = useSyncExternalStore(playing ? ignore : subscribeFootage, playing ? noVersion : footageVersion);
 
+  /** Counts the renderers lost with their GPU context (mobile browsers drop it in the background) and recreated. */
+  const [generation, setGeneration] = useState(0);
+
   useEffect(() => {
-    // jsdom and browsers without WebGL2 or OffscreenCanvas keep the plain comp frame.
-    if (!canvas || typeof WebGL2RenderingContext === "undefined" || typeof OffscreenCanvas === "undefined") return;
+    if (!canvas) return;
+    // Browsers without WebGL2 or OffscreenCanvas keep the plain comp frame; jsdom lacks both and says nothing.
+    const missing = missingRenderSupport(globalThis);
+    if (missing) {
+      if (!/jsdom/.test(globalThis.navigator?.userAgent ?? "")) setError(missing);
+      return;
+    }
+    let created: ViewerEngine;
     try {
-      engine.current = new ViewerEngine(canvas);
+      created = new ViewerEngine(canvas);
     } catch (e) {
       setError((e as Error).message);
       return;
     }
-    return () => {
-      engine.current?.dispose();
-      engine.current = null;
+    engine.current = created;
+    const surface = created.renderer.gl.canvas;
+    const lost = (e: Event) => {
+      e.preventDefault();
+      setError("the GPU context was lost; frames render again once the browser restores it");
     };
-  }, [canvas]);
+    const restored = () => setGeneration((g) => g + 1);
+    surface.addEventListener("webglcontextlost", lost);
+    surface.addEventListener("webglcontextrestored", restored);
+    return () => {
+      surface.removeEventListener("webglcontextlost", lost);
+      surface.removeEventListener("webglcontextrestored", restored);
+      created.dispose();
+      if (engine.current === created) engine.current = null;
+    };
+  }, [canvas, generation]);
 
   useEffect(() => {
     if (!engine.current) return;
     setViewer(comp.id, engine.current);
     viewerFactors.set(comp.id, factor);
     return () => setViewer(comp.id, undefined);
-  }, [canvas, comp.id, factor]);
+  }, [canvas, comp.id, factor, generation]);
 
   useEffect(() => onInvalidate(() => setRevision(contentGeneration())), []);
 
@@ -66,7 +93,7 @@ export function useViewer(canvas: HTMLCanvasElement | null, project: Project, co
       }
     });
     return () => cancelAnimationFrame(frame);
-  }, [canvas, project, comp, time, factor, revision, footage, playing]);
+  }, [canvas, project, comp, time, factor, revision, footage, playing, generation]);
 
   return { engine, notes, error };
 }
