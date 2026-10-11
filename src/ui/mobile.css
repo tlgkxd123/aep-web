@@ -25,7 +25,8 @@ body {
   touch-action: pan-y;
 }
 
-.ec-dial {
+.ec-dial,
+.ec-curve-graph.live {
   touch-action: none;
 }
 

@@ -6,7 +6,7 @@
 // only in the first instance of an effect but reads it in any, and the parser needs
 // it in whichever instance it reaches first.
 import { decodePard, type Pard } from "../aep/decode.ts";
-import type { CompItem, Layer } from "../aep/model.ts";
+import type { CompItem, Layer, PropertyGroup } from "../aep/model.ts";
 import { findChild, findList, type Chunk } from "../aep/riff.ts";
 import { doubles, leaf, list, readDoubles, type Transaction } from "./chunks.ts";
 import type { Editor } from "./editor.ts";
@@ -163,12 +163,38 @@ export function setInstancePoint(sspc: Chunk, matchName: string, n: number, poin
   cdat.data = doubles(values);
 }
 
+function arbitraryData(sspc: Chunk, matchName: string, n: number): Chunk | undefined {
+  const tdgp = findList(sspc, "tdgp");
+  return findChild(tdgp && paramList(tdgp, paramName(matchName, n), "aRbs"), "aRbp");
+}
+
 /** Replaces the arbitrary data (aRbp) of parameter `n` with `edit` of it. */
 export function setInstanceData(sspc: Chunk, matchName: string, n: number, edit: (data: Uint8Array) => Uint8Array): void {
-  const tdgp = findList(sspc, "tdgp");
-  const aRbp = findChild(tdgp && paramList(tdgp, paramName(matchName, n), "aRbs"), "aRbp");
+  const aRbp = arbitraryData(sspc, matchName, n);
   if (!aRbp) throw new Error(`${paramName(matchName, n)} holds no arbitrary data in the effect template`);
   aRbp.data = edit(aRbp.data);
+}
+
+/** Whether parameter `n` of an effect stores arbitrary data (curves) the editor can rewrite. */
+export function hasEffectData(effect: PropertyGroup, n: number): boolean {
+  return !!effect.chunk && !!arbitraryData(effect.chunk, effect.matchName, n);
+}
+
+/**
+ * Replaces the arbitrary data (aRbp) of parameter `n` of an effect in `comp` with `edit` of it, as one undoable
+ * step (consecutive steps with the same `coalesce` key, a drag, make one).
+ */
+export function setEffectData(
+  editor: Editor,
+  comp: CompItem,
+  effect: PropertyGroup,
+  n: number,
+  edit: (data: Uint8Array) => Uint8Array,
+  options: { label?: string; coalesce?: string } = {},
+): void {
+  const aRbp = effect.chunk && arbitraryData(effect.chunk, effect.matchName, n);
+  if (!aRbp) throw new Error(`${paramName(effect.matchName, n)} holds no arbitrary data`);
+  editor.perform(options.label ?? `Change ${effect.name}`, [comp], (tx) => tx.setData(aRbp, edit(aRbp.data)), { coalesce: options.coalesce });
 }
 
 const effectsGroup = (layer: Layer): Chunk | undefined => {
