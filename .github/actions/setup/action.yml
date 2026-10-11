@@ -7,7 +7,7 @@ inputs:
 runs:
   using: composite
   steps:
-    - uses: actions/setup-node@v5
+    - uses: actions/setup-node@v7
       with:
         node-version: 24
         cache: npm
@@ -15,7 +15,7 @@ runs:
       shell: bash
     # The samples live in Git LFS on someone else's quota, so they are fetched once per commit.
     - id: py-aep
-      uses: actions/cache@v4
+      uses: actions/cache@v6
       with:
         path: ~/py-aep
         key: py-aep-${{ inputs.py-aep-ref }}
