@@ -3,7 +3,7 @@
 // input and a download otherwise.
 import { Capacitor } from "@capacitor/core";
 import { canPickFiles } from "../export/output.ts";
-import { saveBlob } from "../export/saveFile.ts";
+import { saveBlob, type SavedFile } from "../export/saveFile.ts";
 import { IMPORTABLE_EXTENSIONS } from "../media/probe.ts";
 
 interface WritableHandle {
@@ -67,7 +67,7 @@ async function write(handle: ProjectHandle, bytes: Uint8Array): Promise<void> {
   await writable.close();
 }
 
-function download(bytes: Uint8Array, name: string): Promise<string> {
+function download(bytes: Uint8Array, name: string): Promise<SavedFile> {
   return saveBlob(new Blob([bytes as BlobPart], { type: "application/octet-stream" }), name);
 }
 
@@ -89,8 +89,7 @@ async function saveNew(bytes: Uint8Array, suggestedName: string, type: PickerTyp
     await write(target, bytes);
     return { name: target.name, handle: target };
   }
-  await download(bytes, suggestedName);
-  return { name: suggestedName };
+  return { name: (await download(bytes, suggestedName)).name };
 }
 
 /**

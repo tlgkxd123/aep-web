@@ -2,7 +2,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
-  saveBlob: vi.fn(async (_blob: Blob, name: string) => `Documents/aep-web/${name}`),
+  saveBlob: vi.fn(async (_blob: Blob, name: string) => ({ name, folder: "Documents/aep-web" })),
 }));
 
 vi.mock("@capacitor/core", () => ({
@@ -41,5 +41,12 @@ describe("project save on native", () => {
     expect(saved).toEqual({ name: "mobile.aep" });
     expect(picker).not.toHaveBeenCalled();
     expect(mocks.saveBlob).toHaveBeenCalledWith(expect.any(Blob), "mobile.aep");
+  });
+
+  it("goes on under the name Android saved the project as, when the requested one was taken", async () => {
+    vi.mocked(Capacitor.isNativePlatform).mockReturnValue(true);
+    mocks.saveBlob.mockResolvedValueOnce({ name: "mobile (2).aep", folder: "Documents/aep-web" });
+    const saved = await saveProjectBytes(new Uint8Array([1]), "mobile.aep", undefined, false);
+    expect(saved).toEqual({ name: "mobile (2).aep" });
   });
 });

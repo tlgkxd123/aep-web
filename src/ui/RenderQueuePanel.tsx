@@ -139,7 +139,7 @@ function ItemRow({ item, index, busy }: { item: QueueItem; index: number; busy: 
             </button>
           ) : (
             <span>
-              {item.fileName} ({Capacitor.isNativePlatform() ? `saved to Documents/${APP_FOLDER}` : "downloads"})
+              {item.saved?.name ?? item.fileName} ({Capacitor.isNativePlatform() ? `saved to ${item.saved?.folder ?? `Documents/${APP_FOLDER}`}` : "downloads"})
             </span>
           )}
         </label>
