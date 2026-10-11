@@ -1,6 +1,8 @@
 // Where projects are read from and written to: the File System Access API
 // where the browser has it (so Save writes back to the opened file), a file
 // input and a download otherwise.
+import { Capacitor } from "@capacitor/core";
+import { canPickFiles } from "../export/output.ts";
 import { saveBlob } from "../export/saveFile.ts";
 import { IMPORTABLE_EXTENSIONS } from "../media/probe.ts";
 
@@ -31,6 +33,7 @@ const isAbort = (e: unknown) => e instanceof DOMException && e.name === "AbortEr
 
 /** File > Open Project with a handle for Save, when the browser has a file picker. undefined: cancelled; null: no picker. */
 export async function pickProjectHandle(): Promise<{ file: File; handle: ProjectHandle } | undefined | null> {
+  if (Capacitor.isNativePlatform()) return null;
   const { showOpenFilePicker } = pickers();
   if (!showOpenFilePicker) return null;
   try {
@@ -75,7 +78,7 @@ export interface Saved {
 
 async function saveNew(bytes: Uint8Array, suggestedName: string, type: PickerType): Promise<Saved | undefined> {
   const { showSaveFilePicker } = pickers();
-  if (showSaveFilePicker) {
+  if (canPickFiles() && showSaveFilePicker) {
     let target: ProjectHandle;
     try {
       target = await showSaveFilePicker({ suggestedName, types: [type] });
