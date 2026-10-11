@@ -57,7 +57,7 @@ export function namedList(group: Chunk | undefined, matchName: string): Chunk | 
 /** Replaces a template chunk's body with an edited copy (template chunks are not in a transaction yet). */
 export function setChunkData(chunk: Chunk | undefined, edit: (view: DataView, bytes: Uint8Array) => void): void {
   if (!chunk) return;
-  const bytes = chunk.data.slice();
+  const bytes = new Uint8Array(chunk.data);
   edit(new DataView(bytes.buffer), bytes);
   chunk.data = bytes;
 }

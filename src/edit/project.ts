@@ -355,6 +355,72 @@ export function deleteItems(editor: Editor, items: Item[]): void {
   });
 }
 
+/** The items `comps` use, directly or through nested comps, the comps included. */
+function usedBy(project: Project, comps: CompItem[]): Set<number> {
+  const used = new Set<number>();
+  const visit = (comp: CompItem) => {
+    if (used.has(comp.id)) return;
+    used.add(comp.id);
+    for (const layer of comp.layers) {
+      const source = layer.sourceId ? project.items.get(layer.sourceId) : undefined;
+      if (source?.kind === "comp") visit(source);
+      else if (source) used.add(source.id);
+    }
+  };
+  comps.forEach(visit);
+  return used;
+}
+
+/** File > Dependencies > Remove Unused Footage: deletes footage no composition uses. Returns how many went. */
+export function removeUnusedFootage(editor: Editor): number {
+  const project = editor.project;
+  const comps = [...project.items.values()].filter((i): i is CompItem => i.kind === "comp");
+  const used = new Set(comps.flatMap((c) => c.layers.map((l) => l.sourceId)));
+  const unused = [...project.items.values()].filter((i) => i.kind === "footage" && !used.has(i.id));
+  if (unused.length) deleteItems(editor, unused);
+  return unused.length;
+}
+
+/**
+ * File > Dependencies > Reduce Project: keeps `comps` and what they use, deleting every other item and the folders
+ * left holding none of the kept items. Returns how many items went.
+ */
+export function reduceProject(editor: Editor, comps: CompItem[]): number {
+  const project = editor.project;
+  if (!comps.length) throw new Error("Select the compositions to keep in the Project panel");
+  const kept = usedBy(project, comps);
+  const holdsKept = (item: Item): boolean =>
+    kept.has(item.id) || (item.kind === "folder" && item.items.some((child) => holdsKept(project.items.get(child.id) ?? child)));
+  const doomed = [...project.items.values()].filter((i) => !holdsKept(i));
+  if (doomed.length) deleteItems(editor, doomed);
+  return doomed.length;
+}
+
+/** Project panel and Edit > Label: an item's label colour, 0-16. */
+export function setItemLabel(editor: Editor, items: Item[], label: number): void {
+  const targets = items.filter((i) => i.chunk && findChild(i.chunk, "idta"));
+  if (!targets.length) return;
+  editor.runProjectCommand("Change label", (tx) => {
+    for (const item of targets) tx.patch(findChild(item.chunk!, "idta")!, (_, bytes) => (bytes[58] = Math.max(0, Math.min(16, Math.round(label)))));
+  });
+}
+
+/** The settings File > New Comp from Selection gives a composition made for `item`. */
+export function compSettingsFor(item: CompItem | FootageItem, base: CompSettings = DEFAULT_COMP_SETTINGS): CompSettings {
+  const still = item.kind === "footage" && (item.mainSource.isStill || !(item.duration > 0));
+  const size = (v: number, fallback: number) => (Number.isInteger(v) && v >= 4 && v <= 30000 ? v : fallback);
+  const frameRate = item.frameRate >= 1 && item.frameRate <= 999 ? item.frameRate : base.frameRate;
+  return {
+    ...base,
+    name: item.name,
+    width: size(item.width, base.width),
+    height: size(item.height, base.height),
+    pixelAspect: item.pixelAspect >= 0.01 && item.pixelAspect <= 100 ? item.pixelAspect : 1,
+    frameRate,
+    duration: still || !(item.duration * frameRate >= 1) || item.duration > 10800 ? base.duration : item.duration,
+  };
+}
+
 // ---------------------------------------------------------------- duplicate
 
 /** Edit > Duplicate on a composition: a copy with fresh layer ids, after the original. */

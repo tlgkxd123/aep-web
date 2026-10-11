@@ -3,6 +3,7 @@
 // blocks are py-aep's output (see layer-templates.ts) with the fields that vary
 // between layers patched in.
 import { decodeCdta, decodeLdta } from "../aep/decode.ts";
+import { valueAtTime } from "../aep/evaluate.ts";
 import type { CompItem, FolderItem, Item, Layer, Project } from "../aep/model.ts";
 import { findChild, findList, type Chunk } from "../aep/riff.ts";
 import type { Transaction } from "./chunks.ts";
@@ -473,4 +474,121 @@ export function setTimeRemapping(editor: Editor, comp: CompItem, layers: Layer[]
       editor.replaceKeyframes(comp, layer, [{ prop, keys }], -Infinity, Infinity, "Enable Time Remapping");
     }
   });
+}
+/**
+ * Layer > Time > Freeze Frame: time remapping holding the source frame shown at comp time `time`, as one keyframe.
+ * Returns whether any layer was frozen.
+ */
+export function freezeFrame(editor: Editor, comp: CompItem, layers: Layer[], time: number): boolean {
+  let frozen = false;
+  editor.perform("Freeze Frame", [comp], () => {
+    for (const { id } of layers) {
+      const layer = comp.layers.find((l) => l.id === id);
+      const source = layer && remappableSource(editor.project, layer);
+      const prop = layer?.properties.find((n) => n.matchName === "ADBE Time Remapping");
+      if (!layer || !source || prop?.kind !== "property") continue;
+      const last = Math.max(0, source.duration - 1 / source.frameRate);
+      const shown = layer.timeRemapEnabled
+        ? Number(valueAtTime(prop, time, layer))
+        : (time - layer.startTime) / (layer.stretch ? layer.stretch / 100 : 1);
+      const value = Math.min(last, Math.max(0, Number.isFinite(shown) ? shown : 0));
+      editor.replaceKeyframes(comp, layer, [{ prop, keys: [{ time, value }] }], -Infinity, Infinity, "Freeze Frame");
+      frozen = true;
+    }
+  });
+  return frozen;
+}
+
+/** Edit > Split Layer: each layer the time falls inside ends there, and a duplicate above it carries on from there. */
+export function splitLayers(editor: Editor, comp: CompItem, layers: Layer[], time: number): number[] {
+  const created: number[] = [];
+  const splittable = layers.filter((l) => time > l.inPoint && time < l.outPoint);
+  if (!splittable.length) return created;
+  editor.perform(splittable.length > 1 ? "Split Layers" : "Split Layer", [comp], () => {
+    for (const { id } of splittable) {
+      const original = comp.layers.find((l) => l.id === id);
+      if (!original) continue;
+      const [copyId] = duplicateLayers(editor, comp, [original]);
+      const copy = comp.layers.find((l) => l.id === copyId);
+      const before = comp.layers.find((l) => l.id === id);
+      if (!copy || !before) continue;
+      editor.setLayerTiming(comp, before, { outPoint: time });
+      editor.setLayerTiming(comp, copy, { inPoint: time });
+      created.push(copyId);
+    }
+  });
+  return created;
+}
+
+/** Layers copied with Edit > Copy or Cut, ready to paste into a composition of the same project. */
+export interface LayerClipboard {
+  project: Project;
+  timebase: number;
+  /** Top to bottom, each a layer's `LIST:Layr` and the view data after it. */
+  blocks: Chunk[][];
+}
+
+/** Edit > Copy on layers: their chunks as they are now. */
+export function copyLayers(project: Project, comp: CompItem, layers: Layer[]): LayerClipboard | undefined {
+  const cdta = findChild(comp.chunk, "cdta");
+  if (!cdta || !layers.length) return undefined;
+  const parts = layerBlocks(compList(comp));
+  const ids = new Set(layers.map((l) => l.id));
+  const blocks = parts.blocks.filter((b) => {
+    const ldta = findChild(b[0], "ldta");
+    return ldta && ids.has(decodeLdta(ldta).id);
+  });
+  return { project, timebase: decodeCdta(cdta).internalTimebase, blocks: blocks.map((b) => b.map(cloneChunk)) };
+}
+
+/**
+ * Edit > Paste: the copied layers with new ids, above `above` or at the top. Parents and track mattes among the pasted
+ * layers follow them; others stay only when the layer is in the composition. Returns the new ids, top first.
+ */
+export function pasteLayers(editor: Editor, comp: CompItem, clip: LayerClipboard, above?: Layer): number[] {
+  const project = editor.project;
+  if (clip.project !== project) throw new Error("Layers can only be pasted into the project they were copied from");
+  const cdta = findChild(comp.chunk, "cdta");
+  if (!cdta) throw new Error(`composition "${comp.name}" has no cdta chunk`);
+  if (decodeCdta(cdta).internalTimebase !== clip.timebase) {
+    throw new Error(`The layers cannot be pasted into "${comp.name}": its frame rate differs from the composition they were copied from`);
+  }
+  for (const block of clip.blocks) {
+    const sourceId = decodeLdta(findChild(block[0], "ldta")!).sourceId;
+    const source = sourceId ? project.items.get(sourceId) : undefined;
+    if (sourceId && !source) throw new Error("A copied layer's source is no longer in the project");
+    if (source?.kind === "comp" && compUses(project, source, comp.id)) {
+      throw new Error(`"${source.name}" cannot be pasted into "${comp.name}": it would contain itself`);
+    }
+  }
+  const created: number[] = [];
+  editor.perform(clip.blocks.length > 1 ? "Paste Layers" : "Paste Layer", [comp], (tx) => {
+    const list = compList(comp);
+    const parts = layerBlocks(list);
+    const blocks = clip.blocks.map((b) => b.map(cloneChunk));
+    const oldIds = blocks.map((b) => decodeLdta(findChild(b[0], "ldta")!).id);
+    const newIds = blocks.map(() => allocateId(tx, project));
+    const remap = new Map(oldIds.map((id, i) => [id, newIds[i]]));
+    const inComp = new Set(comp.layers.map((l) => l.id));
+    const keep = (id: number) => (id ? (remap.get(id) ?? (inComp.has(id) ? id : 0)) : 0);
+    blocks.forEach((block, i) => {
+      const layr = block[0];
+      setChunkData(findChild(layr, "ldta"), (view, bytes) => {
+        view.setUint32(0, newIds[i]);
+        view.setUint32(LDTA.parentId, keep(view.getUint32(LDTA.parentId)));
+        if (bytes.length >= LDTA.matteLayerId + 4) {
+          const old = view.getUint32(LDTA.matteLayerId);
+          const matte = keep(old);
+          view.setUint32(LDTA.matteLayerId, matte);
+          if (old && !matte) bytes[LDTA.trackMatteType] = 0;
+        }
+      });
+      rewriteOwnerTdpi(layr, newIds[i]);
+    });
+    const at = above ? parts.blocks.findIndex((b) => b[0] === above.chunk) : 0;
+    parts.blocks.splice(Math.max(0, at), 0, ...blocks);
+    tx.setChildren(list, joinBlocks(parts));
+    created.push(...newIds);
+  });
+  return created;
 }

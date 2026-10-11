@@ -1,0 +1,51 @@
+.menu-dialog {
+  min-width: 300px;
+}
+
+.md-fields {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.md-row {
+  display: grid;
+  grid-template-columns: 72px 1fr 48px;
+  gap: 8px;
+  align-items: center;
+}
+
+.md-row > label {
+  justify-self: end;
+}
+
+.md-row .dim {
+  color: var(--text-dim, #8a8a8a);
+}
+
+.md-shortcuts {
+  width: 520px;
+}
+
+.md-shortcuts .ae-window-body {
+  max-height: 70vh;
+}
+
+.md-table {
+  width: 100%;
+  margin-bottom: 12px;
+  border-collapse: collapse;
+}
+
+.md-table th,
+.md-table td {
+  padding: 3px 6px;
+  text-align: left;
+  border-bottom: 1px solid #3a3a3a;
+}
+
+.md-table kbd {
+  font-family: inherit;
+  color: var(--text-dim, #8a8a8a);
+}

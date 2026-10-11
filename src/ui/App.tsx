@@ -6,25 +6,43 @@ import {
   useMemo,
   useRef,
   useState,
+  useSyncExternalStore,
   type CSSProperties,
   type DragEvent,
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from "react";
 import { flushSync } from "react-dom";
-import type { CompItem, Item, Layer, Project } from "../aep/model.ts";
+import type { CompItem, FootageItem, Item, Layer, Project } from "../aep/model.ts";
 import { catalogCategories, catalogName } from "../edit/effectCatalog.ts";
 import { applyLibraryEffect, definedEffects, effectSource, projectEffect } from "../edit/effectLibrary.ts";
 import { Editor, type LayerSwitch } from "../edit/editor.ts";
-import { addLayer } from "../edit/layers.ts";
-import { nudgeLayers } from "../edit/transform-ops.ts";
+import { addLayer, canRemapTime, copyLayers, deleteLayers, freezeFrame, pasteLayers, splitLayers, type LayerClipboard } from "../edit/layers.ts";
+import { compSettingsFor, newComposition, setItemLabel } from "../edit/project.ts";
+import { nudgeLayers, setTransformValue, transformProp } from "../edit/transform-ops.ts";
+import { invalidate } from "../playback/ramCache.ts";
+import { autoResolution } from "../playback/viewer.ts";
 import { audioPreview } from "../media/audioPreview.ts";
 import { loadLocalFootage, localFootageAvailable } from "../media/localFootage.ts";
 import { playhead } from "../playback/playhead.ts";
 import { appRenderOptions, setSapphireLookalikes, useRenderOptionsVersion } from "../playback/renderOptions.ts";
 import { DEFAULT_PREVIEW, usePlayback, type PreviewSettings } from "../playback/usePlayback.ts";
 import { ContextMenuHost } from "./ContextMenu.tsx";
-import { AppActionsContext, type AppActions } from "./contextMenus.ts";
+import {
+  AppActionsContext,
+  BLENDING_MODE_ORDER,
+  blendingModeEntries,
+  frameBlendingEntries,
+  isAVLayer,
+  labelEntries,
+  layerSwitchEntries,
+  qualityEntries,
+  type AppActions,
+} from "./contextMenus.ts";
+import { trackMatteEntries } from "./layerRowMenus.ts";
+import type { MenuEntries } from "./ContextMenu.tsx";
+import { GoToTimeDialog, KeyboardShortcutsDialog, LayerSettingsDialog, TransformDialog, transformMatchName } from "./MenuDialogs.tsx";
+import { viewerControls } from "./viewerControls.ts";
 import { ChunkPanel } from "./ChunkPanel.tsx";
 import { CompositionPanel } from "./CompositionPanel.tsx";
 import { EditingContext, type Editing, type ToolId } from "./editing.tsx";
@@ -34,7 +52,7 @@ import { HomeScreen } from "./HomeScreen.tsx";
 import { Icon } from "./icons.tsx";
 import { canRunLayerCommand, isLayerCommand, layerShortcut, runLayerCommand, type LayerCommand, type LayerTarget } from "./layerCommands.ts";
 import { addDroppedFootage, locateFootageFolder, useFootageVersion } from "./LocateFootage.tsx";
-import { APPLY_EFFECT, MenuBar, type MenuCommand } from "./MenuBar.tsx";
+import { APPLY_EFFECT, MenuBar, OPEN_HELP, SHOW_PANEL, TRANSFORM_DIALOG, type DynamicMenu, type MenuCommand, type TransformDialogKind } from "./MenuBar.tsx";
 import { MobileTabs, MobileWorkspace, Transport, type MobileTab } from "./MobileWorkspace.tsx";
 import { PanelFrame, type PanelTab } from "./Panel.tsx";
 import { droppedHandle, pickProjectHandle, type ProjectHandle } from "./projectFiles.ts";
@@ -46,7 +64,7 @@ import { isMobileOS, LANDSCAPE_QUERY, useCompact, useMedia } from "./responsive.
 import { RightPanels } from "./RightPanels.tsx";
 import { SolidSettings } from "./SolidSettings.tsx";
 import { TimelinePanel } from "./TimelinePanel.tsx";
-import { Toolbar, type Workspace } from "./Toolbar.tsx";
+import { Toolbar, WORKSPACES, type Workspace } from "./Toolbar.tsx";
 import { followPointer } from "./pointer.ts";
 import { workAreaAtTime } from "./workArea.ts";
 import { useLongPressGestures } from "./touch.ts";
@@ -68,6 +86,43 @@ type Frame = "left" | "center" | "right" | "bottom";
 
 const TOOL_KEYS: Record<string, ToolId> = { v: "selection", w: "rotation", y: "anchor" };
 const NUDGES: Record<string, [number, number]> = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] };
+
+/**
+ * AE's shortcuts for the menu commands App carries out itself (project operations and layer commands have their
+ * own). Copy, Cut and Paste act on layers, so they are left to the Project panel when it has focus.
+ */
+export function menuShortcut(e: KeyboardEvent, projectFocused: boolean): MenuCommand | undefined {
+  const ctrl = e.ctrlKey || e.metaKey;
+  const key = e.code.replace(/^Key/, "");
+  if (ctrl) {
+    const combo = `${e.altKey ? "alt+" : ""}${e.shiftKey ? "shift+" : ""}${key}`;
+    const layerClipboard: Record<string, MenuCommand> = { C: "copy", X: "cut", V: "paste" };
+    if (layerClipboard[combo]) return projectFocused ? undefined : layerClipboard[combo];
+    const commands: Record<string, MenuCommand> = {
+      W: "close",
+      Q: "exit",
+      A: "select-all",
+      "shift+A": "deselect-all",
+      F: "find",
+      "shift+D": "split-layer",
+      "shift+X": "trim-comp",
+      "shift+Y": "layer-settings",
+      "shift+P": "transform-dialog:position",
+      "shift+R": "transform-dialog:rotation",
+      "shift+O": "transform-dialog:opacity",
+      "shift+H": "toggle-layer-controls",
+      Quote: "toggle-grid",
+      "alt+Quote": "keyboard-shortcuts",
+    };
+    return commands[combo];
+  }
+  if (e.altKey) return e.shiftKey && key === "J" ? "go-to-time" : undefined;
+  if (e.shiftKey) return e.code === "Equal" ? "next-blending-mode" : e.code === "Minus" ? "previous-blending-mode" : undefined;
+  if (e.key === ".") return "zoom-in";
+  if (e.key === ",") return "zoom-out";
+  if (e.key === "F1") return "help:https://helpx.adobe.com/after-effects/user-guide.html";
+  return undefined;
+}
 
 /** The layer command a menu command runs when the Project panel does not take it (Edit > Clear, Duplicate). */
 const layerCommandFor = (cmd: MenuCommand): LayerCommand | undefined =>
@@ -135,6 +190,16 @@ export function App() {
   const [particleMatch, setParticleMatch] = useState(false);
   const effects = useEffectLibrary();
   const [lastEffect, setLastEffect] = useState<string>();
+  /** Projects opened this session, newest first (File > Open Recent). */
+  const [recent, setRecent] = useState<{ file: File; handle?: ProjectHandle }[]>([]);
+  const [transformDialog, setTransformDialog] = useState<TransformDialogKind>();
+  const [goToTimeOpen, setGoToTimeOpen] = useState(false);
+  const [layerSettingsOpen, setLayerSettingsOpen] = useState(false);
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  /** A right-hand panel the Window menu opened last. */
+  const [panelReveal, setPanelReveal] = useState<{ name: string; seq: number }>();
+  const [clipboard, setClipboard] = useState<LayerClipboard>();
+  const viewerStatus = useSyncExternalStore(viewerControls.subscribe, () => viewerControls.status);
   const compact = useCompact();
   const landscape = useMedia(LANDSCAPE_QUERY);
   const coarse = useMedia("(pointer: coarse)");
@@ -235,7 +300,8 @@ export function App() {
         const started = performance.now();
         const opened = Editor.fromBytes(bytes);
         const parseMs = performance.now() - started;
-        showSession({ editor: opened, file: { name: file.name, size: bytes.length, parseMs }, handle });
+        showSession({ editor: opened, file: { name: file.name, size: bytes.length, parseMs }, handle, bytes });
+        setRecent((prev) => [{ file, handle }, ...prev.filter((r) => r.file.name !== file.name)].slice(0, 10));
       } catch (e) {
         setError(`Could not read ${file.name}: ${(e as Error).message}`);
       } finally {
@@ -443,6 +509,217 @@ export function App() {
   const addToRenderQueueRef = useRef(addToRenderQueue);
   addToRenderQueueRef.current = addToRenderQueue;
 
+  const tryEdit = (body: () => void) => {
+    try {
+      body();
+    } catch (e) {
+      setEditError((e as Error).message);
+    }
+  };
+  const time = view?.time ?? 0;
+  const projectFocused = focused === "left" && leftTab === "project";
+  const layerSource = selectedLayer?.sourceId ? project?.items.get(selectedLayer.sourceId) : undefined;
+  /** The selected layer with its comp and the editor, for the Layer menu's commands. */
+  const onLayer = (body: (editor: Editor, comp: CompItem, layer: Layer) => void) => {
+    if (editor && activeComp && selectedLayer) tryEdit(() => body(editor, activeComp, selectedLayer));
+  };
+  const closeProject = () =>
+    void confirmClose().then((go) => {
+      if (!go) return;
+      setLoaded(undefined);
+      setOpenComps([]);
+      setActiveCompId(undefined);
+      setPlaying(false);
+    });
+  /** File > New Comp from Selection: one composition sized for the first selected item, holding them all as layers. */
+  const compSources = (): (CompItem | FootageItem)[] =>
+    selectedIds.flatMap((id) => {
+      const item = editor?.project.items.get(id);
+      return item?.kind === "comp" || item?.kind === "footage" ? [item] : [];
+    });
+  const newCompFromSelection = () => {
+    const sources = compSources();
+    if (!editor || !sources.length) return;
+    tryEdit(() => {
+      let comp: CompItem | undefined;
+      let top = 0;
+      editor.perform("New Comp from Selection", [], () => {
+        comp = newComposition(editor, compSettingsFor(sources[0]), sources[0].parentFolderId);
+        for (const source of [...sources].reverse()) top = addLayer(editor, comp, { kind: "item", itemId: source.id });
+      }, { items: true });
+      if (!comp) return;
+      setSelectedIds([comp.id]);
+      showComp(comp.id);
+      selectLayer(comp.id, top);
+    });
+  };
+  const canTrim = (comp: CompItem | undefined) =>
+    !!comp && (comp.workAreaStart > 1e-9 || comp.workAreaStart + comp.workAreaDuration < comp.duration - 1e-9) && comp.workAreaDuration > 0;
+  /** Composition > Trim Comp to Work Area: the comp becomes the work area, its timecode still starting where it did. */
+  const trimComp = () => {
+    if (!editor || !activeComp || !canTrim(activeComp)) return;
+    const comp = activeComp;
+    const start = comp.workAreaStart;
+    const length = comp.workAreaDuration;
+    tryEdit(() =>
+      editor.perform("Trim Comp to Work Area", [comp], () => {
+        if (start > 0) editor.shiftLayers(comp, comp.layers, -start);
+        editor.setCompSettings(comp, { duration: length, displayStartTime: comp.displayStartTime + start, workArea: [0, length] });
+      }),
+    );
+    setTime(comp.id, Math.max(0, time - start));
+  };
+  const findInProject = () => {
+    setLeftTab("project");
+    setMobileTab("project");
+    setFocused("left");
+    setTimeout(() => document.querySelector<HTMLInputElement>('input[aria-label="Search project"]')?.focus(), 0);
+  };
+  const copy = (cut: boolean) =>
+    onLayer((editor, comp, layer) => {
+      const clip = copyLayers(editor.project, comp, [layer]);
+      if (!clip) return;
+      setClipboard(clip);
+      if (cut && !layer.locked) {
+        deleteLayers(editor, comp, [layer], time);
+        selectLayer(comp.id, undefined);
+      }
+    });
+  const canPaste = !!editor && !!activeComp && clipboard?.project === editor.project;
+  const paste = () => {
+    if (!editor || !activeComp || !clipboard) return;
+    const comp = activeComp;
+    tryEdit(() => {
+      const [first] = pasteLayers(editor, comp, clipboard, selectedLayer);
+      if (first) selectLayer(comp.id, first);
+    });
+  };
+  const canSplit = !!editor && !!selectedLayer && time > selectedLayer.inPoint && time < selectedLayer.outPoint;
+  const split = () =>
+    onLayer((editor, comp, layer) => {
+      const [created] = splitLayers(editor, comp, [layer], time);
+      if (created) selectLayer(comp.id, created);
+    });
+  const SWITCH_COMMANDS: Partial<Record<MenuCommand, LayerSwitch>> = {
+    "toggle-3d": "threeDLayer",
+    "toggle-guide": "guideLayer",
+    "toggle-environment": "environmentLayer",
+    "toggle-preserve-transparency": "preserveTransparency",
+  };
+  const stepBlendingMode = (dir: 1 | -1) =>
+    onLayer((editor, comp, layer) => {
+      const order = BLENDING_MODE_ORDER;
+      const at = order.indexOf(layer.blendingMode);
+      editor.setBlendingMode(comp, layer, order[(Math.max(0, at) + dir + order.length) % order.length]);
+    });
+  const showPanel = (name: string) => {
+    if (compact) {
+      setMobileTab(name === "Effects & Presets" ? "effects" : "more");
+      return;
+    }
+    setPanelReveal((prev) => ({ name, seq: (prev?.seq ?? 0) + 1 }));
+    setFocused("right");
+  };
+  const canTransformDialog = (kind: TransformDialogKind) => !!editor && !!selectedLayer && !!transformProp(selectedLayer, transformMatchName(kind));
+  const canFreeze = !!editor && !!selectedLayer && !!project && canRemapTime(project, selectedLayer);
+
+  /** Menu commands beyond the project operations; false for commands handled elsewhere. */
+  const menuCommand = (cmd: MenuCommand): boolean => {
+    const toggle = SWITCH_COMMANDS[cmd];
+    if (toggle) {
+      onLayer((editor, comp, layer) => editor.setLayerSwitch(comp, layer, toggle, !layer[toggle]));
+      return true;
+    }
+    if (cmd.startsWith(TRANSFORM_DIALOG)) {
+      const kind = cmd.slice(TRANSFORM_DIALOG.length) as TransformDialogKind;
+      if (canTransformDialog(kind)) setTransformDialog(kind);
+      return true;
+    }
+    if (cmd.startsWith(SHOW_PANEL)) {
+      showPanel(cmd.slice(SHOW_PANEL.length));
+      return true;
+    }
+    if (cmd.startsWith(OPEN_HELP)) {
+      window.open(cmd.slice(OPEN_HELP.length), "_blank", "noopener,noreferrer");
+      return true;
+    }
+    switch (cmd) {
+      case "close":
+        if (activeComp) closeComp(activeComp.id);
+        return true;
+      case "exit":
+        closeProject();
+        return true;
+      case "new-comp-from-selection":
+        newCompFromSelection();
+        return true;
+      case "trim-comp":
+        trimComp();
+        return true;
+      case "play-preview":
+        togglePlay();
+        return true;
+      case "reload-footage":
+        actions.reloadFootage?.();
+        return true;
+      case "find":
+        findInProject();
+        return true;
+      case "cut":
+      case "copy":
+        copy(cmd === "cut");
+        return true;
+      case "paste":
+        paste();
+        return true;
+      case "split-layer":
+        split();
+        return true;
+      case "select-all":
+        if (projectFocused && project) setSelectedIds([...project.items.keys()].filter((id) => id !== project.rootFolder.id));
+        return true;
+      case "deselect-all":
+        if (projectFocused) setSelectedIds([]);
+        else if (activeComp) selectLayer(activeComp.id, undefined);
+        return true;
+      case "keyboard-shortcuts":
+        setShortcutsOpen(true);
+        return true;
+      case "open-layer-source":
+        if (layerSource?.kind === "comp") showComp(layerSource.id);
+        else if (layerSource) actions.revealInProject(layerSource.id);
+        return true;
+      case "reveal-layer-source":
+        if (layerSource) actions.revealInProject(layerSource.id);
+        return true;
+      case "layer-settings":
+        if (editor && selectedLayer) setLayerSettingsOpen(true);
+        return true;
+      case "freeze-frame":
+        onLayer((editor, comp, layer) => freezeFrame(editor, comp, [layer], time));
+        return true;
+      case "next-blending-mode":
+      case "previous-blending-mode":
+        stepBlendingMode(cmd === "next-blending-mode" ? 1 : -1);
+        return true;
+      case "browse-presets":
+        showPanel("Effects & Presets");
+        return true;
+      case "zoom-in":
+      case "zoom-out":
+      case "toggle-grid":
+      case "toggle-layer-controls":
+        viewerControls.send(cmd);
+        return true;
+      case "go-to-time":
+        if (activeComp) setGoToTimeOpen(true);
+        return true;
+    }
+    return false;
+  };
+  const menuCommandRef = useRef(menuCommand);
+  menuCommandRef.current = menuCommand;
+
   const command = useCallback(
     (cmd: MenuCommand) => {
       if (ops.command(cmd)) return;
@@ -451,13 +728,7 @@ export function App() {
           void pickFile();
           break;
         case "close-project":
-          void confirmClose().then((go) => {
-            if (!go) return;
-            setLoaded(undefined);
-            setOpenComps([]);
-            setActiveCompId(undefined);
-            setPlaying(false);
-          });
+          menuCommandRef.current("exit");
           break;
         case "home":
           setShowHome(true);
@@ -505,6 +776,7 @@ export function App() {
           setFocused("center");
           break;
         default: {
+          if (menuCommandRef.current(cmd)) break;
           if (cmd.startsWith(APPLY_EFFECT)) {
             applyEffectRef.current(cmd.slice(APPLY_EFFECT.length));
             break;
@@ -514,13 +786,13 @@ export function App() {
         }
       }
     },
-    [pickFile, ops, confirmClose],
+    [pickFile, ops],
   );
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.defaultPrevented || isTyping(e.target)) return;
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "o") {
+      if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === "o") {
         e.preventDefault();
         void pickFile();
         return;
@@ -543,6 +815,12 @@ export function App() {
         return;
       }
       if (ops.keyDown(e)) return;
+      const menuCmd = loaded ? menuShortcut(e, focused === "left") : undefined;
+      if (menuCmd) {
+        e.preventDefault();
+        if (menuEnabledRef.current(menuCmd)) command(menuCmd);
+        return;
+      }
       const layerCmd = editor ? layerShortcut(e) : undefined;
       // Delete and Ctrl+D in the Project panel act on project items, not layers.
       if (layerCmd && !((layerCmd === "delete-layer" || layerCmd === "duplicate-layer") && focused === "left")) {
@@ -593,7 +871,7 @@ export function App() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [activeComp, pickFile, togglePlay, step, edge, editor, focused, selectedLayer, views, ops]);
+  }, [activeComp, pickFile, togglePlay, step, edge, editor, focused, selectedLayer, views, ops, loaded, command]);
 
   const hasFiles = (e: DragEvent) => Array.from(e.dataTransfer?.types ?? []).includes("Files");
   const dropHandlers = {
@@ -677,6 +955,14 @@ export function App() {
   ];
   const bottomActive = bottomTab === "render-queue" || !activeComp ? "render-queue" : `comp:${activeComp.id}`;
 
+  const latestActions = useRef({ tryEdit, setItemLabel: (_label: number) => {} });
+  latestActions.current = {
+    tryEdit,
+    setItemLabel: (label: number) => {
+      const items = selectedIds.flatMap((id) => editor?.project.items.get(id) ?? []);
+      if (editor) tryEdit(() => setItemLabel(editor, items, label));
+    },
+  };
   const actions = useMemo<AppActions>(
     () => ({
       openComp: openItem,
@@ -719,6 +1005,13 @@ export function App() {
             setEditError((e as Error).message);
           }
         },
+        setLayerLabel: (comp: CompItem, layer: Layer, label: number) => latestActions.current.tryEdit(() => editor.setLayerLabel(comp, layer, label)),
+        setLayerQuality: (comp: CompItem, layer: Layer, quality: number) => latestActions.current.tryEdit(() => editor.setLayerQuality(comp, layer, quality)),
+        setItemLabel: (label: number) => latestActions.current.setItemLabel(label),
+        transformDialog: (kind: TransformDialogKind) => menuCommandRef.current(`${TRANSFORM_DIALOG}${kind}`),
+        freezeFrame: () => menuCommandRef.current("freeze-frame"),
+        canFreezeFrame: (_comp: CompItem, layer: Layer) => canRemapTime(editor.project, layer),
+        newCompFromSelection: () => menuCommandRef.current("new-comp-from-selection"),
       }),
     }),
     [openItem, selectLayer, project, editor, ops.contextMenu],
@@ -773,6 +1066,7 @@ export function App() {
       time={view?.time ?? 0}
       compact={compact}
       showChunks={compact && centerTab === "chunks"}
+      reveal={panelReveal}
     />
   );
   const selectCompTab = (id: string) => {
@@ -872,20 +1166,162 @@ export function App() {
     </AppActionsContext.Provider>
   );
 
-  const menuEnabled = (cmd: MenuCommand) => {
+  const viewerOpen = !!activeComp && (compact || centerTab === "composition");
+  const editableLayer = !!editor && !!selectedLayer;
+  const menuEnabledExtra = (cmd: MenuCommand): boolean | undefined => {
+    if (SWITCH_COMMANDS[cmd]) return editableLayer && (cmd === "toggle-guide" || isAVLayer(selectedLayer!));
+    if (cmd.startsWith(TRANSFORM_DIALOG)) return canTransformDialog(cmd.slice(TRANSFORM_DIALOG.length) as TransformDialogKind);
+    if (cmd.startsWith(SHOW_PANEL) || cmd.startsWith(OPEN_HELP)) return true;
+    switch (cmd) {
+      case "close":
+        return !!activeComp;
+      case "exit":
+        return !!loaded;
+      case "new-comp-from-selection":
+        return !!editor && compSources().length > 0;
+      case "trim-comp":
+        return !!editor && canTrim(activeComp);
+      case "play-preview":
+      case "go-to-time":
+        return !!activeComp;
+      case "reload-footage":
+        return !!actions.reloadFootage;
+      case "find":
+      case "keyboard-shortcuts":
+      case "browse-presets":
+        return true;
+      case "cut":
+        return editableLayer && !selectedLayer!.locked;
+      case "copy":
+        return editableLayer;
+      case "paste":
+        return canPaste;
+      case "split-layer":
+        return canSplit && !selectedLayer!.locked;
+      case "select-all":
+        return projectFocused && !!project && project.items.size > 1;
+      case "deselect-all":
+        return projectFocused ? selectedIds.length > 0 : !!selectedLayer;
+      case "open-layer-source":
+      case "reveal-layer-source":
+        return !!layerSource;
+      case "layer-settings":
+        return editableLayer;
+      case "freeze-frame":
+        return canFreeze;
+      case "next-blending-mode":
+      case "previous-blending-mode":
+        return editableLayer && isAVLayer(selectedLayer!);
+      case "zoom-in":
+      case "zoom-out":
+      case "toggle-grid":
+      case "toggle-layer-controls":
+        return viewerOpen;
+    }
+    return undefined;
+  };
+  const menuEnabled = (cmd: MenuCommand): boolean => {
     const own = ops.menu.enabled[cmd];
     if (own !== undefined) return own;
     if (cmd.startsWith(APPLY_EFFECT)) return !!effectTarget() && !!effectSource(cmd.slice(APPLY_EFFECT.length), effects, definedEffectTypes);
     if (cmd === "add-footage-to-comp") return !!editor && footageToAdd().length > 0;
     if (cmd === "last-effect") return !!lastEffect && !!effectTarget();
     if (cmd === "remove-all-effects") return !!selectedLayer && layerEffects(selectedLayer).length > 0 && !!effectTarget();
+    const extra = menuEnabledExtra(cmd);
+    if (extra !== undefined) return extra;
     const layerCmd = layerCommandFor(cmd);
     return !layerCmd || canRunLayerCommand(layerCmd, layerTarget);
   };
+  const menuEnabledRef = useRef(menuEnabled);
+  menuEnabledRef.current = menuEnabled;
   const effectName = (matchName: string) =>
     effects?.find((e) => e.matchName === matchName)?.name ?? catalogName(matchName) ?? project?.effectTypes.get(matchName) ?? matchName;
   const menuLabel = (cmd: MenuCommand) => (cmd === "last-effect" ? lastEffect && effectName(lastEffect) : ops.menu.labels[cmd]);
-  const menuChecked = (cmd: MenuCommand) => (cmd === "toggle-sapphire" ? appRenderOptions.sapphireLookalikes : undefined);
+  const menuChecked = (cmd: MenuCommand) => {
+    if (cmd === "toggle-sapphire") return appRenderOptions.sapphireLookalikes;
+    const toggle = SWITCH_COMMANDS[cmd];
+    if (toggle) return selectedLayer ? !!selectedLayer[toggle] : undefined;
+    if (cmd === "toggle-grid") return viewerOpen ? viewerStatus.grid : undefined;
+    if (cmd === "toggle-layer-controls") return viewerOpen ? viewerStatus.layerControls : undefined;
+    return undefined;
+  };
+  const RESOLUTIONS: [string, number][] = [
+    ["Full", 1],
+    ["Half", 2],
+    ["Third", 3],
+    ["Quarter", 4],
+  ];
+  const menuDynamic = (menu: DynamicMenu): MenuEntries | undefined => {
+    const layer = selectedLayer;
+    const comp = activeComp;
+    const onSelected = (body: (editor: Editor, comp: CompItem, layer: Layer) => void) =>
+      editor && comp && layer ? () => tryEdit(() => body(editor, comp, layer)) : undefined;
+    switch (menu) {
+      case "recent":
+        return recent.map(({ file, handle }) => ({
+          label: file.name,
+          onSelect: () => void (handle ? handle.getFile().catch(() => file) : Promise.resolve(file)).then((f) => open(f, handle)),
+        }));
+      case "history": {
+        const history = editor?.history ?? [];
+        return history.map((label, i) => ({ label, checked: i === history.length - 1, onSelect: () => tryEdit(() => editor!.undoTo(i + 1)) }));
+      }
+      case "label": {
+        if (projectFocused) {
+          const item = project?.items.get(selectedIds[0] ?? -1);
+          return labelEntries(item?.label, item && latestActions.current.setItemLabel);
+        }
+        return layer ? labelEntries(layer.label, editor && ((label) => onSelected((e, c, l) => e.setLayerLabel(c, l, label))?.())) : labelEntries(undefined);
+      }
+      case "purge":
+        return [
+          { label: "All Memory & Disk Cache...", onSelect: () => invalidate() },
+          { label: "All Memory", onSelect: () => invalidate() },
+          { label: "Undo", onSelect: editor?.undoLabel || editor?.redoLabel ? () => editor.clearHistory() : undefined },
+          { label: "Image Cache Memory", onSelect: () => invalidate() },
+        ];
+      case "quality":
+        return layer && qualityEntries(layer, editor && ((q) => onSelected((e, c, l) => e.setLayerQuality(c, l, q))?.()));
+      case "switches":
+        return comp && layer && layerSwitchEntries(comp, layer, actions);
+      case "frame-blending":
+        return layer && frameBlendingEntries(layer, editor && ((type) => onSelected((e, c, l) => e.setFrameBlending(c, l, type))?.()));
+      case "blending-mode":
+        return layer && isAVLayer(layer) ? blendingModeEntries(layer.blendingMode, editor && ((mode) => onSelected((e, c, l) => e.setBlendingMode(c, l, mode))?.())) : undefined;
+      case "track-matte":
+        return comp && layer && isAVLayer(layer) ? trackMatteEntries(editing, editor, comp, layer) : undefined;
+      case "resolution": {
+        if (!comp) return undefined;
+        const factor = Math.max(1, comp.resolutionFactor[0] || 1);
+        const auto = autoResolution.on;
+        return [
+          ...RESOLUTIONS.map(([label, f]) => ({
+            label,
+            checked: !auto && factor === f,
+            onSelect:
+              editor || f === factor
+                ? () => {
+                    autoResolution.set(false);
+                    if (editor && f !== factor) tryEdit(() => editor.setCompSettings(comp, { resolutionFactor: [f, f] }));
+                  }
+                : undefined,
+          })),
+          { label: "Auto", checked: auto, onSelect: () => autoResolution.set(true) },
+        ];
+      }
+      case "workspace":
+        return compact
+          ? undefined
+          : WORKSPACES.map((w) => ({
+              label: w,
+              checked: w === workspaceName,
+              onSelect: () => {
+                setWorkspaceName(w);
+                setLayout(WORKSPACE_LAYOUTS[w]);
+              },
+            }));
+    }
+  };
   const solidComp = solidFor !== undefined ? project?.items.get(solidFor) : undefined;
 
   const menuBar = (
@@ -895,6 +1331,7 @@ export function App() {
       enabled={menuEnabled}
       label={menuLabel}
       checked={menuChecked}
+      dynamic={menuDynamic}
       effects={effectCatalog}
       compact={compact}
       title={loaded?.file.name ?? "AEP Web"}
@@ -1009,6 +1446,40 @@ export function App() {
           }}
         />
       )}
+      {transformDialog && editor && activeComp && selectedLayer && (
+        <TransformDialog
+          kind={transformDialog}
+          layer={selectedLayer}
+          time={time}
+          onCancel={() => setTransformDialog(undefined)}
+          onOk={(value) => {
+            setTransformDialog(undefined);
+            tryEdit(() => setTransformValue(editor, activeComp, selectedLayer, transformMatchName(transformDialog), value, time));
+          }}
+        />
+      )}
+      {goToTimeOpen && activeComp && (
+        <GoToTimeDialog
+          comp={activeComp}
+          time={time}
+          onCancel={() => setGoToTimeOpen(false)}
+          onOk={(t) => {
+            setGoToTimeOpen(false);
+            goTo(activeComp.id, t);
+          }}
+        />
+      )}
+      {layerSettingsOpen && editor && activeComp && selectedLayer && (
+        <LayerSettingsDialog
+          layer={selectedLayer}
+          onCancel={() => setLayerSettingsOpen(false)}
+          onOk={(name) => {
+            setLayerSettingsOpen(false);
+            if (name !== selectedLayer.name) tryEdit(() => editor.renameLayer(activeComp, selectedLayer, name));
+          }}
+        />
+      )}
+      {shortcutsOpen && <KeyboardShortcutsDialog onClose={() => setShortcutsOpen(false)} />}
       {particleMatch && (
         <Suspense fallback={null}>
           <ParticleMatchDialog

@@ -257,6 +257,7 @@ export const RightPanels = memo(function RightPanels({
   time = 0,
   compact = false,
   showChunks = false,
+  reveal,
 }: {
   project: Project;
   comp: CompItem | undefined;
@@ -271,6 +272,8 @@ export const RightPanels = memo(function RightPanels({
   time?: number;
   compact?: boolean;
   showChunks?: boolean;
+  /** A panel Window menu asked for, opened when `seq` changes. */
+  reveal?: { name: string; seq: number };
 }) {
   const [open, setOpen] = useState<Set<string>>(
     () => new Set(["Info", "Preview", ...(compact ? [] : ["Effects & Presets"]), ...(showChunks ? ["RIFX Chunks"] : [])]),
@@ -278,6 +281,9 @@ export const RightPanels = memo(function RightPanels({
   useEffect(() => {
     if (showChunks) setOpen((prev) => (prev.has("RIFX Chunks") ? prev : new Set([...prev, "RIFX Chunks"])));
   }, [showChunks]);
+  useEffect(() => {
+    if (reveal) setOpen((prev) => (prev.has(reveal.name) ? prev : new Set([...prev, reveal.name])));
+  }, [reveal]);
   const [localPreview, setLocalPreview] = useState(preview);
   const settings = onPreview ? preview : localPreview;
   const toggle = (name: string) =>

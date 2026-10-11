@@ -13,7 +13,7 @@ const MATTES: [number, string][] = [
   [5016, "Luma Inverted Matte"],
 ];
 
-export const QUALITY = { WIREFRAME: 4612, DRAFT: 4613, BEST: 4614 } as const;
+export { QUALITY } from "./contextMenus.ts";
 
 export function modeEntries(editing: Editing, editor: Editor | undefined, comp: CompItem, layer: Layer): MenuEntries {
   return blendingModeEntries(layer.blendingMode, editor ? (mode) => attempt(editing, () => editor.setBlendingMode(comp, layer, mode)) : undefined);
