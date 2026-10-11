@@ -63,7 +63,8 @@ def slug(match_name: str) -> str:
 
 effects = json.loads(LIBRARY.read_text(encoding="utf-8"))["effects"]
 comps: dict[str, list[str]] = {}
-for match_name in effects:
+#: Look-alikes of plug-ins After Effects lacks here (Sapphire): it cannot render them.
+for match_name in [m for m, e in effects.items() if not e.get("lookalike")]:
     names = [f"roundtrip_{slug(match_name)}"]
     if match_name not in NOTHING_TO_SET:
         names.append(f"{names[0]}_set")

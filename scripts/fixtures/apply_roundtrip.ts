@@ -15,6 +15,7 @@ import { Editor } from "../../src/edit/editor.ts";
 import { applyLibraryEffect, effectLibrary } from "../../src/edit/effectLibrary.ts";
 import { addEffects, newInstance, setInstanceColor, setInstanceNumber, setInstancePoint } from "../../src/edit/effects.ts";
 import { chunkText } from "../../src/edit/effectTemplates.ts";
+import { LIBRARY, type Library } from "../export-effect-library.ts";
 import { ROOT } from "../lib/suites.ts";
 
 type Setting = [n: number, value: number | number[]];
@@ -101,7 +102,9 @@ const compNamed = (name: string): CompItem => {
   return found as CompItem;
 };
 
-const library = await effectLibrary();
+// Look-alikes of plug-ins After Effects lacks here (Sapphire) are left out: it cannot render them.
+const { effects: entries } = JSON.parse(readFileSync(LIBRARY, "utf8")) as Library;
+const library = (await effectLibrary()).filter((e) => !entries[e.matchName]?.lookalike);
 const unknown = Object.keys(base.effects).filter((m) => !library.some((e) => e.matchName === m));
 const missing = library.filter((e) => !(e.matchName in base.effects)).map((e) => e.matchName);
 if (unknown.length || missing.length) {

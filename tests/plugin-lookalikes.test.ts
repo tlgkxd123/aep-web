@@ -3,7 +3,7 @@
 // parameter name. Their GPU passes are exercised in a browser by scripts/check-plugin-lookalikes.ts.
 import { describe, expect, it } from "vitest";
 import type { Layer, Property, PropertyGroup, PropertyValue } from "../src/aep/model.ts";
-import { effectCategory } from "../src/edit/effectCatalog.ts";
+import { catalogCategories, catalogName, effectCategory } from "../src/edit/effectCatalog.ts";
 import "../src/render/features.ts";
 import { FormBase, FormBlend, formLayout, formSettings, formVisibility, MAX_FORM_PARTICLES } from "../src/render/effects/formSettings.ts";
 import { namedParams, normalizeName } from "../src/render/effects/namedParams.ts";
@@ -252,5 +252,21 @@ describe("Trapcode Form look-alike", () => {
     expect(formVisibility(v, 500)).toBe(1);
     expect(formVisibility(v, 1500)).toBeCloseTo(0.5);
     expect(formVisibility(v, 2500)).toBe(0);
+  });
+});
+
+describe("Effects & Presets", () => {
+  it("lists every look-alike under its vendor's category, with or without a template", () => {
+    const listed = new Map(catalogCategories().flatMap((c) => c.effects.map((e) => [e.matchName, `${c.name} > ${e.name}`])));
+    expect(Object.fromEntries(["S_Blur", "S_BlurDirectional", "S_Shake", "S_Glow", "S_ZGlow", "S_Flicker", "tc Form"].map((m) => [m, listed.get(m)]))).toEqual({
+      S_Blur: "Sapphire Blur+Sharpen > S_Blur",
+      S_BlurDirectional: "Sapphire Blur+Sharpen > S_BlurDirectional",
+      S_Shake: "Sapphire Distort > S_Shake",
+      S_Glow: "Sapphire Lighting > S_Glow",
+      S_ZGlow: "Sapphire Lighting > S_ZGlow",
+      S_Flicker: "Sapphire Adjust > S_Flicker",
+      "tc Form": "RG Trapcode > Form",
+    });
+    expect(catalogName("S_Shake")).toBe("S_Shake");
   });
 });
