@@ -36,6 +36,34 @@ button,
   touch-action: manipulation;
 }
 
+/* A long press picks up a draggable row (touch.ts); a label follows the finger, at an angle above it. */
+.touch-drag-armed {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.touch-drag-ghost {
+  position: fixed;
+  z-index: 300;
+  max-width: 60vw;
+  padding: 6px 12px;
+  overflow: hidden;
+  border-radius: 6px;
+  background: var(--accent);
+  box-shadow: 0 6px 18px rgb(0 0 0 / 50%);
+  color: #fff;
+  font-size: 13px;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  pointer-events: none;
+  transform: translate(-50%, calc(-100% - 28px));
+}
+
+.touch-drag-ghost.refused {
+  background: #4a4a4a;
+  color: #cfcfcf;
+}
+
 @media (pointer: coarse) {
   .app {
     -webkit-touch-callout: none;
@@ -848,7 +876,7 @@ button,
   margin-left: 12px;
 }
 
-/* Effects & Presets: the picked effect applies from a bar, as touch cannot drag it onto a layer. */
+/* Effects & Presets: the picked effect applies from a bar, without a long-press drag onto a layer. */
 .fxp-apply {
   display: flex;
   align-items: center;

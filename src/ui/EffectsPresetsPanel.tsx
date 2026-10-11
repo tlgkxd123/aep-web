@@ -162,7 +162,7 @@ export const EffectsPresetsPanel = memo(function EffectsPresetsPanel({ project, 
     }
   };
   const hint = !actions?.applyEffect ? undefined : !target ? "Select a layer to apply effects to it." : target.locked ? `Unlock ${target.name} to apply effects to it.` : undefined;
-  // Touch screens cannot drag effects onto layers; the picked one applies from a button.
+  // On touch screens the picked effect also applies from a button: a drag needs a long press, and on compact screens the Timeline is on another tab.
   const touch = compact || coarse;
   const picked = selected && sourceOf(selected) ? selected : undefined;
   const pickedName = picked && (catalog.flatMap((c) => c.effects).find((e) => e.matchName === picked)?.name ?? project.effectTypes.get(picked) ?? picked);
