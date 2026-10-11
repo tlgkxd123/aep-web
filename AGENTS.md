@@ -73,6 +73,8 @@ frame by frame against After Effects 2025's own renders. React + TypeScript + Vi
 | G7 | `node scripts/geometry-report.ts --require` | matrices and cameras vs AE |
 | G8 | `node scripts/pixel-report.ts --require` | renders vs AE reference frames, all suites |
 
+`npm run check` runs G1, the full vitest suite and G5 in that order (same as CI).
+
 The pixel criterion: a pixel differs when a premultiplied channel is off by more than 3/255. A
 frame passes when two things hold:
 
