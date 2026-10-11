@@ -48,7 +48,7 @@ import { SolidSettings } from "./SolidSettings.tsx";
 import { TimelinePanel } from "./TimelinePanel.tsx";
 import { Toolbar, type Workspace } from "./Toolbar.tsx";
 import { followPointer } from "./pointer.ts";
-import { useLongPressMenus } from "./touch.ts";
+import { useLongPressGestures } from "./touch.ts";
 
 /** Panel sizes per workspace: left frame share, right column px, Timeline share. */
 const WORKSPACE_LAYOUTS: Record<Workspace, { left: number; right: number; bottom: number }> = {
@@ -140,7 +140,7 @@ export function App() {
   /** The panel compact screens show with the viewer; kept in step with the desktop frames' tabs. */
   const [mobileTab, setMobileTab] = useState<MobileTab>("timeline");
   const [viewerShare, setViewerShare] = useState(0.45);
-  useLongPressMenus(compact || coarse);
+  useLongPressGestures(compact || coarse);
 
   const editor = loaded?.editor;
   useEffect(() => editor?.subscribe(() => setRevision(editor.revision)), [editor]);

@@ -1,12 +1,13 @@
 // @vitest-environment jsdom
 // On a phone-sized screen the app shows the compact workspace: the viewer over one panel at a time, picked from a
 // tab bar; the menus open as a sheet from the Menu button, and context menus as sheets whose submenus replace them.
-// File > Add Footage to Comp adds the selected project item to the open composition, without drag and drop.
+// File > Add Footage to Comp adds the selected project item to the open composition, without drag and drop; a long
+// press picks a project item up for a touch drag onto the viewer.
 import { File as NodeFile } from "node:buffer";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
-import { afterEach, beforeEach, expect, test } from "vitest";
+import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { App } from "../src/ui/App.tsx";
 import { COMPACT_QUERY } from "../src/ui/responsive.ts";
 
@@ -105,6 +106,98 @@ test("menus and context menus open as sheets, submenus in their place", async ()
   expect(within(sheet()).getByRole("menuitem", { name: "Flip Horizontal" })).toBeTruthy();
   fireEvent.click(within(sheet()).getByRole("menuitem", { name: "Flip Horizontal" }));
   expect(screen.queryByRole("dialog")).toBeNull();
+});
+
+/** A touch pointer event (jsdom has no PointerEvent). */
+function touch(type: string, target: EventTarget, x: number, y: number) {
+  const event = new MouseEvent(type, { bubbles: true, cancelable: true, clientX: x, clientY: y });
+  Object.defineProperties(event, { pointerType: { value: "touch" }, pointerId: { value: 7 }, isPrimary: { value: true } });
+  act(() => {
+    target.dispatchEvent(event);
+  });
+}
+
+const projectRow = (name: string) => {
+  fireEvent.change(screen.getByLabelText("Search project"), { target: { value: name } });
+  const items = screen.getByRole("tree", { name: "Project items" });
+  return within(items).getAllByText(name).find((e) => e.classList.contains("cell-text"))!.closest<HTMLElement>('[role="treeitem"]')!;
+};
+
+describe("touch drags", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+    Reflect.deleteProperty(document, "elementFromPoint");
+  });
+
+  test("a long press picks a project item up and dropping it on the viewer adds it as a layer", async () => {
+    await openComp();
+    fireEvent.click(tab("Project"));
+    const source = projectRow(CARD);
+    const viewer = screen.getByRole("img", { name: new RegExp(`^${COMP}, 160 x 120`) });
+    let under: Element | null = source;
+    Object.defineProperty(document, "elementFromPoint", { configurable: true, value: () => under });
+    vi.useFakeTimers();
+
+    touch("pointerdown", source, 20, 300);
+    act(() => vi.advanceTimersByTime(300));
+    expect(source.classList.contains("touch-drag-armed")).toBe(false);
+    act(() => vi.advanceTimersByTime(300));
+    expect(source.classList.contains("touch-drag-armed")).toBe(true);
+
+    under = viewer;
+    touch("pointermove", source, 60, 40);
+    const ghost = document.querySelector(".touch-drag-ghost")!;
+    expect(ghost.textContent).toBe(CARD);
+    expect(ghost.classList.contains("refused")).toBe(false);
+    touch("pointerup", source, 60, 40);
+    expect(document.querySelector(".touch-drag-ghost")).toBeNull();
+    expect(source.classList.contains("touch-drag-armed")).toBe(false);
+
+    vi.useRealTimers();
+    fireEvent.click(tab("Timeline"));
+    expect(layerNames()).toEqual([CARD, CARD]);
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  test("a drag released over nothing that takes it drops nothing", async () => {
+    await openComp();
+    fireEvent.click(tab("Project"));
+    const source = projectRow(CARD);
+    const label = screen.getByRole("tablist", { name: "Panels" });
+    Object.defineProperty(document, "elementFromPoint", { configurable: true, value: () => label });
+    vi.useFakeTimers();
+
+    touch("pointerdown", source, 20, 300);
+    act(() => vi.advanceTimersByTime(600));
+    touch("pointermove", source, 20, 500);
+    expect(document.querySelector(".touch-drag-ghost")!.classList.contains("refused")).toBe(true);
+    touch("pointerup", source, 20, 500);
+
+    vi.useRealTimers();
+    fireEvent.click(tab("Timeline"));
+    expect(layerNames()).toEqual([CARD]);
+  });
+
+  test("a long press lifted without moving opens the context menu; one that moves early does not", async () => {
+    await openComp();
+    fireEvent.click(tab("Project"));
+    const source = projectRow(CARD);
+    vi.useFakeTimers();
+
+    touch("pointerdown", source, 20, 300);
+    touch("pointermove", source, 20, 330);
+    act(() => vi.advanceTimersByTime(600));
+    expect(source.classList.contains("touch-drag-armed")).toBe(false);
+    touch("pointerup", source, 20, 330);
+    expect(screen.queryByRole("dialog")).toBeNull();
+
+    touch("pointerdown", source, 20, 300);
+    act(() => vi.advanceTimersByTime(600));
+    expect(screen.queryByRole("dialog")).toBeNull();
+    touch("pointerup", source, 20, 300);
+    expect(source.classList.contains("touch-drag-armed")).toBe(false);
+    expect(within(sheet()).getAllByRole("menuitem").length).toBeGreaterThan(0);
+  });
 });
 
 test("File > Add Footage to Comp adds the selected project item to the open comp as one undo step", async () => {
