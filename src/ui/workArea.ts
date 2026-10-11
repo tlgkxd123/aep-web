@@ -35,3 +35,8 @@ export function dragWorkArea(comp: CompItem, from: [number, number], part: WorkA
   const s = clamp(start + d, 0, Math.max(0, comp.duration - (end - start)));
   return [s, s + (end - start)];
 }
+
+/** The work area after setting its start (B) or its end (N) at comp time `t`. */
+export function workAreaAt(comp: CompItem, t: number, edge: "start" | "end"): [number, number] {
+  return workAreaAtTime(comp, t, edge === "end");
+}

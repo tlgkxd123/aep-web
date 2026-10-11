@@ -24,10 +24,4 @@ export function useMedia(query: string): boolean {
 
 export const useCompact = (): boolean => useMedia(COMPACT_QUERY);
 
-/**
- * Android, iOS and iPadOS. Their system file pickers show only files of the types a page asks for, and grey out
- * extensions they have no type for, as .aep and .pmwm are.
- */
-export const isMobileOS = (): boolean =>
-  typeof navigator !== "undefined" &&
-  (/Android|iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1));
+export { isMobileOS } from "../device.ts";

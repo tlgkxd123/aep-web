@@ -557,6 +557,7 @@ export function App() {
         e.preventDefault();
         try {
           editor.setCompSettings(activeComp, { workArea: workAreaAtTime(activeComp, currentTimeRef.current(activeComp), letter === "n") });
+          editor.setCompSettings(activeComp, { workArea: workAreaAtTime(activeComp, currentTimeRef.current(activeComp), letter === "n") });
         } catch (err) {
           setEditError((err as Error).message);
         }

@@ -732,6 +732,32 @@ button,
   height: 36px;
 }
 
+/* Composition Settings from the Timeline, showing the comp's duration. */
+.tl-comp-settings {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: none;
+  min-height: 32px;
+  padding: 0 8px;
+  border: 1px solid #3c3c3c;
+  border-radius: 6px;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.tl-comp-settings:active {
+  background: var(--sel);
+  color: var(--text-hi);
+}
+
+@media (max-width: 430px) {
+  .tl-comp-duration {
+    display: none;
+  }
+}
+
 .app.compact .tl-split {
   bottom: 40px;
 }
@@ -938,4 +964,72 @@ button,
   min-height: 40px;
   padding-left: 16px;
   padding-right: 16px;
+}
+
+/* Fields of 16px keep iOS from zooming the page when they take focus. */
+.app.compact .ae-window .ae-field {
+  font-size: 16px;
+}
+
+/* Composition Settings in one column: each field under its label's column, its note under the field. */
+.app.compact .cs-row {
+  grid-template-columns: 96px minmax(0, 1fr);
+}
+
+.app.compact .cs-row > :nth-child(n + 3) {
+  grid-column: 2;
+}
+
+.app.compact .cs-row select,
+.app.compact .cs-preset {
+  width: 100%;
+  min-width: 0;
+  max-width: none;
+}
+
+.app.compact .cs-preset {
+  grid-column: 2;
+}
+
+.app.compact .cs-row .dim,
+.app.compact .cs-aside {
+  white-space: normal;
+}
+
+.app.compact .cs-tc {
+  width: 128px;
+}
+
+.app.compact .cs-num {
+  width: 88px;
+}
+
+/* Number fields keep their unit beside them. */
+.app.compact .cs-row:has(.cs-num) {
+  grid-template-columns: 96px auto minmax(0, 1fr);
+}
+
+.app.compact .cs-row:has(.cs-num) > * {
+  grid-column: auto;
+}
+
+.app.compact .cs-lock {
+  margin-left: 104px;
+  min-height: 36px;
+}
+
+.app.compact .cs-row:has(.cs-swatch) {
+  grid-template-columns: 96px auto auto minmax(0, 1fr);
+}
+
+.app.compact .cs-row:has(.cs-swatch) > * {
+  grid-column: auto;
+}
+
+.app.compact .cs-swatch {
+  height: 32px;
+}
+
+.app.compact .cs-tab {
+  height: 36px;
 }

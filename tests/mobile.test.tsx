@@ -1,13 +1,18 @@
 // @vitest-environment jsdom
 // On a phone-sized screen the app shows the compact workspace: the viewer over one panel at a time, picked from a
 // tab bar; the menus open as a sheet from the Menu button, and context menus as sheets whose submenus replace them.
-// File > Add Footage to Comp adds the selected project item to the open composition, without drag and drop.
+// File > Add Footage to Comp adds the selected project item to the open composition, without drag and drop. What
+// desktops do with keys or drags has a touch path: Composition Settings (the comp's duration) from the Timeline, the
+// work area from the ruler's menu, Rename from a layer's menu, Move To from a project item's menu.
 import { File as NodeFile } from "node:buffer";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, expect, test } from "vitest";
+import type { Item, Project } from "../src/aep/model.ts";
 import { App } from "../src/ui/App.tsx";
+import type { MenuEntry } from "../src/ui/ContextMenu.tsx";
+import { moveToEntries } from "../src/ui/contextMenus.ts";
 import { COMPACT_QUERY } from "../src/ui/responsive.ts";
 
 const FIXTURE = resolve(import.meta.dirname, "../refs/fixtures/roundtrip.base.aep");
@@ -143,6 +148,77 @@ test("the Timeline sets the work area by touch: buttons at the current time, and
   expect(value(start())).toBe(0);
   fireEvent.click(screen.getByRole("button", { name: /^Undo/ }));
   expect(value(end())).toBeCloseTo(2 * oneFrame, 6);
+});
+
+test("the Timeline's Composition Settings button changes the comp's duration, as one undo step", async () => {
+  await openComp();
+  const button = within(timeline().closest(".tl")!).getByRole("button", { name: "Composition Settings" });
+  const before = button.textContent;
+  fireEvent.click(button);
+  const dialog = screen.getByRole("dialog", { name: "Composition Settings" });
+  const duration = within(dialog).getByLabelText("Duration:");
+  expect(duration.getAttribute("inputmode")).toBe("decimal");
+  expect(before).toBe("Δ 0:00:01:00");
+  fireEvent.change(duration, { target: { value: "0:00:02:00" } });
+  fireEvent.click(within(dialog).getByRole("button", { name: "OK" }));
+  expect(screen.queryByRole("dialog", { name: "Composition Settings" })).toBeNull();
+  const after = () => within(timeline().closest(".tl")!).getByRole("button", { name: "Composition Settings" }).textContent;
+  expect(after()).toBe("Δ 0:00:02:00");
+
+  fireEvent.click(screen.getByRole("button", { name: /^Undo/ }));
+  expect(after()).toBe(before);
+});
+
+test("a long press on the time ruler sets the work area at that frame and opens Composition Settings", async () => {
+  await openComp();
+  const root = timeline().closest<HTMLElement>(".tl")!;
+  const workArea = () => root.querySelector<HTMLElement>(".tl-workarea")!.style.width;
+  const full = workArea();
+
+  // A typed time applies when the field loses focus, as touch keypads have no Enter key.
+  fireEvent.click(within(root).getByRole("button", { name: /^0:00:00:00$/ }));
+  const field = within(root).getByLabelText("Go to time");
+  fireEvent.change(field, { target: { value: "0:00:00:05" } });
+  fireEvent.blur(field);
+  expect(within(root).getByRole("button", { name: "0:00:00:05" })).toBeTruthy();
+
+  fireEvent.contextMenu(within(root).getByRole("slider", { name: "Current time" }));
+  for (const name of [/^Composition Settings/, /^Set Work Area Start/]) expect(within(sheet()).getByRole("menuitem", { name })).toBeTruthy();
+  fireEvent.click(within(sheet()).getByRole("menuitem", { name: /^Set Work Area End/ }));
+  expect(workArea()).not.toBe(full);
+  fireEvent.click(screen.getByRole("button", { name: /^Undo/ }));
+  expect(workArea()).toBe(full);
+
+  fireEvent.contextMenu(within(root).getByRole("slider", { name: "Current time" }));
+  fireEvent.click(within(sheet()).getByRole("menuitem", { name: /^Composition Settings/ }));
+  expect(screen.getByRole("dialog", { name: "Composition Settings" })).toBeTruthy();
+});
+
+test("a layer's context menu renames it, as Enter does on a keyboard", async () => {
+  await openComp();
+  fireEvent.contextMenu(within(timeline()).getByRole("treeitem", { name: CARD }));
+  fireEvent.click(within(sheet()).getByRole("menuitem", { name: /^Rename/ }));
+  const field = within(timeline()).getByLabelText("Layer name");
+  fireEvent.change(field, { target: { value: "renamed card" } });
+  fireEvent.keyDown(field, { key: "Enter" });
+  expect(within(timeline()).getByRole("treeitem", { name: "renamed card" })).toBeTruthy();
+});
+
+test("Move To lists the project root and every folder, disabling where the items already are", () => {
+  const folder = (id: number, name: string, parentFolderId = 0) => ({ id, name, kind: "folder", parentFolderId, items: [] }) as unknown as Item;
+  const comp = { id: 9, name: "comp", kind: "comp", parentFolderId: 2 } as unknown as Item;
+  const a = folder(1, "A");
+  const b = folder(2, "B", 1);
+  const project = { items: new Map<number, Item>([a, b, comp].map((i) => [i.id, i])) } as unknown as Project;
+  const moved: number[] = [];
+  const entries = moveToEntries(project, [comp], (id) => moved.push(id)) as MenuEntry[];
+  expect(entries.map((e) => (typeof e === "string" ? e : e.label))).toEqual(["Project Root", "-", "A", "A / B"]);
+  expect(entries.filter((e) => typeof e !== "string" && e.onSelect).map((e) => e.label)).toEqual(["Project Root", "A"]);
+  entries[2].onSelect!();
+  expect(moved).toEqual([1]);
+  // A folder cannot move into itself or its subfolders.
+  const own = moveToEntries(project, [a], () => {}) as MenuEntry[];
+  expect(own.filter((e) => typeof e !== "string" && e.onSelect).map((e) => e.label)).toEqual([]);
 });
 
 test("File > Add Footage to Comp adds the selected project item to the open comp as one undo step", async () => {
