@@ -18,6 +18,8 @@ const COMP = "roundtrip_minimax";
 const CARD = "roundtrip_card";
 /** A project After Effects saved whose one layer has two Gaussian Blurs (Blurriness 20 and 30), an effect the library lacks. */
 const GAUSSIAN = resolve(SAMPLES, "models/property/2_gaussian_20_30.aep");
+/** A project After Effects saved that defines Lens Flare and CC Sphere, which the viewer does not render. */
+const EFFECTS = resolve(SAMPLES, "models/property/effects.aep");
 
 afterEach(() => {
   cleanup();
@@ -234,17 +236,24 @@ test("every After Effects effect is listed; those without a template are unavail
   expect(blurs.getByRole("menuitem", { name: /^Fast Box Blur/ }).hasAttribute("disabled")).toBe(false);
 });
 
+test("effects the project defines that the viewer does not draw are tagged Not rendered", async () => {
+  await openComp(readFileSync(EFFECTS), "effects.aep", "effect_2dPoint", "TestLayer");
+  fireEvent.change(search(), { target: { value: "lens flare" } });
+  const listed = await libraryEffect("Generate", "Lens Flare");
+  expect(listed.textContent).toContain("Not rendered");
+});
+
 test("effects the project defines apply from its own definitions, from Used in This Project too", async () => {
   await openComp(readFileSync(GAUSSIAN), "2_gaussian_20_30.aep", "Comp 1", "Gray Solid 1");
   fireEvent.click(screen.getByRole("tab", { name: /^Effect Controls/ }));
   const original = ["Gaussian Blur", "Gaussian Blur 2"];
   expect(effectNames()).toEqual(original);
 
-  // Listed in its category, available, and tagged as not drawn by this viewer.
+  // Listed in its category, available, and not tagged as undrawn: the viewer renders Gaussian Blur.
   fireEvent.change(search(), { target: { value: "gaussian" } });
   const listed = await libraryEffect("Blur & Sharpen", "Gaussian Blur");
   expect(listed.getAttribute("draggable")).toBe("true");
-  expect(listed.textContent).toContain("Not rendered");
+  expect(listed.textContent).not.toContain("Not rendered");
   fireEvent.doubleClick(listed);
   expect(effectNames()).toEqual([...original, "Gaussian Blur"]);
   key("z", { ctrlKey: true });
