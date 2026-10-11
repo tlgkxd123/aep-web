@@ -1,0 +1,30 @@
+name: Setup
+description: Node, the app's dependencies and the py-aep sample corpus the tests read (PY_AEP).
+inputs:
+  py-aep-ref:
+    description: py-aep commit the corpus tests were checked against
+    default: e12a451c35bacd3f34a080090265f9370e66162b
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-node@v5
+      with:
+        node-version: 24
+        cache: npm
+    - run: npm ci
+      shell: bash
+    # The samples live in Git LFS on someone else's quota, so they are fetched once per commit.
+    - id: py-aep
+      uses: actions/cache@v4
+      with:
+        path: ~/py-aep
+        key: py-aep-${{ inputs.py-aep-ref }}
+    - if: steps.py-aep.outputs.cache-hit != 'true'
+      shell: bash
+      run: |
+        GIT_LFS_SKIP_SMUDGE=1 git clone --quiet https://github.com/forticheprod/py-aep ~/py-aep
+        git -C ~/py-aep checkout --quiet ${{ inputs.py-aep-ref }}
+        git -C ~/py-aep lfs pull --include "samples/**"
+        rm -rf ~/py-aep/.git
+    - run: echo "PY_AEP=$HOME/py-aep" >> "$GITHUB_ENV"
+      shell: bash

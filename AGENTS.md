@@ -91,6 +91,16 @@ Gate ledgers follow the unlazy skill (`C:/Users/schxm/.claude/skills/unlazy/SKIL
 
 `GATES.md` is the core ledger. Feature areas keep their own `gates/<area>.md`.
 
+## Automation (`.github/`)
+
+- `ci.yml` runs G1, the vitest suite and G5 on Ubuntu, with the py-aep corpus pinned in
+ `.github/actions/setup`. The After Effects and GPU gates have no runner there; run them on this machine.
+- `agent.yml` runs a Cursor agent (`.github/agent/run.ts`) on a GitHub runner for an issue labelled
+ `agent`, an `/agent ...` comment or `gh workflow run agent.yml -f task="..."`. It repeats the CI
+ checks, hands failures back to the agent, and opens a pull request (a draft when the checks still fail).
+- `release.yml` builds the signed APK when a GitHub release is published and attaches it to the release.
+ The keystore is kept outside the repository, in `~/.android-keys/`.
+
 ## Ground truth
 
 - **py-aep** (MIT) is at `C:/Users/schxm/projects/_ref/py-aep`; override with the `PY_AEP` env

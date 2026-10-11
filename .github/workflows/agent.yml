@@ -1,0 +1,141 @@
+# Unattended development: a Cursor agent implements a request on a GitHub runner and opens a pull request.
+#
+# Start it by labelling an issue `agent`, commenting `/agent <instructions>` on an issue or pull request
+# (on a pull request the agent continues its branch), or `gh workflow run agent.yml -f task="..."`.
+# Only the repository owner can start it. Needs the CURSOR_API_KEY secret; the AGENT_MODEL and
+# AGENT_ATTEMPTS variables override the model and the number of agent turns.
+name: Agent
+
+on:
+  issues:
+    types: [labeled]
+  issue_comment:
+    types: [created]
+  workflow_dispatch:
+    inputs:
+      task:
+        description: What to build or fix
+        required: true
+      model:
+        description: Model id (default AGENT_MODEL, else composer-2.5)
+        required: false
+
+permissions:
+  actions: write
+  contents: write
+  issues: write
+  pull-requests: write
+
+concurrency:
+  group: agent-${{ github.event.issue.number || github.run_id }}
+
+jobs:
+  agent:
+    if: >-
+      github.actor == github.repository_owner && (
+        github.event_name == 'workflow_dispatch' ||
+        (github.event_name == 'issues' && github.event.label.name == 'agent') ||
+        (github.event_name == 'issue_comment' && startsWith(github.event.comment.body, '/agent'))
+      )
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    env:
+      NUMBER: ${{ github.event.issue.number }}
+      IS_PR: ${{ github.event.issue.pull_request != null }}
+      BASE: ${{ github.event.repository.default_branch }}
+      RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+    steps:
+      - run: |
+          echo "TASK_FILE=$RUNNER_TEMP/task.md" >> "$GITHUB_ENV"
+          echo "SUMMARY_FILE=$RUNNER_TEMP/summary.md" >> "$GITHUB_ENV"
+
+      # No credentials stay in .git: the agent gets a shell, so only the publish step holds the token.
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - id: prepare
+        name: Branch and request
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TASK_INPUT: ${{ inputs.task }}
+          ISSUE_TITLE: ${{ github.event.issue.title }}
+          COMMENT: ${{ github.event.comment.body }}
+        run: |
+          set -euo pipefail
+          if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ]; then
+            branch="agent/run-$GITHUB_RUN_ID"
+            title=$(printf '%s' "$TASK_INPUT" | head -n1 | cut -c1-72)
+            git switch -c "$branch"
+            printf '%s\n' "$TASK_INPUT" > "$TASK_FILE"
+          elif [ "$IS_PR" = true ]; then
+            read -r branch owner < <(gh pr view "$NUMBER" --json headRefName,headRepositoryOwner --jq '"\(.headRefName) \(.headRepositoryOwner.login)"')
+            [ "$owner" = "$GITHUB_REPOSITORY_OWNER" ] || { echo "::error::pull request #$NUMBER comes from a fork"; exit 1; }
+            title="$ISSUE_TITLE"
+            git switch "$branch"
+            { echo "Pull request #$NUMBER (branch $branch, which you are on):"; echo; gh pr view "$NUMBER" --comments; } > "$TASK_FILE"
+          else
+            branch="agent/issue-$NUMBER"
+            title="$ISSUE_TITLE"
+            if git show-ref --verify --quiet "refs/remotes/origin/$branch"; then git switch "$branch"; else git switch -c "$branch"; fi
+            { echo "Issue #$NUMBER:"; echo; gh issue view "$NUMBER" --comments; } > "$TASK_FILE"
+          fi
+          if [ "$GITHUB_EVENT_NAME" = issue_comment ]; then
+            printf '\nAct on this instruction now (the latest /agent comment):\n\n%s\n' "${COMMENT#/agent}" >> "$TASK_FILE"
+          fi
+          { echo "branch=$branch"; echo "title=$title"; echo "start=$(git rev-parse HEAD)"; } >> "$GITHUB_OUTPUT"
+          if [ -n "$NUMBER" ]; then gh issue comment "$NUMBER" --body "Agent started: $RUN_URL"; fi
+
+      - uses: ./.github/actions/setup
+      - run: npm ci --prefix .github/agent
+
+      - id: agent
+        name: Agent
+        env:
+          CURSOR_API_KEY: ${{ secrets.CURSOR_API_KEY }}
+          AGENT_MODEL: ${{ inputs.model || vars.AGENT_MODEL }}
+          AGENT_ATTEMPTS: ${{ vars.AGENT_ATTEMPTS }}
+        run: AGENT_TASK_FILE="$TASK_FILE" AGENT_SUMMARY_FILE="$SUMMARY_FILE" node .github/agent/run.ts
+
+      - name: Publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BRANCH: ${{ steps.prepare.outputs.branch }}
+          TITLE: ${{ steps.prepare.outputs.title }}
+          START: ${{ steps.prepare.outputs.start }}
+          CHECKS: ${{ steps.agent.outputs.checks }}
+        run: |
+          set -euo pipefail
+          git add -A
+          if ! git diff --cached --quiet; then
+            git -c user.name="aep-web agent" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+              commit -q -m "$TITLE" -m "$RUN_URL"
+          fi
+          if [ "$(git rev-parse HEAD)" = "$START" ]; then
+            { echo "The agent made no changes ($RUN_URL)."; echo; cat "$SUMMARY_FILE"; } > "$RUNNER_TEMP/note.md"
+            if [ -n "$NUMBER" ]; then gh issue comment "$NUMBER" --body-file "$RUNNER_TEMP/note.md"; else cat "$RUNNER_TEMP/note.md"; fi
+            exit 0
+          fi
+          auth="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
+          git -c "http.https://github.com/.extraheader=$auth" push origin "HEAD:refs/heads/$BRANCH"
+
+          pr=$(gh pr list --head "$BRANCH" --state open --json number --jq '.[0].number // empty')
+          if [ -n "$pr" ]; then
+            gh pr comment "$pr" --body-file "$SUMMARY_FILE"
+            if [ "$CHECKS" != pass ]; then gh pr ready "$pr" --undo || true; fi
+          else
+            cp "$SUMMARY_FILE" "$RUNNER_TEMP/body.md"
+            if [ -n "$NUMBER" ] && [ "$IS_PR" != true ]; then printf '\nCloses #%s\n' "$NUMBER" >> "$RUNNER_TEMP/body.md"; fi
+            printf '\n---\nAgent run: %s\n' "$RUN_URL" >> "$RUNNER_TEMP/body.md"
+            draft=(); if [ "$CHECKS" != pass ]; then draft=(--draft); fi
+            url=$(gh pr create --base "$BASE" --head "$BRANCH" --title "$TITLE" --body-file "$RUNNER_TEMP/body.md" "${draft[@]}")
+            if [ -n "$NUMBER" ]; then gh issue comment "$NUMBER" --body "Pull request: $url (checks: $CHECKS)"; fi
+          fi
+          # Pushes made with the workflow token start no workflows, except a dispatch.
+          gh workflow run ci.yml --ref "$BRANCH"
+
+      - if: failure() && env.NUMBER != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh issue comment "$NUMBER" --body "The agent run failed: $RUN_URL"
