@@ -1,22 +1,43 @@
-// Sapphire S_Blur and S_Shake look-alikes, drawn when `RendererOptions.sapphireLookalikes` is set (the app
-// sets it for its viewers and the Render Queue). Without it they are skipped, as After Effects skips them
-// when the plugin is not installed, which is how the reference machine renders them. They follow the
-// plugin's published parameter descriptions: there are no plugin renders to fit them to.
+// Sapphire look-alikes (S_Blur, S_BlurDirectional, S_Shake here; S_Glow, S_ZGlow and S_Flicker in
+// sapphireLight.ts), drawn when `RendererOptions.sapphireLookalikes` is set (the app sets it for its viewers
+// and the Render Queue). Without it they are skipped, as After Effects skips them when the plugin is not
+// installed, which is how the reference machine renders them. They follow the plugin's published parameter
+// descriptions: there are no plugin renders to fit them to.
 import type { CompItem, Layer, PropertyGroup } from "../../aep/model.ts";
 import { effectNumber } from "../effectParams.ts";
 import { acquireFloat, releaseFloat } from "../floatTargets.ts";
 import type { Target } from "../gl.ts";
-import { registerEffect, type LayerImage, type RenderContext } from "../registry.ts";
+import { registerEffect, type EffectRenderer, type LayerImage, type RenderContext } from "../registry.ts";
 import { effectBounds } from "./boxBlur.ts";
+import { blurKernel as kernel, directionalKernel, Filter, screenDirection } from "./sapphireMath.ts";
 import { shakeAt, ShakeStyle, type ShakeParams } from "./sapphireShake.ts";
+import { growRect, imageRect, layerPass, layerRect, unionRect } from "./stockUtil.ts";
 
 type Rect = { origin: [number, number]; width: number; height: number };
+
+/**
+ * Registers a Sapphire look-alike under its match name: drawn with `sapphireLookalikes`, otherwise skipped with
+ * the warning After Effects' own behaviour calls for.
+ */
+export function registerSapphire(matchName: string, name: string, render: EffectRenderer, options: { cacheable: boolean; scalable: boolean }): void {
+  registerEffect(
+    matchName,
+    (input, effect, layer, time, ctx) => {
+      if (!ctx.options.sapphireLookalikes) {
+        ctx.warn(`${name} plugin is not installed; After Effects skips it`);
+        return input;
+      }
+      ctx.warn(`${name} plugin is not installed; drawn with a look-alike`);
+      return render(input, effect, layer, time, ctx);
+    },
+    options,
+  );
+}
 
 // --- S_Blur -------------------------------------------------------------------------------------------
 // A separable blur of premultiplied pixels whose cost does not grow with its width: wide blurs run on a
 // copy halved (2x2 averages) until the kernel is a few pixels wide, then are scaled back up bilinearly.
 
-const Filter = { BOX: 1, TRIANGLE: 2, GAUSS: 3 } as const;
 /** Kernel sigma (pixels of the level it runs on) above which the image is halved first. */
 const MAX_LEVEL_SIGMA = 4;
 const MAX_TAPS = 64;
@@ -31,9 +52,17 @@ uniform ivec4 u_keep;
 uniform int u_repeat;
 uniform int u_pad;
 out vec4 outColor;
+int mirrored(int x, int lo, int hi) {
+  int size = hi - lo + 1;
+  int period = 2 * size;
+  int t = x - lo;
+  t -= period * int(floor(float(t) / float(period)));
+  return lo + (t < size ? t : period - 1 - t);
+}
 void main() {
   ivec2 p = ivec2(gl_FragCoord.xy);
-  if (u_repeat == 1) p = clamp(p, u_keep.xy, u_keep.zw);
+  if (u_repeat == 2) p = ivec2(mirrored(p.x, u_keep.x, u_keep.z), mirrored(p.y, u_keep.y, u_keep.w));
+  if (u_repeat >= 1) p = clamp(p, u_keep.xy, u_keep.zw);
   ivec2 s = p + u_offset;
   outColor = (s.x < 0 || s.y < 0 || s.x >= u_size.x || s.y >= u_size.y) ? vec4(0.0) : texelFetch(u_source, s + u_pad, 0);
 }`;
@@ -126,14 +155,6 @@ interface Plane {
   height: number;
 }
 
-/** Kernel along one axis: its sigma (full-resolution pixels) and the reach of the filter with that sigma. */
-function kernel(width: number, filter: number): { sigma: number; reach: number } {
-  // The filters share a variance, so switching filter changes the falloff and not the size.
-  const sigma = Math.max(0, width) / 2;
-  const reach = filter === Filter.BOX ? Math.sqrt(3) * sigma : filter === Filter.TRIANGLE ? Math.sqrt(6) * sigma : 3 * sigma;
-  return { sigma, reach };
-}
-
 /** How many times an axis is halved before blurring: until the kernel is at most MAX_LEVEL_SIGMA wide. */
 function halvings(sigma: number, size: number): number {
   let k = 0;
@@ -166,6 +187,8 @@ export interface SapphireBlurOptions {
   filter: number;
   /** Beyond `bounds` the edge pixels repeat and the result is cropped to them; otherwise it is transparent there. */
   repeatEdges: boolean;
+  /** With `repeatEdges`, the picture is mirrored beyond `bounds` instead of its edge pixels repeating. */
+  reflectEdges?: boolean;
   bounds?: Rect;
   brightness: number;
   scaleOpacity: boolean;
@@ -189,7 +212,7 @@ export function sapphireBlur(ctx: RenderContext, input: LayerImage, o: SapphireB
     gl.uniform2i(u("u_offset"), base.origin[0] - mx - input.origin[0], input.height + input.origin[1] - base.origin[1] + my - height);
     gl.uniform2i(u("u_size"), input.width, input.height);
     gl.uniform4i(u("u_keep"), mx, my, mx + base.width - 1, my + base.height - 1);
-    gl.uniform1i(u("u_repeat"), o.repeatEdges ? 1 : 0);
+    gl.uniform1i(u("u_repeat"), o.repeatEdges ? (o.reflectEdges ? 2 : 1) : 0);
     gl.uniform1i(u("u_pad"), ctx.pad);
   });
   const levelsX = halvings(kx.sigma, width);
@@ -247,6 +270,105 @@ function sBlur(input: LayerImage, effect: PropertyGroup, layer: Layer, time: num
     scaleOpacity: num(100, 1) !== 0,
     mixWithSource: num(101, 0),
   });
+}
+
+// --- S_BlurDirectional --------------------------------------------------------------------------------
+// Averages each pixel along a line at Angle (Blur Amount long, as S_Blur's widths, by the Filter's falloff),
+// trailing to one side by Bias and moved along it by Shift, per colour channel when Blur RGB or Shift RGB
+// differ. Beyond the layer's frame the picture is transparent, repeated or reflected by Edge Mode; with Soft
+// Borders and transparent edges the blur may spread out of the frame, else the result is cut to it.
+
+const Edge = { TRANSPARENT: 1, REPEAT: 2, REFLECT: 3 } as const;
+const MAX_LINE_TAPS = 128;
+
+const DIRECTIONAL_DECLS = `
+uniform vec4 u_bounds;
+uniform int u_edge;
+uniform vec2 u_dir;
+uniform vec3 u_sigma;
+uniform vec3 u_reach;
+uniform vec3 u_center;
+uniform int u_filter;
+uniform int u_split;
+uniform float u_brightness;
+uniform float u_mix;
+vec4 at(int i, vec2 q);
+vec4 framed(vec2 q) {
+  vec2 lo = u_bounds.xy;
+  vec2 hi = u_bounds.xy + u_bounds.zw;
+  if (u_edge == ${Edge.REPEAT}) q = clamp(q, lo + 0.5, hi - 0.5);
+  else if (u_edge == ${Edge.REFLECT}) {
+    vec2 t = mod(q - lo, 2.0 * u_bounds.zw);
+    q = lo + min(t, 2.0 * u_bounds.zw - t);
+  } else if (q.x < lo.x || q.y < lo.y || q.x > hi.x || q.y > hi.y) return vec4(0.0);
+  return at(0, q);
+}
+vec4 line(vec2 p, float sigma, float reach, float center) {
+  int n = int(clamp(ceil(2.0 * reach) + 1.0, 1.0, ${MAX_LINE_TAPS}.0));
+  vec4 sum = vec4(0.0);
+  float total = 0.0;
+  for (int i = 0; i < ${MAX_LINE_TAPS}; i++) {
+    if (i >= n) break;
+    float t = n == 1 ? 0.0 : -reach + 2.0 * reach * float(i) / float(n - 1);
+    float d = abs(t);
+    float w = u_filter == ${Filter.BOX} ? 1.0
+      : u_filter == ${Filter.TRIANGLE} ? max(0.0, 1.0 - d / max(reach, 1e-3))
+      : exp(-0.5 * d * d / max(sigma * sigma, 1e-6));
+    sum += w * framed(p - u_dir * (center + t));
+    total += w;
+  }
+  return total > 0.0 ? sum / total : vec4(0.0);
+}`;
+
+const DIRECTIONAL_BODY = `
+  vec4 c;
+  if (u_split == 1) {
+    vec4 r = line(p, u_sigma.r, u_reach.r, u_center.r);
+    vec4 g = line(p, u_sigma.g, u_reach.g, u_center.g);
+    vec4 b = line(p, u_sigma.b, u_reach.b, u_center.b);
+    c = vec4(r.r, g.g, b.b, max(r.a, max(g.a, b.a)));
+  } else c = line(p, u_sigma.r, u_reach.r, u_center.r);
+  c.rgb = min(c.rgb * u_brightness, vec3(c.a));
+  outColor = mix(c, framed(p), clamp(u_mix, 0.0, 1.0));`;
+
+function sBlurDirectional(input: LayerImage, effect: PropertyGroup, layer: Layer, time: number, ctx: RenderContext): LayerImage {
+  const num = (index: number, fallback: number) => effectNumber(effect, index, layer, time, fallback);
+  const k = input.scale ?? 1;
+  const amount = Math.max(0, num(50, 0)) * k;
+  const filter = Math.round(num(64, Filter.BOX));
+  const brightness = num(60, 1);
+  const mixWithSource = num(62, 0);
+  const kernels = [0, 1, 2].map((c) => directionalKernel(amount * Math.max(0, num(54 + c, 1)), filter, num(53, 0.5), (num(52, 0) * num(57 + c, 1)) * k));
+  const split = kernels.some((kc) => kc.reach !== kernels[0].reach || kc.center !== kernels[0].center);
+  if (kernels.every((kc) => kc.reach < 0.05 && Math.abs(kc.center) < 0.05) && brightness === 1 && !mixWithSource) return input;
+  const edge = Math.round(num(63, Edge.REFLECT));
+  const dir = screenDirection(num(51, 0));
+  const bounds = unionRect(layerRect(layer, input), imageRect(input));
+  const extent = Math.max(...kernels.map((kc) => kc.reach + Math.abs(kc.center))) + 1;
+  const rect = edge === Edge.TRANSPARENT && num(67, 1) ? growRect(bounds, Math.abs(dir[0]) * extent, Math.abs(dir[1]) * extent) : bounds;
+  const out = layerPass(
+    ctx,
+    rect,
+    [input],
+    DIRECTIONAL_DECLS,
+    DIRECTIONAL_BODY,
+    (u) => {
+      const gl = ctx.gl;
+      gl.uniform4f(u("u_bounds"), bounds.x, bounds.y, bounds.width, bounds.height);
+      gl.uniform1i(u("u_edge"), edge);
+      gl.uniform2f(u("u_dir"), dir[0], dir[1]);
+      gl.uniform3f(u("u_sigma"), kernels[0].sigma, kernels[1].sigma, kernels[2].sigma);
+      gl.uniform3f(u("u_reach"), kernels[0].reach, kernels[1].reach, kernels[2].reach);
+      gl.uniform3f(u("u_center"), kernels[0].center, kernels[1].center, kernels[2].center);
+      gl.uniform1i(u("u_filter"), filter);
+      gl.uniform1i(u("u_split"), split ? 1 : 0);
+      gl.uniform1f(u("u_brightness"), brightness);
+      gl.uniform1f(u("u_mix"), mixWithSource);
+    },
+    input.scale,
+  );
+  ctx.pool.release(input.target);
+  return out;
 }
 
 // --- S_Shake ------------------------------------------------------------------------------------------
@@ -319,8 +441,8 @@ void main() {
 
 const compOf = new WeakMap<Layer, CompItem | null>();
 
-/** The comp a layer belongs to, for its frame duration. */
-function containingComp(ctx: RenderContext, layer: Layer): CompItem | null {
+/** The comp a layer belongs to. */
+export function containingComp(ctx: RenderContext, layer: Layer): CompItem | null {
   let comp = compOf.get(layer);
   if (comp === undefined) {
     comp = null;
@@ -384,26 +506,7 @@ function sShake(input: LayerImage, effect: PropertyGroup, layer: Layer, time: nu
   return { target: out, width: bounds.width, height: bounds.height, origin: [bounds.origin[0], bounds.origin[1]] };
 }
 
-/**
- * Match name, display name, look-alike, and whether it is cacheable and scalable (S_Shake moves with the time
- * itself, by distances it does not scale).
- */
-const EFFECTS: [string, string, typeof sBlur, boolean][] = [
-  ["S_Blur", "Sapphire S_Blur", sBlur, true],
-  ["S_Shake", "Sapphire S_Shake", sShake, false],
-];
-
-for (const [matchName, name, render, pure] of EFFECTS) {
-  registerEffect(
-    matchName,
-    (input, effect, layer, time, ctx) => {
-      if (!ctx.options.sapphireLookalikes) {
-        ctx.warn(`${name} plugin is not installed; After Effects skips it`);
-        return input;
-      }
-      ctx.warn(`${name} plugin is not installed; drawn with a look-alike`);
-      return render(input, effect, layer, time, ctx);
-    },
-    { cacheable: pure, scalable: pure },
-  );
-}
+registerSapphire("S_Blur", "Sapphire S_Blur", sBlur, { cacheable: true, scalable: true });
+registerSapphire("S_BlurDirectional", "Sapphire S_BlurDirectional", sBlurDirectional, { cacheable: true, scalable: true });
+// S_Shake moves with the time itself, by distances it does not scale.
+registerSapphire("S_Shake", "Sapphire S_Shake", sShake, { cacheable: false, scalable: false });

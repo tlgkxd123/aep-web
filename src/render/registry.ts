@@ -28,7 +28,7 @@ export interface RendererOptions {
    * When set, unverified look-alikes drawn from their stored parameters are used instead.
    */
   approximateMissingPlugins: boolean;
-  /** Sapphire S_Blur and S_Shake are drawn with look-alikes instead of being skipped. */
+  /** Sapphire effects (S_Blur, S_BlurDirectional, S_Shake, S_Glow, S_ZGlow, S_Flicker) are drawn with look-alikes instead of being skipped. */
   sapphireLookalikes: boolean;
 }
 

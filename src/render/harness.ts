@@ -53,15 +53,34 @@ const harness = {
    * renderers of effects no fixture project defines (scripts/check-stock-effects.ts).
    */
   setEffect(compName: string, layerName: string, matchName: string, values: Record<number, PropertyValue>): void {
+    harness.setNamedEffect(
+      compName,
+      layerName,
+      matchName,
+      Object.entries(values).map(([index, value]) => ({ index: Number(index), name: `${matchName} ${index}`, value })),
+    );
+  },
+  /**
+   * As `setEffect`, with parameters given in order with their names (control type 13 and 14 open and close a
+   * topic) and popup labels, for renderers that read parameters by name (namedParams.ts).
+   */
+  setNamedEffect(
+    compName: string,
+    layerName: string,
+    matchName: string,
+    params: { index?: number; name: string; value: PropertyValue; controlType?: number; options?: string[] }[],
+  ): void {
     if (!project) throw new Error("load a project first");
     const comp = [...project.items.values()].find((i): i is CompItem => i.kind === "comp" && i.name === compName);
     const layer = comp?.layers.find((l) => l.name === layerName);
     if (!layer) throw new Error(`no layer ${layerName} in ${compName}`);
-    const children: Property[] = Object.entries(values).map(([index, value]) => ({
+    const children: Property[] = params.map(({ index, name, value, controlType, options }, i) => ({
       kind: "property",
-      matchName: `${matchName}-${String(index).padStart(4, "0")}`,
-      name: `${matchName} ${index}`,
+      matchName: `${matchName}-${String(index ?? i + 1).padStart(4, "0")}`,
+      name,
       propertyValueType: 0,
+      controlType,
+      options,
       value,
       keyframes: [],
       expression: "",
