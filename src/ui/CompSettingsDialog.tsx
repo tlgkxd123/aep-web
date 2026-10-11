@@ -3,6 +3,7 @@ import { validateCompSettings, type CompSettings } from "../edit/project.ts";
 import { colorCss, timecode } from "./format.ts";
 import { Icon } from "./icons.tsx";
 import { Dialog } from "./Dialog.tsx";
+import { useMedia } from "./responsive.ts";
 
 const ntsc = (n: number) => (n * 1000) / 1001;
 
@@ -138,6 +139,8 @@ export function CompSettingsDialog({
   const [duration, setDuration] = useState(timecode(initial.duration, initial.frameRate));
   const [bg, setBg] = useState(initial.bgColor);
   const [error, setError] = useState<string>();
+  // On touch screens a focused field raises the keyboard over the form.
+  const coarse = useMedia("(pointer: coarse)");
   const colorInput = useRef<HTMLInputElement>(null);
   /** The frame size whose aspect ratio the lock keeps. */
   const locked = useRef([initial.width, initial.height]);
@@ -215,7 +218,7 @@ export function CompSettingsDialog({
       <form onSubmit={submit}>
         <div className="cs-name">
           <label htmlFor="cs-name">Composition Name:</label>
-          <input id="cs-name" className="ae-field" value={name} autoFocus onFocus={(e) => e.target.select()} onChange={(e) => setName(e.target.value)} />
+          <input id="cs-name" className="ae-field" value={name} autoFocus={!coarse} onFocus={(e) => e.target.select()} onChange={(e) => setName(e.target.value)} />
         </div>
         <div className="cs-tabs" role="tablist">
           <button type="button" role="tab" aria-selected="true" className="cs-tab front">
@@ -301,6 +304,7 @@ export function CompSettingsDialog({
             <input
               id="cs-start"
               className="ae-field cs-tc"
+              inputMode="decimal"
               value={start}
               onChange={(e) => setStart(e.target.value)}
               onBlur={() => startFrames !== undefined && setStart(timecode(startFrames / rate, rate))}
@@ -314,6 +318,7 @@ export function CompSettingsDialog({
             <input
               id="cs-duration"
               className="ae-field cs-tc"
+              inputMode="decimal"
               value={duration}
               onChange={(e) => setDuration(e.target.value)}
               onBlur={() => durationFrames !== undefined && setDuration(timecode(durationFrames / rate, rate))}
