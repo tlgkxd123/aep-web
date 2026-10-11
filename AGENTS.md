@@ -102,6 +102,9 @@ Gate ledgers follow the unlazy skill (`C:/Users/schxm/.claude/skills/unlazy/SKIL
  checks, hands failures back to the agent, and opens a pull request (a draft when the checks still fail).
 - `release.yml` builds the signed APK when a GitHub release is published and attaches it to the release.
  The keystore is kept outside the repository, in `~/.android-keys/`.
+- The Android app's native side is the `AppShell` plugin (`android/app/src/main/java/.../AppShellPlugin.java`): `.aep`
+ files from Open with and Share, and the back button. Its page side, with the installed web app's file handler, is
+ `src/ui/system.ts`. Building the APK locally needs JDK 21.
 
 ## Ground truth
 

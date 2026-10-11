@@ -43,6 +43,7 @@ import { ProjectPanel } from "./ProjectPanel.tsx";
 import { RenderQueuePanel } from "./RenderQueuePanel.tsx";
 import { renderQueue } from "../export/queue.ts";
 import { isMobileOS, LANDSCAPE_QUERY, useCompact, useMedia } from "./responsive.ts";
+import { dismissTopmost, exitApp, onBackButton, onLaunchedProjects } from "./system.ts";
 import { RightPanels } from "./RightPanels.tsx";
 import { SolidSettings } from "./SolidSettings.tsx";
 import { TimelinePanel } from "./TimelinePanel.tsx";
@@ -243,6 +244,27 @@ export function App() {
     },
     [confirmClose, showSession],
   );
+
+  const openRef = useRef(open);
+  openRef.current = open;
+  useEffect(
+    () =>
+      onLaunchedProjects((launched) => {
+        if ("file" in launched) void openRef.current(launched.file, launched.handle);
+        else setError(`Could not read ${launched.name}: ${launched.error}`);
+      }),
+    [],
+  );
+
+  // The Android back button closes the topmost sheet or dialog, then the Home screen shown over a project, and only
+  // then the app, once unsaved changes are saved or discarded.
+  const backRef = useRef<() => void>(undefined);
+  backRef.current = () => {
+    if (dismissTopmost()) return;
+    if (loaded && showHome) return setShowHome(false);
+    void confirmClose().then((go) => go && exitApp());
+  };
+  useEffect(() => onBackButton(() => backRef.current?.()), []);
 
   const pickFile = useCallback(async () => {
     // Phones and tablets get the file input, unfiltered, opened within the tap: their system pickers offer a file only
