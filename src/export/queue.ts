@@ -6,6 +6,7 @@ import { Renderer } from "../render/renderer.ts";
 import { EXPORT_CHANNELS, EXPORT_SAMPLE_RATE, mixCompAudio, type MixedAudio } from "./audio.ts";
 import { downloadSink, fileSink } from "./output.ts";
 import { newStats, rendererFrames, rendererSource, renderToSink, statsSummary, type Sink } from "./pipeline.ts";
+import type { SavedFile } from "./saveFile.ts";
 import {
   defaultFileName,
   defaultOutputModule,
@@ -30,6 +31,8 @@ export interface QueueItem {
   fileName: string;
   /** The file picked under Output To; without one the finished render downloads. */
   handle?: FileSystemFileHandle;
+  /** Where the last render without a picked file was saved, under the name it got. */
+  saved?: SavedFile;
   /** Wall-clock start of the last render (epoch ms). */
   started?: number;
   renderMs?: number;
@@ -76,7 +79,7 @@ export class RenderQueue {
   createRenderer: () => Renderer = () => new Renderer(new OffscreenCanvas(1, 1), appRenderOptions, appBudgets());
   /** Opens the sink for an item; replaced by the export gate to keep bytes in memory. */
   openSink: (item: QueueItem) => Promise<Sink> = async (item) =>
-    item.handle ? fileSink(item.handle) : downloadSink(item.fileName, FORMATS[item.output.format].mime);
+    item.handle ? fileSink(item.handle) : downloadSink(item.fileName, FORMATS[item.output.format].mime, (saved) => this.patch(item.id, { saved }));
   /** Mixes a comp's audio over a span; replaced in tests without Web Audio. */
   mix: typeof mixCompAudio = mixCompAudio;
 
@@ -175,11 +178,11 @@ export class RenderQueue {
     const item = this.snapshot.items.find((i) => i.id === id);
     if (!item || item.status === "Rendering") return;
     const formatChanged = output.format !== item.output.format;
-    this.patch(id, { output, ...(formatChanged ? { fileName: withExtension(item.fileName, output.format), handle: undefined } : {}) });
+    this.patch(id, { output, ...(formatChanged ? { fileName: withExtension(item.fileName, output.format), handle: undefined, saved: undefined } : {}) });
   }
 
   setOutputFile(id: number, fileName: string, handle?: FileSystemFileHandle): void {
-    this.patch(id, { fileName, handle });
+    this.patch(id, { fileName, handle, saved: undefined });
   }
 
   private comp(item: QueueItem | undefined): CompItem | undefined {
@@ -211,7 +214,7 @@ export class RenderQueue {
     const comp = this.comp(item);
     const started = Date.now();
     const plan = comp ? framePlan(comp, item.settings) : null;
-    this.patch(item.id, { status: "Rendering", started, frame: 0, frames: plan?.frames ?? 0, error: undefined, renderMs: undefined, bytes: undefined, audioCodec: undefined, log: [] });
+    this.patch(item.id, { status: "Rendering", started, frame: 0, frames: plan?.frames ?? 0, error: undefined, renderMs: undefined, bytes: undefined, audioCodec: undefined, saved: undefined, log: [] });
     this.pausedMs = 0;
     this.set({ current: { itemId: item.id, frame: 0, frames: plan?.frames ?? 0, elapsedMs: 0, remainingMs: null, paused: this.paused } });
     let sink: Sink | null = null;

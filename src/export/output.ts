@@ -1,6 +1,6 @@
 import { Capacitor } from "@capacitor/core";
 import type { Sink } from "./pipeline.ts";
-import { saveBlob } from "./saveFile.ts";
+import { saveBlob, type SavedFile } from "./saveFile.ts";
 import { FORMATS, type Format } from "./settings.ts";
 
 interface SavePickerWindow {
@@ -41,8 +41,8 @@ export async function fileSink(handle: FileSystemFileHandle): Promise<Sink> {
   };
 }
 
-/** Collects the file in memory and hands it to the browser's downloads when closed. */
-export function downloadSink(fileName: string, mime: string): Sink {
+/** Collects the file in memory and hands it to the browser's downloads (Documents/aep-web in the app) when closed. */
+export function downloadSink(fileName: string, mime: string, onSaved?: (saved: SavedFile) => void): Sink {
   let parts: BlobPart[] = [];
   return {
     async write(bytes) {
@@ -51,7 +51,7 @@ export function downloadSink(fileName: string, mime: string): Sink {
     async close() {
       const blob = new Blob(parts, { type: mime });
       parts = [];
-      await saveBlob(blob, fileName);
+      onSaved?.(await saveBlob(blob, fileName));
     },
     async abort() {
       parts = [];
