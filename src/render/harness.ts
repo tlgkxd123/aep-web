@@ -1,6 +1,6 @@
 // Browser entry used by scripts/pixel-report.ts: loads a project and renders
 // frames to straight-alpha RGBA, exposed on window.aepHarness.
-import type { CompItem, Project } from "../aep/model.ts";
+import type { CompItem, Project, Property, PropertyGroup, PropertyValue } from "../aep/model.ts";
 import { parseProject } from "../aep/parse.ts";
 import { footageStore } from "../media/store.ts";
 import { finishGpu, type Target } from "./gl.ts";
@@ -47,6 +47,40 @@ const harness = {
   setOptions(options: Partial<RendererOptions>): void {
     if (!renderer) throw new Error("load a project first");
     Object.assign(renderer.options, options);
+  },
+  /**
+   * Replaces a layer's effects with one effect of static parameter values by 1-based index, for checking the
+   * renderers of effects no fixture project defines (scripts/check-stock-effects.ts).
+   */
+  setEffect(compName: string, layerName: string, matchName: string, values: Record<number, PropertyValue>): void {
+    if (!project) throw new Error("load a project first");
+    const comp = [...project.items.values()].find((i): i is CompItem => i.kind === "comp" && i.name === compName);
+    const layer = comp?.layers.find((l) => l.name === layerName);
+    if (!layer) throw new Error(`no layer ${layerName} in ${compName}`);
+    const children: Property[] = Object.entries(values).map(([index, value]) => ({
+      kind: "property",
+      matchName: `${matchName}-${String(index).padStart(4, "0")}`,
+      name: `${matchName} ${index}`,
+      propertyValueType: 0,
+      value,
+      keyframes: [],
+      expression: "",
+      expressionEnabled: false,
+      enabled: true,
+      dimensionsSeparated: false,
+      isSpatial: false,
+      canVaryOverTime: true,
+    }));
+    const effect: PropertyGroup = { kind: "group", matchName, name: matchName, enabled: true, isEffect: true, children };
+    let parade = layer.properties.find((n): n is PropertyGroup => n.kind === "group" && n.matchName === "ADBE Effect Parade");
+    if (!parade) {
+      parade = { kind: "group", matchName: "ADBE Effect Parade", name: "Effects", enabled: true, children: [] };
+      layer.properties.push(parade);
+    }
+    parade.children = [effect];
+    layer.effectsActive = true;
+    // Cached layer images are keyed by stored values this edit bypasses.
+    if (renderer) renderer.reuseLayers = false;
   },
   /** Makes a footage file available, by its path relative to the project (e.g. "media/clip.mp4"). */
   addFile(path: string, base64: string): void {

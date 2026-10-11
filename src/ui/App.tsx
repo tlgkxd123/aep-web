@@ -48,6 +48,7 @@ import { SolidSettings } from "./SolidSettings.tsx";
 import { TimelinePanel } from "./TimelinePanel.tsx";
 import { Toolbar, type Workspace } from "./Toolbar.tsx";
 import { followPointer } from "./pointer.ts";
+import { workAreaAtTime } from "./workArea.ts";
 import { useLongPressGestures } from "./touch.ts";
 
 /** Panel sizes per workspace: left frame share, right column px, Timeline share. */
@@ -554,14 +555,9 @@ export function App() {
       if ((letter === "b" || letter === "n") && !e.shiftKey && editor) {
         // B: work area start at the current time; N: work area end after the current frame (AE).
         e.preventDefault();
-        const frame = activeComp.frameDuration || 1 / (activeComp.frameRate || 24);
-        const t = currentTimeRef.current(activeComp);
-        const start = activeComp.workAreaStart;
-        const end = start + activeComp.workAreaDuration;
-        const area: [number, number] =
-          letter === "b" ? [t, end > t ? end : activeComp.duration] : [start < t + frame ? start : 0, Math.min(activeComp.duration, t + frame)];
         try {
-          editor.setCompSettings(activeComp, { workArea: area });
+          editor.setCompSettings(activeComp, { workArea: workAreaAtTime(activeComp, currentTimeRef.current(activeComp), letter === "n") });
+          editor.setCompSettings(activeComp, { workArea: workAreaAtTime(activeComp, currentTimeRef.current(activeComp), letter === "n") });
         } catch (err) {
           setEditError((err as Error).message);
         }

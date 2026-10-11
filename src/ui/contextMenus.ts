@@ -99,13 +99,39 @@ function switchAll(a: AppActions, label: string, comp: CompItem, layers: Layer[]
   return { label, onSelect: a.setLayerSwitch && affected.length ? () => affected.forEach((l) => a.setLayerSwitch!(comp, l, name, on)) : undefined };
 }
 
-export function projectItemMenu(target: Item, a: AppActions): MenuEntries {
+/**
+ * The folders `items` can move to, as dragging them in the Project panel does: the project root, then every folder by
+ * its path. Folders the items already sit in, and the moved folders and their contents, are disabled.
+ */
+export function moveToEntries(project: Project, items: Item[], move: (folderId: number) => void): MenuEntries {
+  const moving = new Set(items.map((i) => i.id));
+  const path = (folder: Item): string => {
+    const parent = project.items.get(folder.parentFolderId);
+    return parent?.kind === "folder" ? `${path(parent)} / ${folder.name}` : folder.name;
+  };
+  const insideMoved = (folderId: number): boolean => {
+    for (let id = folderId; id; id = project.items.get(id)?.parentFolderId ?? 0) if (moving.has(id)) return true;
+    return false;
+  };
+  const entry = (label: string, folderId: number): MenuEntry =>
+    item(label, items.every((i) => i.parentFolderId === folderId) || insideMoved(folderId) ? undefined : () => move(folderId));
+  const folders = [...project.items.values()]
+    .filter((i) => i.kind === "folder")
+    .map((f) => ({ id: f.id, label: path(f) }))
+    .sort((x, y) => x.label.localeCompare(y.label));
+  return [entry("Project Root", 0), ...(folders.length ? ["-" as const] : []), ...folders.map((f) => entry(f.label, f.id))];
+}
+
+/** `moveTo` lists the folders the selection can move to, when the project is editable. */
+export function projectItemMenu(target: Item, a: AppActions, moveTo?: MenuEntries): MenuEntries {
+  const move = moveTo ? [sub("Move To", moveTo)] : [];
   if (target.kind === "comp") {
     return [
       item("Open Composition", () => a.openComp(target.id)),
       "-",
       item("Composition Settings...", a.openCompSettings && (() => a.openCompSettings!(target.id)), "Ctrl+K"),
       projectEntry(a, "Rename", "rename"),
+      ...move,
       "-",
       item("Add To Render Queue", a.addToRenderQueue && (() => a.addToRenderQueue!(target.id)), "Ctrl+M"),
       item("Add To Adobe Media Encoder Queue...", undefined, "Ctrl+Alt+M"),
@@ -131,12 +157,19 @@ export function projectItemMenu(target: Item, a: AppActions): MenuEntries {
       item("Locate Footage...", file ? a.locateFootage : undefined),
       "-",
       projectEntry(a, "Rename", "rename"),
+      ...move,
       item("New Comp from Selection"),
       "-",
       projectEntry(a, "Delete", "delete"),
     ];
   }
-  return [projectEntry(a, "Rename", "rename"), projectEntry(a, "New Folder", "new-folder", "Ctrl+Alt+Shift+N"), "-", projectEntry(a, "Delete", "delete")];
+  return [
+    projectEntry(a, "Rename", "rename"),
+    ...move,
+    projectEntry(a, "New Folder", "new-folder", "Ctrl+Alt+Shift+N"),
+    "-",
+    projectEntry(a, "Delete", "delete"),
+  ];
 }
 
 export function projectPanelMenu(a: AppActions): MenuEntries {
@@ -156,7 +189,8 @@ export function projectPanelMenu(a: AppActions): MenuEntries {
   ];
 }
 
-export function layerMenu(project: Project, comp: CompItem, layer: Layer, a: AppActions): MenuEntries {
+/** `rename` makes the layer's name editable where the panel can (the Timeline). */
+export function layerMenu(project: Project, comp: CompItem, layer: Layer, a: AppActions, rename?: () => void): MenuEntries {
   const source = project.items.get(layer.sourceId);
   return [
     item("Reveal Layer Source in Project", source ? () => a.revealInProject(source.id) : undefined),
@@ -209,7 +243,7 @@ export function layerMenu(project: Project, comp: CompItem, layer: Layer, a: App
     ]),
     "-",
     item("Pre-compose...", undefined, "Ctrl+Shift+C"),
-    item("Rename"),
+    item("Rename", rename, "Enter"),
     command(a, "Duplicate", "duplicate-layer", comp, layer, "Ctrl+D"),
     command(a, "Delete", "delete-layer", comp, layer, "Delete"),
   ];

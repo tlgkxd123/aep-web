@@ -36,6 +36,7 @@ import { attempt, EFFECT_MIME, ITEM_MIME, LAYER_MIME, nextDragKey, useEditing } 
 import { modeEntries, parentEntries, QUALITY, trackMatteEntries } from "./layerRowMenus.ts";
 import { followPointer } from "./pointer.ts";
 import { useCompact } from "./responsive.ts";
+import { dragWorkArea, workAreaAt, workAreaAtTime, workAreaOf, type WorkAreaPart } from "./workArea.ts";
 import {
   blendingModeName,
   colorCss,
@@ -145,31 +146,44 @@ export function TimeDisplay({
   title?: string;
 }) {
   const [editing, setEditing] = useState(false);
+  const done = useRef(false);
   const shown = useLiveTime(comp.id, time);
   const tc = timecode(shown + comp.displayStartTime, comp.frameRate);
+  // A typed time applies on Enter or when the field loses focus (touch keypads have no Enter); Escape cancels.
+  const finish = (text: string | undefined) => {
+    if (done.current) return;
+    done.current = true;
+    setEditing(false);
+    const seconds = text === undefined || text === tc ? undefined : parseTimecode(text, comp.frameRate);
+    if (seconds !== undefined) onTime(seconds - comp.displayStartTime);
+  };
   if (editing) {
     return (
       <input
         className="tl-timecode-input"
         aria-label="Go to time"
+        inputMode="decimal"
         autoFocus
         defaultValue={tc}
         onFocus={(e) => e.currentTarget.select()}
-        onBlur={() => setEditing(false)}
+        onBlur={(e) => finish(e.currentTarget.value)}
         onKeyDown={(e) => {
-          if (e.key === "Enter") {
-            const seconds = parseTimecode(e.currentTarget.value, comp.frameRate);
-            if (seconds !== undefined) onTime(seconds - comp.displayStartTime);
-            setEditing(false);
-          } else if (e.key === "Escape") {
-            setEditing(false);
-          }
+          if (e.key === "Enter") finish(e.currentTarget.value);
+          else if (e.key === "Escape") finish(undefined);
         }}
       />
     );
   }
   return (
-    <button type="button" className="tl-timecode" title={title} onClick={() => setEditing(true)}>
+    <button
+      type="button"
+      className="tl-timecode"
+      title={title}
+      onClick={() => {
+        done.current = false;
+        setEditing(true);
+      }}
+    >
       {tc}
     </button>
   );
@@ -310,6 +324,8 @@ interface LayerRowProps {
   /** The layer name is an input (Enter in the Timeline); `onRename` gets the new name, or undefined to cancel. */
   renaming?: boolean;
   onRename?: (id: number, name: string | undefined) => void;
+  /** Makes the layer name an input (the context menu's Rename). */
+  onStartRename?: (id: number) => void;
   /** Rows can be dragged to reorder the stack. */
   reorderable?: boolean;
   /** Where a dragged layer or item would land: above or below this row; or that a dragged effect would apply to it. */
@@ -353,6 +369,7 @@ const LayerRow = memo(function LayerRow({
   onSelect,
   renaming,
   onRename,
+  onStartRename,
   reorderable,
   dropMark,
 }: LayerRowProps) {
@@ -407,7 +424,7 @@ const LayerRow = memo(function LayerRow({
       onContextMenu={(e) => {
         if (!actions) return;
         onSelect(layer.id);
-        openContextMenu(e, layerMenu(project, comp, layer, actions));
+        openContextMenu(e, layerMenu(project, comp, layer, actions, onStartRename && (() => onStartRename(layer.id))));
       }}
     >
       <div className="tl-outline">
@@ -960,6 +977,74 @@ function revealKeys(project: Project, layer: Layer, prop: Property): string[] | 
   return walk(layerOutline(ctx), `L${layer.id}`, [`L${layer.id}`]);
 }
 
+/**
+ * The work area over the ruler. With an editor, its ends drag on their own and its middle moves it whole, snapped to
+ * frames and as one undo step; a double-click spans it over the comp. Presses stay off the ruler, which would scrub.
+ */
+function WorkAreaBar({ comp, view }: { comp: CompItem; view: View }) {
+  const editing = useEditing();
+  const { editor } = editing;
+  const [start, end] = workAreaOf(comp);
+  const frame = comp.frameDuration || 1 / (comp.frameRate || 24);
+  const set = (area: [number, number], coalesce?: string) => editor && attempt(editing, () => editor.setCompSettings(comp, { workArea: area }, { coalesce }));
+
+  const onDown = (e: ReactPointerEvent<HTMLElement>) => {
+    if (!editor || (e.button !== undefined && e.button > 0)) return;
+    const part = (e.target as HTMLElement).closest<HTMLElement>("[data-part]")?.dataset.part as WorkAreaPart | undefined;
+    if (!part) return;
+    e.stopPropagation();
+    e.preventDefault();
+    const lane = e.currentTarget.getBoundingClientRect();
+    const perPixel = view.span / (lane.width || 1);
+    const from: [number, number] = [start, end];
+    const key = nextDragKey(`work-area-${part}`);
+    const x0 = e.clientX;
+    followPointer(
+      e,
+      (ev) => set(dragWorkArea(comp, from, part, (ev.clientX - x0) * perPixel), key),
+      () => editor.commit(),
+    );
+  };
+
+  const onHandleKey = (part: "start" | "end") => (e: KeyboardEvent<HTMLSpanElement>) => {
+    const step = { ArrowLeft: -1, ArrowRight: 1 }[e.key];
+    if (step === undefined) return;
+    e.preventDefault();
+    e.stopPropagation();
+    set(dragWorkArea(comp, [start, end], part, step * frame * (e.shiftKey ? 10 : 1)));
+  };
+
+  const handle = (part: "start" | "end") => (
+    <span
+      className={`tl-workarea-handle ${part}`}
+      data-part={part}
+      role="slider"
+      tabIndex={0}
+      aria-label={part === "start" ? "Work area start" : "Work area end"}
+      aria-valuemin={part === "start" ? 0 : start + frame}
+      aria-valuemax={part === "start" ? end - frame : comp.duration}
+      aria-valuenow={part === "start" ? start : end}
+      aria-valuetext={timecode((part === "start" ? start : end) + comp.displayStartTime, comp.frameRate)}
+      onKeyDown={onHandleKey(part)}
+    />
+  );
+
+  return (
+    <div className={`tl-workarea-lane ${editor ? "editable" : ""}`} onPointerDown={editor ? onDown : undefined}>
+      <span
+        className="tl-workarea"
+        data-part={editor ? "move" : undefined}
+        style={{ left: pct(start, view), width: `${((end - start) / view.span) * 100}%` }}
+        title="Work Area"
+        onDoubleClick={editor ? () => set([0, comp.duration]) : undefined}
+      >
+        {editor && handle("start")}
+        {editor && handle("end")}
+      </span>
+    </div>
+  );
+}
+
 /** The layer outline's width on compact screens: about 60% of the Timeline, at least what names and values need. */
 const compactOutline = (width: number) => (width > 0 ? Math.round(Math.min(width - 100, Math.max(244, width * 0.6))) : 244);
 
@@ -1134,6 +1219,20 @@ export const TimelinePanel = memo(function TimelinePanel({
   };
 
   const frame = comp.frameDuration || 1 / 24;
+  /** The ruler's menu (a long press on touch screens): the comp's settings and the work area at the pressed frame. */
+  const onRulerMenu = (e: ReactMouseEvent<HTMLDivElement>) => {
+    const at = Math.min(Math.max(0, duration - frame), Math.max(0, Math.round(timeFromX(e.clientX) / frame) * frame));
+    setTime(at);
+    const setWorkArea = (edge: "start" | "end") =>
+      editor ? () => attempt(editing, () => editor.setCompSettings(comp, { workArea: workAreaAt(comp, at, edge) })) : undefined;
+    const openSettings = appActions?.openCompSettings;
+    openContextMenu(e, [
+      { label: "Composition Settings...", shortcut: "Ctrl+K", onSelect: openSettings && (() => openSettings(comp.id)) },
+      "-",
+      { label: "Set Work Area Start", shortcut: "B", onSelect: setWorkArea("start") },
+      { label: "Set Work Area End", shortcut: "N", onSelect: setWorkArea("end") },
+    ]);
+  };
   const onRulerKey = (e: KeyboardEvent<HTMLDivElement>) => {
     const steps: Record<string, number> = { ArrowRight: 1, ArrowLeft: -1, PageDown: 1, PageUp: -1 };
     if (e.key in steps) {
@@ -1268,8 +1367,7 @@ export const TimelinePanel = memo(function TimelinePanel({
   };
 
   const tc = timecode(time + comp.displayStartTime, comp.frameRate);
-  const workStart = comp.workAreaStart;
-  const workEnd = Math.min(duration, comp.workAreaStart + comp.workAreaDuration);
+  const setWorkArea = (end: boolean) => editor && attempt(editing, () => editor.setCompSettings(comp, { workArea: workAreaAtTime(comp, time, end) }));
 
   return (
     <div
@@ -1288,6 +1386,28 @@ export const TimelinePanel = memo(function TimelinePanel({
               <Icon name="search" size={12} />
               <input type="search" aria-label="Search timeline" value={query} onChange={(e) => setQuery(e.target.value)} />
             </label>
+            {compact && appActions?.openCompSettings && (
+              <button
+                type="button"
+                className="tl-comp-settings"
+                aria-label="Composition Settings"
+                title={`Composition Settings: duration ${timecode(comp.duration, comp.frameRate)}`}
+                onClick={() => appActions.openCompSettings!(comp.id)}
+              >
+                <Icon name="comp" size={14} />
+                <span className="tl-comp-duration">Δ {timecode(comp.duration, comp.frameRate)}</span>
+              </button>
+            )}
+            {compact && editor && (
+              <span className="tl-work-buttons">
+                <button type="button" className="tl-tool" title="Set Work Area Start to Current Time (B)" aria-label="Set work area start" onClick={() => setWorkArea(false)}>
+                  <Icon name="workStart" size={15} />
+                </button>
+                <button type="button" className="tl-tool" title="Set Work Area End to Current Time (N)" aria-label="Set work area end" onClick={() => setWorkArea(true)}>
+                  <Icon name="workEnd" size={15} />
+                </button>
+              </span>
+            )}
             <span className="tl-tools">
               <span className="tl-tool" title="Composition Mini-Flowchart" aria-hidden="true">
                 <Icon name="miniFlow" size={15} />
@@ -1358,10 +1478,9 @@ export const TimelinePanel = memo(function TimelinePanel({
             aria-valuetext={tc}
             onPointerDown={onRulerDown}
             onKeyDown={onRulerKey}
+            onContextMenu={onRulerMenu}
           >
-            <div className="tl-workarea-lane">
-              <span className="tl-workarea" style={{ left: pct(workStart, view), width: `${((workEnd - workStart) / view.span) * 100}%` }} title="Work Area" />
-            </div>
+            <WorkAreaBar comp={comp} view={view} />
             <Ruler comp={comp} view={view} width={rulerWidth} />
             <CtiMark comp={comp} time={time} view={view} className="tl-cti-head">
               <svg width="11" height="12" viewBox="0 0 11 12">
@@ -1403,6 +1522,7 @@ export const TimelinePanel = memo(function TimelinePanel({
                 onSelect={select}
                 renaming={renaming === row.layer.id}
                 onRename={rename}
+                onStartRename={editor ? setRenaming : undefined}
                 reorderable={!!editor}
                 dropMark={
                   dropOn === row.layer.id
