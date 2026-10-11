@@ -1,5 +1,7 @@
 import { Capacitor } from "@capacitor/core";
+import type { QuickStartId } from "../quickstart/catalog.ts";
 import { Icon } from "./icons.tsx";
+import { QuickStartCards } from "./QuickStart.tsx";
 import { isMobileOS } from "./responsive.ts";
 
 /** How projects get into the app on this platform, as the Home screen tells it. */
@@ -20,7 +22,18 @@ function openingHint(): { lede: string; title: string; sub: string } {
 }
 
 /** AE's Home screen: shown when no project is open, or over the workspace from the Home tool. */
-export function HomeScreen({ onOpen, onNew, onDismiss }: { onOpen: () => void; onNew?: () => void; onDismiss?: () => void }) {
+export function HomeScreen({
+  onOpen,
+  onNew,
+  onTemplate,
+  onDismiss,
+}: {
+  onOpen: () => void;
+  onNew?: () => void;
+  /** Starts a project from a Quick Start template. */
+  onTemplate?: (id: QuickStartId) => void;
+  onDismiss?: () => void;
+}) {
   const hint = openingHint();
   return (
     <div className="home" role="region" aria-label="Home">
@@ -53,6 +66,7 @@ export function HomeScreen({ onOpen, onNew, onDismiss }: { onOpen: () => void; o
           <span className="home-drop-title">{hint.title}</span>
           <span className="home-drop-sub">{hint.sub}</span>
         </button>
+        {onTemplate && <QuickStartCards onChoose={onTemplate} />}
         <section className="home-notes" aria-label="What this viewer shows">
           <h2>What you will see</h2>
           <ul>

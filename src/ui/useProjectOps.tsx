@@ -26,13 +26,16 @@ import {
 import { identifyLocal, localFootageAvailable, readLocal } from "../media/localFootage.ts";
 import { isImportable, probeMedia } from "../media/probe.ts";
 import { footageStore } from "../media/store.ts";
+import { quickStartTemplate, type QuickStartId, type QuickStartTemplate } from "../quickstart/catalog.ts";
+import { createQuickStart, type QuickStartFiles } from "../quickstart/create.ts";
 import type { ProjectItemCommand } from "./contextMenus.ts";
 import { bitsPerChannel } from "./format.ts";
 import { AlertDialog, type AlertAction } from "./Dialog.tsx";
 import { CompSettingsDialog } from "./CompSettingsDialog.tsx";
 import { ImportDialog } from "./ImportDialog.tsx";
-import type { MenuCommand } from "./MenuBar.tsx";
+import { QUICK_START, type MenuCommand } from "./MenuBar.tsx";
 import { pickMediaFiles, saveProjectBytes, type ProjectHandle } from "./projectFiles.ts";
+import { QuickStartDialog } from "./QuickStart.tsx";
 import type { ProjectPanelOps } from "./ProjectPanel.tsx";
 import type { FileInfo } from "./RightPanels.tsx";
 
@@ -126,6 +129,7 @@ export function useProjectOps(host: ProjectOpsHost) {
   const [importTarget, setImportTarget] = useState<ImportTarget>();
   const [alert, setAlert] = useState<Alert>();
   const [renamingId, setRenamingId] = useState<number>();
+  const [quickStart, setQuickStart] = useState<QuickStartTemplate>();
 
   const live = (id: number | undefined) => (id !== undefined ? editor?.project.items.get(id) : undefined);
   const selectedItems = () => selectedIds.map(live).filter((i): i is Item => !!i);
@@ -258,6 +262,14 @@ export function useProjectOps(host: ProjectOpsHost) {
     if (!(await confirmClose())) return;
     const fresh = newProject();
     host.showSession({ editor: fresh, file: { name: UNTITLED, size: fresh.save().length, parseMs: 0 } });
+  };
+
+  /** Builds the Quick Start template around the picked files, then opens it in place of the current project. */
+  const createFromTemplate = async (id: QuickStartId, files: QuickStartFiles, particles: boolean) => {
+    const { editor: built, comp } = await createQuickStart(id, files, particles);
+    if (!(await confirmClose())) return;
+    setQuickStart(undefined);
+    host.showSession({ editor: built, file: { name: fileName(comp.name), size: built.save().length, parseMs: 0 } });
   };
 
   // ------------------------------------------------------------ items
@@ -425,6 +437,10 @@ export function useProjectOps(host: ProjectOpsHost) {
 
   /** Carries out a menu command; false when it is not a project operation. */
   const command = (cmd: MenuCommand): boolean => {
+    if (cmd.startsWith(QUICK_START)) {
+      setQuickStart(quickStartTemplate(cmd.slice(QUICK_START.length)));
+      return true;
+    }
     switch (cmd) {
       case "new-project":
         void createProject();
@@ -567,6 +583,14 @@ export function useProjectOps(host: ProjectOpsHost) {
           onChoose={(paths) => void chooseLocal(paths)}
           onSystemDialog={() => void systemPick(importTarget)}
           onCancel={() => setImportTarget(undefined)}
+        />
+      )}
+      {quickStart && (
+        <QuickStartDialog
+          key={quickStart.id}
+          template={quickStart}
+          onCreate={(files, particles) => createFromTemplate(quickStart.id, files, particles)}
+          onCancel={() => setQuickStart(undefined)}
         />
       )}
       {alert && <AlertDialog message={alert.message} actions={alert.actions} onCancel={alert.onCancel} />}

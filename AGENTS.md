@@ -46,6 +46,10 @@ frame by frame against After Effects 2025's own renders. React + TypeScript + Vi
   - `harness.ts`: `window.aepHarness` for the headless pixel tests.
 - `src/ui/` - the After Effects 2025-style workspace. `CompositionPanel.tsx` renders the viewer
   through `useCompRender`.
+- `src/quickstart/` - the Quick Start templates (Home screen, File > New > New Project from Template):
+  projects built through the editor around the user's song, with a Bass slider keyed from its low end
+  (`bass.ts`). Masks come from `src/edit/masks.ts`. Gates: `gates/quickstart.md`; `node scripts/quickstart-sample.ts
+  [--aerender]` writes (and has After Effects render) both templates.
 - `scripts/` - verification and tooling. Run each with `node scripts/<name>.ts` (Node runs
  TypeScript directly).
 - `ml/pmatch/` - the Particle Match world model (Extra > Particle Match) in PyTorch, a uv project

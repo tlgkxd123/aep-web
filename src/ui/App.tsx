@@ -54,7 +54,7 @@ import { HomeScreen } from "./HomeScreen.tsx";
 import { Icon } from "./icons.tsx";
 import { canRunLayerCommand, isLayerCommand, layerShortcut, runLayerCommand, type LayerCommand, type LayerTarget } from "./layerCommands.ts";
 import { addDroppedFootage, locateFootageFolder, useFootageVersion } from "./LocateFootage.tsx";
-import { APPLY_EFFECT, MenuBar, OPEN_HELP, SHOW_PANEL, TRANSFORM_DIALOG, type DynamicMenu, type MenuCommand, type TransformDialogKind } from "./MenuBar.tsx";
+import { APPLY_EFFECT, MenuBar, OPEN_HELP, quickStartCommand, SHOW_PANEL, TRANSFORM_DIALOG, type DynamicMenu, type MenuCommand, type TransformDialogKind } from "./MenuBar.tsx";
 import { MobileTabs, MobileWorkspace, Transport, type MobileTab } from "./MobileWorkspace.tsx";
 import { PanelFrame, type PanelTab } from "./Panel.tsx";
 import { droppedHandle, pickProjectHandle, type ProjectHandle } from "./projectFiles.ts";
@@ -1455,7 +1455,12 @@ export function App() {
         </>
       )}
       {workspace || (
-        <HomeScreen onOpen={pickFile} onNew={() => command("new-project")} onDismiss={loaded ? () => setShowHome(false) : undefined} />
+        <HomeScreen
+          onOpen={pickFile}
+          onNew={() => command("new-project")}
+          onTemplate={(id) => command(quickStartCommand(id))}
+          onDismiss={loaded ? () => setShowHome(false) : undefined}
+        />
       )}
       {compact && workspace && <MobileTabs tab={mobileTab} onTab={setMobileTab} />}
       <ContextMenuHost />

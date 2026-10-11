@@ -8,7 +8,7 @@
 import { decodePard, type Pard } from "../aep/decode.ts";
 import type { CompItem, Layer, PropertyGroup } from "../aep/model.ts";
 import { findChild, findList, type Chunk } from "../aep/riff.ts";
-import { doubles, leaf, list, readDoubles, type Transaction } from "./chunks.ts";
+import { doubles, leaf, list, readDoubles, utf8Chunk, type Transaction } from "./chunks.ts";
 import type { Editor } from "./editor.ts";
 import { fixedUtf8, setExpressionFlags } from "./encode.ts";
 import { layerTimebase, setTimebase, tdmnName } from "./layer-templates.ts";
@@ -86,6 +86,12 @@ export function nameData(text: string): Uint8Array {
   return data;
 }
 
+/** Names a tdsn. One read from a file holds its name as a child chunk, which is written instead of its data. */
+export function setName(tdsn: Chunk, text: string): void {
+  tdsn.data = nameData(text);
+  tdsn.children = [utf8Chunk(text)];
+}
+
 /**
  * The tdbs of parameter `n`, written when the instance does not store it: After
  * Effects leaves parameters at their defaults out, and stores a changed one as it
@@ -114,7 +120,7 @@ function stream(sspc: Chunk, matchName: string, n: number): { tdbs: Chunk; pard:
   const tdbs = clone(donor);
   tdbs.children = (tdbs.children ?? []).filter((c) => c.type !== "Utf8");
   for (const c of tdbs.children) {
-    if (c.type === "tdsn") c.data = nameData(def.pard.name);
+    if (c.type === "tdsn") setName(c, def.pard.name);
     else if (c.type === "tdb4") setExpressionFlags(c.data, false, false);
     else if (c.type === "tdum" && def.pard.sliderMin !== undefined) c.data = doubles([def.pard.sliderMin]);
     else if (c.type === "tduM" && def.pard.sliderMax !== undefined) c.data = doubles([def.pard.sliderMax]);
@@ -139,6 +145,13 @@ function storedValues(sspc: Chunk, matchName: string, n: number): { cdat: Chunk;
   const cdat = findChild(tdbs, "cdat");
   if (!cdat) throw new Error(`${paramName(matchName, n)} has no static value in the effect template`);
   return { cdat, values: readDoubles(cdat.data), pard };
+}
+
+/** Names an instance, as renaming an effect in Effect Controls does ("Bass" for a Slider Control). */
+export function setInstanceName(sspc: Chunk, name: string): void {
+  const tdsn = findChild(findList(sspc, "tdgp"), "tdsn");
+  if (!tdsn) throw new Error("the effect template has no name");
+  setName(tdsn, name);
 }
 
 /** Sets a static number, angle, popup choice (1-based) or checkbox (0, 1) of an instance, within its valid range. */

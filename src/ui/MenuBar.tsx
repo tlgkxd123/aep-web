@@ -1,5 +1,6 @@
 import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { CatalogCategory } from "../edit/effectCatalog.ts";
+import { QUICK_START_TEMPLATES, type QuickStartId } from "../quickstart/catalog.ts";
 import { openMenuSheet, type MenuEntries } from "./ContextMenu.tsx";
 import { Icon } from "./icons.tsx";
 import type { LayerCommand } from "./layerCommands.ts";
@@ -68,7 +69,8 @@ export type MenuCommand =
   | `transform-dialog:${TransformDialogKind}`
   | `panel:${string}`
   | `help:${string}`
-  | `apply-effect:${string}`;
+  | `apply-effect:${string}`
+  | `quick-start:${QuickStartId}`;
 
 /** The Layer > Transform value dialogs. */
 export type TransformDialogKind = "anchor" | "position" | "scale" | "rotation" | "opacity";
@@ -81,6 +83,9 @@ export const SHOW_PANEL = "panel:";
 /** Prefix of the Help menu commands that open a help page, followed by its address. */
 export const OPEN_HELP = "help:";
 export const TRANSFORM_DIALOG = "transform-dialog:";
+/** Prefix of the File > New > New Project from Template commands, followed by the Quick Start template's id. */
+export const QUICK_START = "quick-start:";
+export const quickStartCommand = (id: QuickStartId): MenuCommand => `${QUICK_START}${id}`;
 
 /**
  * Submenus whose entries the app builds from the project (blending modes, labels, history...), keyed by these names.
@@ -150,6 +155,10 @@ const MENUS: { name: string; items: Entry[] }[] = [
     items: [
       sub("New", [
         { label: "New Project", shortcut: "Ctrl+Alt+N", command: "new-project" },
+        sub(
+          "New Project from Template",
+          QUICK_START_TEMPLATES.map((t) => ({ label: `${t.name}...`, command: quickStartCommand(t.id) })),
+        ),
         { label: "New Team Project..." },
         { label: "New Folder", shortcut: "Ctrl+Alt+Shift+N", command: "new-folder", needsProject: true },
         { label: "Adobe Photoshop File..." },

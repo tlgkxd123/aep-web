@@ -7,7 +7,7 @@ import type { Chunk } from "../aep/riff.ts";
 import { catalogName, offeredEffect } from "./effectCatalog.ts";
 import type { Editor } from "./editor.ts";
 import { addEffects, newInstance, type EffectTemplate } from "./effects.ts";
-import { definitionName, freshInstance, projectDefinitions, streamPool } from "./effectTemplates.ts";
+import { definitionName, freshInstance, nameAsDefined, projectDefinitions, streamPool } from "./effectTemplates.ts";
 import { chunksFromBytes } from "./layer-templates.ts";
 
 /** An effect the editor can apply. */
@@ -44,12 +44,11 @@ export function effectLibrary(): Promise<LibraryEffect[]> {
       if (!only) throw new Error("an effect template is damaged");
       return only;
     };
-    loaded = Object.entries(data.effects).map(([matchName, entry]) => ({
-      matchName,
-      name: entry.name,
-      category: entry.category,
-      template: { matchName, definition: chunk(entry.definition), instance: chunk(entry.instance) },
-    }));
+    loaded = Object.entries(data.effects).map(([matchName, entry]) => {
+      const instance = chunk(entry.instance);
+      nameAsDefined(instance);
+      return { matchName, name: entry.name, category: entry.category, template: { matchName, definition: chunk(entry.definition), instance } };
+    });
     return loaded;
   })();
   return loading;
