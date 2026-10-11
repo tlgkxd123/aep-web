@@ -351,6 +351,8 @@ const PATHS = {
       <path d="M3 4l4 4-4 4ZM7.5 4l4 4-4 4Z" {...F} />
     </>
   ),
+  workStart: <path d="M6.5 3.5h-2v9h2M8 8h5.5M11.5 6l2 2-2 2" />,
+  workEnd: <path d="M9.5 3.5h2v9h-2M8 8H2.5M4.5 6l-2 2 2 2" />,
   loop: (
     <path d="M3 7.5V7a3 3 0 0 1 3-3h6.5M11 2.5 12.5 4 11 5.5M13 8.5V9a3 3 0 0 1-3 3H3.5M5 10.5 3.5 12 5 13.5" />
   ),
