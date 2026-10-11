@@ -64,6 +64,8 @@ jobs:
           COMMENT: ${{ github.event.comment.body }}
         run: |
           set -euo pipefail
+          # Title, body and the human comments; the workflow's own status comments are left out.
+          thread='"# \(.title)\n\n\(.body)\n" + ([.comments[] | select(.author.login != "github-actions") | "\n## Comment by \(.author.login)\n\n\(.body)\n"] | join(""))'
           if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ]; then
             branch="agent/run-$GITHUB_RUN_ID"
             title=$(printf '%s' "$TASK_INPUT" | head -n1 | cut -c1-72)
@@ -74,12 +76,12 @@ jobs:
             [ "$owner" = "$GITHUB_REPOSITORY_OWNER" ] || { echo "::error::pull request #$NUMBER comes from a fork"; exit 1; }
             title="$ISSUE_TITLE"
             git switch "$branch"
-            { echo "Pull request #$NUMBER (branch $branch, which you are on):"; echo; gh pr view "$NUMBER" --comments; } > "$TASK_FILE"
+            { echo "Pull request #$NUMBER (branch $branch, which you are on):"; echo; gh pr view "$NUMBER" --json title,body,comments --jq "$thread"; } > "$TASK_FILE"
           else
             branch="agent/issue-$NUMBER"
             title="$ISSUE_TITLE"
             if git show-ref --verify --quiet "refs/remotes/origin/$branch"; then git switch "$branch"; else git switch -c "$branch"; fi
-            { echo "Issue #$NUMBER:"; echo; gh issue view "$NUMBER" --comments; } > "$TASK_FILE"
+            { echo "Issue #$NUMBER:"; echo; gh issue view "$NUMBER" --json title,body,comments --jq "$thread"; } > "$TASK_FILE"
           fi
           if [ "$GITHUB_EVENT_NAME" = issue_comment ]; then
             printf '\nAct on this instruction now (the latest /agent comment):\n\n%s\n' "${COMMENT#/agent}" >> "$TASK_FILE"
