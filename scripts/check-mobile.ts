@@ -2,8 +2,9 @@
 // touch input) and checks that the whole app works there: the layout fits the screen, every panel is reachable, the
 // touch targets are large enough, and the gestures act (tap, drag, pinch, long-press). Screenshots of each device go
 // to dist-tools/mobile/.
-//   node scripts/check-mobile.ts [app url | --serve] [--only device,device]
-// --serve starts a dev server for the run. Prints MOBILE-PASSED when every check passes on every device.
+//   node scripts/check-mobile.ts [app url | --serve] [--only device,device] [--chrome <path>]
+// --serve starts a dev server for the run; --chrome runs that browser instead of Edge. Prints MOBILE-PASSED when every
+// check passes on every device.
 import { mkdirSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { chromium, devices, type BrowserContext, type CDPSession, type Locator, type Page } from "playwright-core";
@@ -26,6 +27,7 @@ const DEVICES = [
 
 const args = process.argv.slice(2);
 const only = args.includes("--only") ? args[args.indexOf("--only") + 1].split(",") : undefined;
+const chromePath = args.includes("--chrome") ? args[args.indexOf("--chrome") + 1] : process.env.CHROME_PATH;
 let server: ViteDevServer | undefined;
 let url = args.find((a) => /^https?:/.test(a)) ?? "http://localhost:5173/";
 if (args.includes("--serve")) {
@@ -95,6 +97,30 @@ class Fingers {
     await this.send("touchStart", [at]);
     await new Promise((r) => setTimeout(r, ms));
     await this.send("touchEnd", []);
+  }
+  /**
+   * A long press on `from`, then the finger carried to each stop in turn, resting there `rest` ms, and lifted. A stop
+   * given as a function is found when the finger sets off for it, as what is there may appear during the drag.
+   */
+  async carry(from: Point, stops: { at: Point | (() => Promise<Point>); rest: number }[], hold = 700) {
+    await this.send("touchStart", [from]);
+    // A resting finger drifts by a pixel or so.
+    for (let t = 50; t <= hold; t += 50) {
+      await new Promise((r) => setTimeout(r, 50));
+      await this.send("touchMove", [{ x: from.x + ((t / 50) % 2), y: from.y }]);
+    }
+    let last = from;
+    for (const stop of stops) {
+      const to = typeof stop.at === "function" ? await stop.at() : stop.at;
+      for (let i = 1; i <= 10; i++) {
+        await this.send("touchMove", [{ x: last.x + ((to.x - last.x) * i) / 10, y: last.y + ((to.y - last.y) * i) / 10 }]);
+        await new Promise((r) => setTimeout(r, 16));
+      }
+      last = to;
+      await new Promise((r) => setTimeout(r, stop.rest));
+    }
+    await this.send("touchEnd", []);
+    await new Promise((r) => setTimeout(r, 450));
   }
 }
 
@@ -258,13 +284,42 @@ async function interact(page: Page, fingers: Fingers) {
   check(parts.length > 1 && !outside.length, `the queued item's row and settings fit the panel${outside.length ? ` (outside: ${outside.map((p) => p.label).join(", ")})` : ""}`);
   await page.screenshot({ path: join(OUT, `${device}-render-queue.png`) });
 
+  // A long press picks a project item up: dropped on the viewer it becomes a layer, and held on the Timeline tab it
+  // opens the Timeline, to drop on a layer's row. A swipe over the draggable rows still scrolls them.
+  const projectTab = page.getByRole("tab", { name: "Project", exact: true });
+  const timelineTab = page.getByRole("tab", { name: "Timeline", exact: true });
+  const layerRows = page.getByRole("tree", { name: "Timeline layers" }).locator(".tl-layer");
+  await timelineTab.tap();
+  const layers = await layerRows.count();
+  await projectTab.tap();
+  await page.getByLabel("Search project").fill("");
+  const projectList = page.locator(".proj-scroll");
+  if (await projectList.evaluate((e) => e.scrollHeight > e.clientHeight + 1)) check(await swipeScrolls(fingers, projectList, "y"), "a finger swiping over the project rows scrolls them");
+  await page.getByLabel("Search project").fill(CARD);
+  const card = page.getByRole("tree", { name: "Project items" }).getByRole("treeitem").filter({ hasText: CARD }).first().locator(".cell-text");
+  // High in the viewer, clear of the notice a software renderer shows over its lower half.
+  const viewerBox = (await page.locator(".mws-viewer .viewer").boundingBox())!;
+  await fingers.carry(await centre(card), [{ at: { x: viewerBox.x + viewerBox.width / 2, y: viewerBox.y + viewerBox.height / 4 }, rest: 150 }]);
+  await timelineTab.tap();
+  check(await until(async () => (await layerRows.count()) === layers + 1), `a project item long-pressed and dragged onto the viewer becomes a layer (${await layerRows.count()} layers for ${layers + 1})`);
+  await projectTab.tap();
+  await page.getByLabel("Search project").fill(CARD);
+  await fingers.carry(await centre(card), [
+    { at: await centre(timelineTab), rest: 900 },
+    { at: () => centre(layerRows.first()), rest: 150 },
+  ]);
+  check((await timelineTab.getAttribute("aria-selected")) === "true", "a drag held on the Timeline tab opens the Timeline");
+  check(await until(async () => (await layerRows.count()) === layers + 2), `the project item dropped on a Timeline row becomes a layer (${await layerRows.count()} layers for ${layers + 2})`);
+
   // Touch targets of the compact chrome.
   const chrome = (await boxes(page, ".mtab, .mtop-btn, .mtransport-btn")).filter((b) => b.height < 44);
   check(!chrome.length, `the tab bar, top bar and playback buttons are at least 44 px tall${chrome.length ? ` (short: ${chrome.map((b) => `${b.label} ${b.height}`).join(", ")})` : ""}`);
   await page.screenshot({ path: join(OUT, `${device}-applied.png`) });
 }
 
-const browser = await chromium.launch({ channel: "msedge", headless: true, args: ["--use-angle=d3d11", "--enable-gpu", "--ignore-gpu-blocklist"] });
+const browser = await chromium.launch(
+  chromePath ? { executablePath: chromePath, headless: true } : { channel: "msedge", headless: true, args: ["--use-angle=d3d11", "--enable-gpu", "--ignore-gpu-blocklist"] },
+);
 const errors: string[] = [];
 try {
   for (const d of DEVICES) {

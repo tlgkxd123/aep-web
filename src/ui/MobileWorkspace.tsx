@@ -1,6 +1,6 @@
 // The workspace of compact screens (phones, small tablets): the Composition viewer with playback controls, and one
 // panel at a time beside or under it, picked from a tab bar. The panels are the desktop ones.
-import { useRef, type CSSProperties, type KeyboardEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
+import { useEffect, useRef, useState, type CSSProperties, type DragEvent, type KeyboardEvent, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
 import type { CompItem } from "../aep/model.ts";
 import { Icon, type IconName } from "./icons.tsx";
 import { followPointer } from "./pointer.ts";
@@ -17,8 +17,38 @@ const MOBILE_TABS: { id: MobileTab; label: string; title: string; icon: IconName
   { id: "more", label: "More", title: "More panels", icon: "more" },
 ];
 
-/** The tab bar picking the panel shown with the viewer. */
+/** How long a drag rests on a tab before the tab opens, in milliseconds. */
+const SPRING_MS = 600;
+
+/**
+ * The tab bar picking the panel shown with the viewer. A drag resting on a tab opens it, so that what it carries can
+ * be dropped on a panel other than the one it came from (a project item or an effect on the Timeline).
+ */
 export function MobileTabs({ tab, onTab }: { tab: MobileTab; onTab: (tab: MobileTab) => void }) {
+  const [opening, setOpening] = useState<MobileTab>();
+  const spring = useRef<{ id: MobileTab; timer: ReturnType<typeof setTimeout> }>(undefined);
+  const settle = () => {
+    clearTimeout(spring.current?.timer);
+    spring.current = undefined;
+    setOpening(undefined);
+  };
+  useEffect(() => () => clearTimeout(spring.current?.timer), []);
+  const dragOver = (e: DragEvent, id: MobileTab) => {
+    if (spring.current?.id === id) return;
+    settle();
+    if (id === tab || !e.dataTransfer?.types.length) return;
+    spring.current = {
+      id,
+      timer: setTimeout(() => {
+        settle();
+        onTab(id);
+      }, SPRING_MS),
+    };
+    setOpening(id);
+  };
+  const dragLeave = (e: DragEvent, id: MobileTab) => {
+    if (spring.current?.id === id && !e.currentTarget.contains(e.relatedTarget as Node | null)) settle();
+  };
   return (
     <nav className="mtabs" role="tablist" aria-label="Panels">
       {MOBILE_TABS.map((t) => (
@@ -30,8 +60,11 @@ export function MobileTabs({ tab, onTab }: { tab: MobileTab; onTab: (tab: Mobile
           aria-selected={tab === t.id}
           aria-controls="mpanel"
           aria-label={t.title}
-          className={`mtab ${tab === t.id ? "active" : ""}`}
+          className={`mtab ${tab === t.id ? "active" : ""} ${opening === t.id ? "opening" : ""}`}
           onClick={() => onTab(t.id)}
+          onDragEnter={(e) => dragOver(e, t.id)}
+          onDragOver={(e) => dragOver(e, t.id)}
+          onDragLeave={(e) => dragLeave(e, t.id)}
         >
           <Icon name={t.icon} size={20} />
           <span className="mtab-label" aria-hidden="true">

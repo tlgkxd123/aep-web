@@ -1,11 +1,13 @@
 // Touch input where the app was built for a mouse: a long press stands for a right-click, and on what can be dragged
-// it picks the thing up for an HTML drag, which mobile browsers rarely start from a finger themselves.
+// it picks the thing up for an HTML drag of the page's own: mobile browsers rarely start one from a finger, and the
+// one Android starts cannot carry the app's drag data.
 import { useEffect } from "react";
 
 /** How long a finger rests before its press opens a context menu or picks up what it holds, in milliseconds. */
 const HOLD_MS = 550;
 /** How far a finger may drift during a press, in CSS pixels, before it counts as a drag. */
 const SLOP = 10;
+const DRAGGABLE = '[draggable="true"]';
 
 /** The drag data of a drag started by touch, read and written by the same handlers as the browser's own. */
 export class TouchDataTransfer {
@@ -42,7 +44,7 @@ function dragEvent(type: string, dataTransfer: TouchDataTransfer, x: number, y: 
  * follows the finger itself (any `touch-action` other than auto or manipulation, as layer bars and scrubbable values).
  */
 function dragSource(target: Element): HTMLElement | undefined {
-  const source = target.closest<HTMLElement>('[draggable="true"]');
+  const source = target.closest<HTMLElement>(DRAGGABLE);
   if (!source) return undefined;
   for (let el: Element | null = target; el && el !== source; el = el.parentElement) {
     if (el.matches("input, textarea, select, [contenteditable]:not([contenteditable='false'])")) return undefined;
@@ -94,7 +96,12 @@ interface Drag {
  *   synthetic event goes out only when none came, and a late native one after it is dropped;
  * - a long press on a `draggable` element picks it up instead: moving the finger sends it `dragstart` and the
  *   elements under the finger `dragenter`, `dragover`, `dragleave` and `drop`, as a mouse drag would, while lifting
- *   it without moving opens the context menu. A drag the browser starts itself takes over.
+ *   it without moving opens the context menu. The browser's own drag from that press (Chrome and the WebView on
+ *   Android start one) is cancelled, as Android hands a drop only text, links and images; the browser's other drags
+ *   are left to it;
+ * - draggable elements listen to touchmove without being passive, so a held or dragging finger does not scroll the
+ *   page: browsers settle whether a touch's moves can be cancelled when it starts, from the listeners there are
+ *   then. Touches elsewhere scroll without waiting for the page's scripts, which are busy during playback.
  */
 export function useLongPressGestures(enabled: boolean): void {
   useEffect(() => {
@@ -103,22 +110,20 @@ export function useLongPressGestures(enabled: boolean): void {
     let press: Press | undefined;
     let drag: Drag | undefined;
     let synthesizedAt = -Infinity;
-    let holding = false;
-    /** Keeps the page from scrolling under a held or dragging finger; window listeners are passive unless told otherwise. */
-    const holdStill = (e: TouchEvent) => {
+    const holdStill = (e: Event) => {
       if ((drag || press?.held) && e.cancelable) e.preventDefault();
     };
-    /**
-     * Listens to touchmove only while a press is held or dragging: while the page has a listener that may cancel
-     * them, every touch waits for the main thread before it scrolls, and during playback that thread is busy.
-     */
-    const syncHold = () => {
-      const needed = Boolean(drag || press?.held);
-      if (needed === holding) return;
-      holding = needed;
-      if (needed) window.addEventListener("touchmove", holdStill, { capture: true, passive: false });
-      else window.removeEventListener("touchmove", holdStill, true);
+    const listen = (node: Node) => {
+      if (!(node instanceof Element)) return;
+      if (node.matches(DRAGGABLE)) node.addEventListener("touchmove", holdStill, { passive: false });
+      for (const el of node.querySelectorAll(DRAGGABLE)) el.addEventListener("touchmove", holdStill, { passive: false });
     };
+    const draggables = new MutationObserver((records) => {
+      for (const record of records) {
+        if (record.type === "attributes") listen(record.target);
+        else record.addedNodes.forEach(listen);
+      }
+    });
     const menuAt = (target: Element, x: number, y: number) => {
       if (!target.isConnected) return;
       synthesizedAt = performance.now();
@@ -128,7 +133,6 @@ export function useLongPressGestures(enabled: boolean): void {
       clearTimeout(timer);
       if (press?.held && !drag) press.source?.classList.remove("touch-drag-armed");
       press = undefined;
-      syncHold();
     };
     const update = (d: Drag, x: number, y: number) => {
       d.x = x;
@@ -159,7 +163,6 @@ export function useLongPressGestures(enabled: boolean): void {
       source.dispatchEvent(start);
       if (start.defaultPrevented || !data.types.length) {
         source.classList.remove("touch-drag-armed");
-        syncHold();
         return;
       }
       drag = { id: held.id, source, data, ghost: ghostOf(source), over: null, accepted: false, x, y };
@@ -169,7 +172,6 @@ export function useLongPressGestures(enabled: boolean): void {
       const d = drag;
       if (!d) return;
       drag = undefined;
-      syncHold();
       d.ghost.remove();
       d.source.classList.remove("touch-drag-armed");
       if (dropped && d.over?.isConnected && d.accepted) d.over.dispatchEvent(dragEvent("drop", d.data, d.x, d.y));
@@ -179,7 +181,6 @@ export function useLongPressGestures(enabled: boolean): void {
     const arm = (current: Press, source: HTMLElement) => {
       clearTimeout(timer);
       current.held = true;
-      syncHold();
       source.classList.add("touch-drag-armed");
       navigator.vibrate?.(10);
     };
@@ -230,9 +231,18 @@ export function useLongPressGestures(enabled: boolean): void {
     };
     const nativeDrag = (e: DragEvent) => {
       if (!e.isTrusted) return;
+      const source = drag?.source ?? press?.source;
+      if (source && e.target instanceof Node && source.contains(e.target)) {
+        e.preventDefault();
+        e.stopPropagation();
+        if (press?.source && !press.held) arm(press, press.source);
+        return;
+      }
       cancel();
       finishDrag(false);
     };
+    listen(document.body);
+    draggables.observe(document.body, { subtree: true, childList: true, attributes: true, attributeFilter: ["draggable"] });
     window.addEventListener("pointerdown", down, true);
     window.addEventListener("pointermove", move, true);
     window.addEventListener("pointerup", end, true);
@@ -242,6 +252,8 @@ export function useLongPressGestures(enabled: boolean): void {
     return () => {
       cancel();
       finishDrag(false);
+      draggables.disconnect();
+      for (const el of document.querySelectorAll("[draggable]")) el.removeEventListener("touchmove", holdStill);
       window.removeEventListener("pointerdown", down, true);
       window.removeEventListener("pointermove", move, true);
       window.removeEventListener("pointerup", end, true);

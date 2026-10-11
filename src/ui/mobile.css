@@ -444,6 +444,13 @@ button,
   background: #232323;
 }
 
+/* A drag resting on a tab, which opens it. */
+.mtab.opening {
+  background: #2c2c2c;
+  color: var(--accent);
+  box-shadow: inset 0 0 0 2px var(--accent);
+}
+
 .app.compact.landscape {
   display: grid;
   grid-template-columns: 72px minmax(0, 1fr);

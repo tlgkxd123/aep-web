@@ -4,7 +4,7 @@
 // File > Add Footage to Comp adds the selected project item to the open composition, without drag and drop. What
 // desktops do with keys or drags has a touch path: Composition Settings (the comp's duration) from the Timeline, the
 // work area from the ruler's menu, Rename from a layer's menu, Move To from a project item's menu, and a long press
-// picks a project item up for a touch drag onto the viewer.
+// picks a project item up for a touch drag onto the viewer, or onto another tab's panel once held on its tab.
 import { File as NodeFile } from "node:buffer";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
@@ -12,9 +12,10 @@ import { act, cleanup, fireEvent, render, screen, within } from "@testing-librar
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import type { Item, Project } from "../src/aep/model.ts";
 import { App } from "../src/ui/App.tsx";
-import type { MenuEntry } from "../src/ui/ContextMenu.tsx";
+import { closeContextMenu, type MenuEntry } from "../src/ui/ContextMenu.tsx";
 import { moveToEntries } from "../src/ui/contextMenus.ts";
 import { COMPACT_QUERY } from "../src/ui/responsive.ts";
+import { TouchDataTransfer } from "../src/ui/touch.ts";
 
 const FIXTURE = resolve(import.meta.dirname, "../refs/fixtures/roundtrip.base.aep");
 const COMP = "roundtrip_minimax";
@@ -44,6 +45,7 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup();
+  closeContextMenu();
   Reflect.deleteProperty(window, "matchMedia");
 });
 
@@ -226,44 +228,170 @@ describe("touch drags", () => {
     expect(within(sheet()).getAllByRole("menuitem").length).toBeGreaterThan(0);
   });
 
-  test("only a held or dragging press listens to touchmove, so scrolling never waits for the page's scripts", async () => {
-    const add = vi.spyOn(window, "addEventListener");
-    const remove = vi.spyOn(window, "removeEventListener");
-    const blocking = () =>
-      add.mock.calls.filter(([type, , options]) => type === "touchmove" && typeof options === "object" && options.passive === false).length -
-      remove.mock.calls.filter(([type]) => type === "touchmove").length;
+  test("draggable elements, and only they, can keep a held finger from scrolling, from before the finger lands", async () => {
+    // Browsers settle whether a touch's moves can be cancelled when it starts: a listener added once the press is
+    // held comes too late, and one on the window would make every scroll wait for the page's scripts.
+    const add = vi.spyOn(EventTarget.prototype, "addEventListener");
+    const cancelling = () =>
+      add.mock.calls.flatMap(([type, , options], i) => (type === "touchmove" && typeof options === "object" && options.passive === false ? [add.mock.contexts[i]] : []));
     await openComp();
     fireEvent.click(tab("Project"));
     const source = projectRow(CARD);
+    const later = document.createElement("div");
+    const turned = document.createElement("div");
+    later.setAttribute("draggable", "true");
+    document.body.append(later, turned);
+    await act(async () => {});
+    turned.setAttribute("draggable", "true");
+    await act(async () => {});
+    const listening = cancelling();
+    expect(listening).toContain(source);
+    expect(listening).toContain(later);
+    expect(listening).toContain(turned);
+    expect(listening.every((el) => el instanceof Element && el.matches('[draggable="true"]'))).toBe(true);
+    later.remove();
+    turned.remove();
+
     Object.defineProperty(document, "elementFromPoint", { configurable: true, value: () => source });
     const moveCancelled = () => {
       const move = new Event("touchmove", { bubbles: true, cancelable: true });
-      source.dispatchEvent(move);
+      source.querySelector(".cell-text")!.dispatchEvent(move);
       return move.defaultPrevented;
     };
     vi.useFakeTimers();
-    expect(blocking()).toBe(0);
-
     touch("pointerdown", source, 20, 300);
     act(() => vi.advanceTimersByTime(300));
-    expect([blocking(), moveCancelled()]).toEqual([0, false]);
+    expect(moveCancelled()).toBe(false);
     act(() => vi.advanceTimersByTime(300));
     expect(source.classList.contains("touch-drag-armed")).toBe(true);
-    expect([blocking(), moveCancelled()]).toEqual([1, true]);
+    expect(moveCancelled()).toBe(true);
     touch("pointermove", source, 60, 40);
     expect(document.querySelector(".touch-drag-ghost")).toBeTruthy();
-    expect([blocking(), moveCancelled()]).toEqual([1, true]);
+    expect(moveCancelled()).toBe(true);
     touch("pointercancel", source, 60, 40);
     expect(document.querySelector(".touch-drag-ghost")).toBeNull();
-    expect([blocking(), moveCancelled()]).toEqual([0, false]);
+    expect(moveCancelled()).toBe(false);
+  });
+
+  test("the drag the browser starts from a long press (Android's) is cancelled, and the page's picks the item up", async () => {
+    await openComp();
+    fireEvent.click(tab("Project"));
+    const source = projectRow(CARD);
+    const viewer = screen.getByRole("img", { name: new RegExp(`^${COMP}, 160 x 120`) });
+    let under: Element | null = source;
+    Object.defineProperty(document, "elementFromPoint", { configurable: true, value: () => under });
+
+    // A mouse drag is the browser's own.
+    const mouseDrag = browserDragStart(source);
+    expect(mouseDrag.event.defaultPrevented).toBe(false);
+    expect(mouseDrag.data.types.length).toBeGreaterThan(0);
+
+    vi.useFakeTimers();
+    touch("pointerdown", source, 20, 300);
+    // Android's long press comes before the page's own hold ends.
+    act(() => vi.advanceTimersByTime(400));
+    const longPress = browserDragStart(source);
+    expect(longPress.event.defaultPrevented).toBe(true);
+    expect(longPress.data.types).toEqual([]);
+    expect(source.classList.contains("touch-drag-armed")).toBe(true);
+
+    under = viewer;
+    touch("pointermove", source, 60, 40);
+    expect(document.querySelector(".touch-drag-ghost")!.classList.contains("refused")).toBe(false);
+    touch("pointerup", source, 60, 40);
+    expect(document.querySelector(".touch-drag-ghost")).toBeNull();
+
+    vi.useRealTimers();
+    fireEvent.click(tab("Timeline"));
+    expect(layerNames()).toEqual([CARD, CARD]);
+    expect(screen.queryByRole("dialog")).toBeNull();
+  });
+
+  test("a long press the browser answers (its drag or its menu event) and lifted without moving opens one context menu", async () => {
+    await openComp();
+    fireEvent.click(tab("Project"));
+    const source = projectRow(CARD);
+    vi.useFakeTimers();
+
+    // Chrome on Android starts a drag on the long press, then sends its menu event when the finger lifts.
+    touch("pointerdown", source, 20, 300);
+    act(() => vi.advanceTimersByTime(400));
+    browserDragStart(source);
+    touch("pointerup", source, 20, 300);
+    expect(within(sheet()).getAllByRole("menuitem").length).toBeGreaterThan(0);
+    const late = browserEvent(source, new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 20, clientY: 300 }));
+    expect(late.defaultPrevented).toBe(true);
+    fireEvent.click(within(sheet()).getByRole("button", { name: "Close menu" }));
+    expect(screen.queryByRole("dialog")).toBeNull();
+
+    // Without touch drags, it sends its menu event on the long press instead: that picks the item up.
+    touch("pointerdown", source, 20, 300);
+    act(() => vi.advanceTimersByTime(400));
+    const early = browserEvent(source, new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 20, clientY: 300 }));
+    expect(early.defaultPrevented).toBe(true);
+    expect(screen.queryByRole("dialog")).toBeNull();
+    expect(source.classList.contains("touch-drag-armed")).toBe(true);
+    touch("pointerup", source, 20, 300);
+    expect(within(sheet()).getAllByRole("menuitem").length).toBeGreaterThan(0);
+  });
+
+  test("a drag resting on a tab opens it, so a project item drops on the Timeline", async () => {
+    await openComp();
+    fireEvent.click(tab("Project"));
+    const source = projectRow(CARD);
+    let under: Element | null = source;
+    Object.defineProperty(document, "elementFromPoint", { configurable: true, value: () => under });
+    vi.useFakeTimers();
 
     touch("pointerdown", source, 20, 300);
     act(() => vi.advanceTimersByTime(600));
-    expect(blocking()).toBe(1);
-    touch("pointercancel", source, 20, 300);
-    expect([blocking(), moveCancelled()]).toEqual([0, false]);
+    // Passing over a tab does not open it.
+    under = tab("Render Queue").querySelector(".mtab-label");
+    touch("pointermove", source, 300, 600);
+    expect(tab("Render Queue").classList.contains("opening")).toBe(true);
+    act(() => vi.advanceTimersByTime(300));
+    under = screen.getByRole("tablist", { name: "Panels" });
+    touch("pointermove", source, 200, 560);
+    expect(tab("Render Queue").classList.contains("opening")).toBe(false);
+    act(() => vi.advanceTimersByTime(600));
+    expect(tab("Project").getAttribute("aria-selected")).toBe("true");
+
+    under = tab("Timeline");
+    touch("pointermove", source, 100, 600);
+    expect(document.querySelector(".touch-drag-ghost")!.classList.contains("refused")).toBe(true);
+    act(() => vi.advanceTimersByTime(600));
+    expect(tab("Timeline").getAttribute("aria-selected")).toBe("true");
+    expect(tab("Timeline").classList.contains("opening")).toBe(false);
+
+    // The Project panel, and the row the finger pressed, are gone: the finger's events now reach what is under it.
+    const row = within(timeline()).getByRole("treeitem", { name: CARD });
+    under = row;
+    touch("pointermove", row, 100, 400);
+    expect(document.querySelector(".touch-drag-ghost")!.classList.contains("refused")).toBe(false);
+    touch("pointerup", row, 100, 400);
+    expect(document.querySelector(".touch-drag-ghost")).toBeNull();
+    expect(layerNames()).toEqual([CARD, CARD]);
   });
 });
+
+/** Dispatches `event` as one of the browser's own: jsdom makes trusted events only internally. */
+function browserEvent<E extends Event>(target: EventTarget, event: E): E {
+  type Impl = { isTrusted: boolean; _dispatch(event: Impl): boolean };
+  const impl = (o: object) => (o as Record<symbol, Impl>)[Object.getOwnPropertySymbols(o).find((s) => s.description === "impl")!];
+  impl(event).isTrusted = true;
+  act(() => {
+    impl(target)._dispatch(impl(event));
+  });
+  return event;
+}
+
+/** The browser starting its own HTML drag of `source`, with what the app's handlers put in its drag data. */
+function browserDragStart(source: Element) {
+  const data = new TouchDataTransfer();
+  const event = new MouseEvent("dragstart", { bubbles: true, cancelable: true });
+  Object.defineProperty(event, "dataTransfer", { value: data });
+  return { event: browserEvent(source, event), data };
+}
 
 test("the Timeline sets the work area by touch: buttons at the current time, and its ends dragged", async () => {
   await openComp();
