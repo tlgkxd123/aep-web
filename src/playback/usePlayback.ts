@@ -242,7 +242,8 @@ export function usePlayback(
         viewer.show(frame);
         return true;
       }
-      if (!render || !unblocked(frame)) return false;
+      // A frame the Vulkan engine is rendering lands in the RAM cache: rendering it with WebGL too would only slow both.
+      if (!render || !unblocked(frame) || viewer.renderingNatively(frame)) return false;
       const shown = viewer.show(frame);
       if (shown === "rendered") renderMs = viewer.lastRenderMs;
       if (shown !== "waiting") return true;
@@ -288,7 +289,9 @@ export function usePlayback(
     const renderAhead = (now: number) => {
       const viewer = getViewer(comp.id);
       if (!viewer) return;
-      const lead = phase === "running" ? Math.ceil(((viewer.gpuQueue() + 1) * viewer.gpuMs) / (span.step * 1000)) : 0;
+      // Frames from the Vulkan engine arrive its round trip after they are asked for.
+      const latencyMs = Math.max((viewer.gpuQueue() + 1) * viewer.gpuMs, viewer.nativeLatencyMs());
+      const lead = phase === "running" ? Math.ceil(latencyMs / (span.step * 1000)) : 0;
       // Targets only move forwards, so movies decode forwards instead of seeking back as the estimate wavers.
       const first = phase === "running" ? Math.max(next, due + 1 + lead, aheadTo + 1) : next;
       let rendered = 0;
@@ -296,14 +299,14 @@ export function usePlayback(
         const slot = slotTime(span, j);
         if (!slot) break;
         const frame = frameOf(slot.time);
-        if (viewer.cached(frame)) continue;
+        if (viewer.cached(frame) || viewer.renderingNatively(frame)) continue;
         if (!unblocked(frame)) break;
         // Before the clock starts, one render at a time: the first ones at a resolution fill the caches and are slow.
         if (viewer.gpuQueue() >= (phase === "preroll" ? 1 : GPU_QUEUE)) {
           viewerStats.aheadGpuFull++;
           break;
         }
-        if (rendered > 0 && performance.now() - now + (viewer.lastRenderMs || span.step * 1000) > FRAME_BUDGET_MS) break;
+        if (rendered > 0 && performance.now() - now + (viewer.lastPrefetchMs || span.step * 1000) > FRAME_BUDGET_MS) break;
         // A frame renders once its movie frames have decoded (a render without them would be thrown away); the
         // next frames' are asked for meanwhile, in order, so the decoders keep going forwards.
         const footage = viewer.requestFootage(frame);
@@ -317,9 +320,15 @@ export function usePlayback(
           break;
         }
         rendered++;
-        aheadTo = j;
-        if (viewer.prefetch(frame)) {
+        const cached = viewer.prefetch(frame);
+        // A frame the engine had no room for is still to render: it goes to the engine once a render there finishes.
+        if (viewer.lastPrefetch !== "engine full") aheadTo = j;
+        if (cached) {
           renderMs = viewer.lastRenderMs;
+          continue;
+        }
+        if (viewer.lastPrefetch === "native") {
+          renderMs = viewer.nativeLatencyMs();
           continue;
         }
         blocked = { frame, gate: gateOf(viewer.lastWaiting) };

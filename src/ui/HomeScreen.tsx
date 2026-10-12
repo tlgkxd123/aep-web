@@ -4,20 +4,22 @@ import { Icon } from "./icons.tsx";
 import { QuickStartCards } from "./QuickStart.tsx";
 import { isMobileOS } from "./responsive.ts";
 
-/** How projects get into the app on this platform, as the Home screen tells it. */
-function openingHint(): { lede: string; title: string; sub: string } {
+/** How projects get into the app on this platform, as the Home screen tells it; `drop` when files can be dragged in. */
+function openingHint(): { lede: string; title: string; sub: string; drop: boolean } {
   const where = "The project is read on this device and is never uploaded.";
   if (Capacitor.isNativePlatform())
     return {
       lede: `Choose an .aep file, or open one from your file manager or another app with Open with or Share. ${where}`,
       title: "Choose a project",
       sub: "Tap to browse your files",
+      drop: false,
     };
-  if (isMobileOS()) return { lede: `Choose an .aep file from your files. ${where}`, title: "Choose a project", sub: "Tap to browse your files" };
+  if (isMobileOS()) return { lede: `Choose an .aep file from your files. ${where}`, title: "Choose a project", sub: "Tap to browse your files", drop: false };
   return {
     lede: `Drop an .aep file anywhere in this window, or choose one. Installed as an app, AEP Web also opens .aep files from your file manager. ${where}`,
     title: "Drop a project here",
     sub: "or click to choose a file",
+    drop: true,
   };
 }
 
@@ -61,7 +63,7 @@ export function HomeScreen({
       <main className="home-main">
         <h1>Open an After Effects project</h1>
         <p className="home-lede">{hint.lede}</p>
-        <button type="button" className="home-drop" onClick={onOpen}>
+        <button type="button" className={`home-drop ${hint.drop ? "" : "pick"}`} onClick={onOpen}>
           <Icon name="comp" size={40} />
           <span className="home-drop-title">{hint.title}</span>
           <span className="home-drop-sub">{hint.sub}</span>

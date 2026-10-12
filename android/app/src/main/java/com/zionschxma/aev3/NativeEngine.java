@@ -44,8 +44,15 @@ final class NativeEngine {
     static native String nativeError(long handle);
     /** {name, Vulkan version, "true" for a CPU implementation}. */
     static native String[] nativeDevice(long handle);
-    /** Straight RGBA, rows top first, with size = {width, height}; null when the plan cannot be rendered. */
-    static native byte[] nativeRender(long handle, byte[] plan, int[] size);
+    /**
+     * Renders the plan in plan[offset, offset + length) and keeps the frame for {@link #nativeReadFrame} or
+     * {@link #nativeWriteFrame}; its size as width << 32 | height, or 0 when the plan cannot be rendered.
+     */
+    static native long nativeRenderFrame(long handle, byte[] plan, int offset, int length);
+    /** The rendered frame's straight RGBA, rows top first, into the start of `out` (at least width * height * 4 long). */
+    static native boolean nativeReadFrame(long handle, byte[] out);
+    /** The rendered frame's straight RGBA, rows top first, as the file at `path`. */
+    static native boolean nativeWriteFrame(long handle, String path);
     static native boolean nativeAttach(long handle, Surface surface);
     static native void nativeDetach(long handle);
     static native boolean nativeQueue(long handle, String view, long frame, byte[] plan);

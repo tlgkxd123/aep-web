@@ -2,6 +2,7 @@ package com.zionschxma.aev3;
 
 import android.content.ComponentCallbacks2;
 import android.content.res.Configuration;
+import android.net.Uri;
 import android.util.Base64;
 import android.view.SurfaceHolder;
 import android.view.SurfaceView;
@@ -9,21 +10,29 @@ import android.view.ViewGroup;
 import android.webkit.WebView;
 import android.widget.FrameLayout;
 import androidx.annotation.NonNull;
+import androidx.webkit.JavaScriptReplyProxy;
+import androidx.webkit.WebMessageCompat;
+import androidx.webkit.WebViewCompat;
+import androidx.webkit.WebViewFeature;
 import com.getcapacitor.JSArray;
 import com.getcapacitor.JSObject;
+import com.getcapacitor.Logger;
 import com.getcapacitor.Plugin;
 import com.getcapacitor.PluginCall;
 import com.getcapacitor.PluginMethod;
 import com.getcapacitor.annotation.CapacitorPlugin;
 import java.io.File;
-import java.io.FileOutputStream;
 import java.io.IOException;
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import org.json.JSONException;
+import org.json.JSONObject;
 
 /**
- * The native Vulkan engine for the web app (src/native/engine.ts): renders frame plans into straight RGBA files in the
+ * The native Vulkan engine for the web app (src/native/engine.ts): renders frame plans and hands the frames to the
+ * page as array buffers over a WebView message channel, or, in WebViews without one, as straight RGBA files in the
  * cache, which the page fetches; plays frames it was handed plans for into a surface laid over the page. The engine's
  * work runs on a thread of its own, so the other plugins' calls do not wait behind a render.
  */
@@ -35,6 +44,10 @@ public class NativeEnginePlugin extends Plugin {
     private static final int FRAME_FILES = 8;
     private static final long POOL_BYTES = 192L << 20;
     private static final long CACHE_BYTES = 256L << 20;
+    /** The page's object for frame requests (channelBackend in src/native/engine.ts). */
+    private static final String CHANNEL = "aevkFrames";
+    /** Bytes after a frame's pixels in a reply: the request's id, the frame's width and height, little-endian. */
+    private static final int TRAILER = 12;
 
     private final ExecutorService work = Executors.newSingleThreadExecutor((r) -> new Thread(r, "aevk"));
     private long handle;
@@ -65,6 +78,50 @@ public class NativeEnginePlugin extends Plugin {
     @Override
     public void load() {
         getContext().registerComponentCallbacks(memory);
+        // Added before the page loads, as Capacitor adds its own bridge; WebViews without array buffer messages are
+        // left the files of render().
+        if (!WebViewFeature.isFeatureSupported(WebViewFeature.WEB_MESSAGE_LISTENER) || !WebViewFeature.isFeatureSupported(WebViewFeature.WEB_MESSAGE_ARRAY_BUFFER)) return;
+        try {
+            WebViewCompat.addWebMessageListener(getBridge().getWebView(), CHANNEL, getBridge().getAllowedOriginRules(), this::onFrameRequest);
+        } catch (RuntimeException e) {
+            Logger.warn("aevk", "frames go through files: " + e.getMessage());
+        }
+    }
+
+    /**
+     * A frame request from the page: the request's id (u32, little-endian), then the plan. The reply is the frame's
+     * straight RGBA, rows top first, followed by {@link #TRAILER}, or {"id", "error"} as JSON text.
+     */
+    private void onFrameRequest(WebView view, WebMessageCompat message, Uri origin, boolean isMainFrame, JavaScriptReplyProxy reply) {
+        if (!isMainFrame || message.getType() != WebMessageCompat.TYPE_ARRAY_BUFFER) return;
+        byte[] request = message.getArrayBuffer();
+        if (request.length < 4) return;
+        int id = ByteBuffer.wrap(request).order(ByteOrder.LITTLE_ENDIAN).getInt(0);
+        work.execute(() -> {
+            long h = engine();
+            if (h == 0) {
+                replyError(reply, id, "no Vulkan engine: " + reason);
+                return;
+            }
+            long size = NativeEngine.nativeRenderFrame(h, request, 4, request.length - 4);
+            if (size == 0) {
+                replyError(reply, id, NativeEngine.nativeError(h));
+                return;
+            }
+            int width = (int) (size >>> 32);
+            int height = (int) size;
+            byte[] frame = new byte[width * height * 4 + TRAILER];
+            if (!NativeEngine.nativeReadFrame(h, frame)) {
+                replyError(reply, id, NativeEngine.nativeError(h));
+                return;
+            }
+            ByteBuffer.wrap(frame, frame.length - TRAILER, TRAILER).order(ByteOrder.LITTLE_ENDIAN).putInt(id).putInt(width).putInt(height);
+            reply.postMessage(frame);
+        });
+    }
+
+    private static void replyError(JavaScriptReplyProxy reply, int id, String error) {
+        reply.postMessage("{\"id\":" + Integer.toUnsignedString(id) + ",\"error\":" + JSONObject.quote(error == null ? "unknown" : error) + "}");
     }
 
     @Override
@@ -139,9 +196,8 @@ public class NativeEnginePlugin extends Plugin {
             return;
         }
         withEngine(call, (h) -> {
-            int[] size = new int[2];
-            byte[] rgba = NativeEngine.nativeRender(h, plan, size);
-            if (rgba == null) {
+            long size = NativeEngine.nativeRenderFrame(h, plan, 0, plan.length);
+            if (size == 0) {
                 call.reject(NativeEngine.nativeError(h));
                 return;
             }
@@ -149,13 +205,14 @@ public class NativeEnginePlugin extends Plugin {
             if (!dir.isDirectory() && !dir.mkdirs()) throw new IOException("the frame folder cannot be made");
             File file = new File(dir, "frame-" + nextFile + ".rgba");
             nextFile = (nextFile + 1) % FRAME_FILES;
-            try (FileOutputStream out = new FileOutputStream(file)) {
-                out.write(rgba);
+            if (!NativeEngine.nativeWriteFrame(h, file.getAbsolutePath())) {
+                call.reject(NativeEngine.nativeError(h));
+                return;
             }
             JSObject result = new JSObject();
             result.put("path", file.getAbsolutePath());
-            result.put("width", size[0]);
-            result.put("height", size[1]);
+            result.put("width", (int) (size >>> 32));
+            result.put("height", (int) size);
             call.resolve(result);
         });
     }

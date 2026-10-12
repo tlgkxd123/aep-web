@@ -46,6 +46,8 @@ endif()
 
 if(MSVC)
   target_compile_options(aevk PRIVATE /W4)
+  # std::getenv is read once, at startup, from one thread.
+  target_compile_definitions(aevk PRIVATE _CRT_SECURE_NO_WARNINGS)
 else()
   # VkFoo info{VK_STRUCTURE_TYPE_FOO} zero-initializes the other members on purpose.
   target_compile_options(aevk PRIVATE -Wall -Wextra -Wno-missing-field-initializers)

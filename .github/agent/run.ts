@@ -5,7 +5,7 @@
 //   CURSOR_API_KEY      user or service-account key
 //   AGENT_TASK_FILE     the request: issue or pull request text, comments, the /agent instruction
 //   AGENT_SUMMARY_FILE  where the agent's final reply (the PR description) is written
-//   AGENT_MODEL         model id (default claude-opus-5-5)
+//   AGENT_MODEL         model id (default claude-opus-5-5), always run in its fast mode
 //   AGENT_EFFORT        reasoning effort, xhigh (default) or high; xhigh falls back to high, never lower
 //   AGENT_ATTEMPTS      agent turns, including the first (default 3)
 //   GITHUB_OUTPUT       receives checks=pass|fail
@@ -14,7 +14,7 @@
 // 2 the agent run failed.
 import { spawnSync } from "node:child_process";
 import { appendFileSync, readFileSync, writeFileSync } from "node:fs";
-import { Agent, Cursor, CursorAgentError, type ModelSelection, type Run } from "@cursor/sdk";
+import { Agent, Cursor, CursorAgentError, type ModelSelection, type ModelVariant, type Run } from "@cursor/sdk";
 
 const ROOT = process.env.GITHUB_WORKSPACE ?? process.cwd();
 const task = readFileSync(need("AGENT_TASK_FILE"), "utf8");
@@ -27,6 +27,8 @@ if (effort !== "xhigh" && effort !== "high") throw new Error(`AGENT_EFFORT must 
 // Models name the reasoning parameter and its levels differently.
 const EFFORT_PARAMS = ["effort", "reasoning_effort", "reasoning"];
 const EFFORT_VALUES: Record<string, string[]> = { xhigh: ["xhigh", "extra-high"], high: ["high"] };
+const isFast = (v: ModelVariant) =>
+  v.params.some((p) => p.id === "fast" && p.value === "true") || /\bfast\b/i.test(v.displayName);
 
 const CHECKS: [name: string, command: string][] = [
   ["types (G1)", "npx tsc --noEmit"],
@@ -76,19 +78,21 @@ function runChecks(): string[] {
 class RunFailed extends Error {}
 class StartFailed extends Error {}
 
-// The model's default variant with its reasoning effort raised to the requested level, or to high when the
-// model has no such level.
+// The model's fast-mode variant closest to its default, with its reasoning effort raised to the requested
+// level, or to high when the model has no such level.
 async function selectModel(apiKey: string): Promise<ModelSelection> {
   const entry = (await Cursor.models.list({ apiKey })).find((m) => m.id === model || m.aliases?.includes(model));
   if (!entry) throw new StartFailed(`model ${model} is not available to this API key`);
   const variants = entry.variants ?? [];
   const base = (variants.find((v) => v.isDefault) ?? variants[0])?.params ?? [];
   const kept = (params: ModelSelection["params"] = []) => params.filter((p) => base.some((b) => b.id === p.id && b.value === p.value)).length;
+  const fast = variants.filter(isFast);
+  if (!fast.length) throw new StartFailed(`${entry.id} has no fast mode; its variants: ${variants.map((v) => `${v.displayName} (${v.params.map((p) => `${p.id}=${p.value}`).join(" ")})`).join(", ")}`);
   for (const level of effort === "high" ? ["high"] : ["xhigh", "high"]) {
-    const at = variants.filter((v) => v.params.some((p) => EFFORT_PARAMS.includes(p.id) && EFFORT_VALUES[level].includes(p.value)));
+    const at = fast.filter((v) => v.params.some((p) => EFFORT_PARAMS.includes(p.id) && EFFORT_VALUES[level].includes(p.value)));
     if (at.length) return { id: entry.id, params: at.reduce((a, b) => (kept(b.params) > kept(a.params) ? b : a)).params };
   }
-  throw new StartFailed(`${entry.id} offers no reasoning effort of high or above`);
+  throw new StartFailed(`${entry.id} offers no reasoning effort of high or above in fast mode`);
 }
 
 async function follow(run: Run): Promise<string> {

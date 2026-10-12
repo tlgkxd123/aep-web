@@ -48,6 +48,7 @@ import { GoToTimeDialog, KeyboardShortcutsDialog, LayerSettingsDialog, Transform
 import { viewerControls } from "./viewerControls.ts";
 import { ChunkPanel } from "./ChunkPanel.tsx";
 import { CompositionPanel } from "./CompositionPanel.tsx";
+import { AlertDialog } from "./Dialog.tsx";
 import { EditingContext, type Editing, type ToolId } from "./editing.tsx";
 import { EffectControlsPanel } from "./EffectControlsPanel.tsx";
 import { EffectsPresetsPanel, useEffectLibrary } from "./EffectsPresetsPanel.tsx";
@@ -1504,28 +1505,7 @@ export function App() {
           </div>
         </div>
       )}
-      {error && (
-        <div className="modal-backdrop">
-          <div
-            className="dialog"
-            role="alertdialog"
-            aria-modal="true"
-            aria-labelledby="error-title"
-            aria-describedby="error-text"
-            onKeyDown={(e) => e.key === "Escape" && setError(undefined)}
-          >
-            <h2 id="error-title">
-              <Icon name="warning" size={16} /> Could not open project
-            </h2>
-            <p id="error-text">{error}</p>
-            <div className="dialog-actions">
-              <button type="button" className="ae-primary" autoFocus onClick={() => setError(undefined)}>
-                OK
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      {error && <AlertDialog title="Could not open project" message={error} actions={[{ label: "OK", primary: true, onClick: () => setError(undefined) }]} onCancel={() => setError(undefined)} />}
       {solidComp?.kind === "comp" && project && editor && (
         <SolidSettings
           project={project}
@@ -1600,49 +1580,14 @@ export function App() {
           />
         </Suspense>
       )}
-      {editError && (
-        <div className="modal-backdrop">
-          <div
-            className="dialog"
-            role="alertdialog"
-            aria-modal="true"
-            aria-labelledby="edit-error-title"
-            aria-describedby="edit-error-text"
-            onKeyDown={(e) => e.key === "Escape" && setEditError(undefined)}
-          >
-            <h2 id="edit-error-title">
-              <Icon name="warning" size={16} /> After Effects warning
-            </h2>
-            <p id="edit-error-text">{editError}</p>
-            <div className="dialog-actions">
-              <button type="button" className="ae-primary" autoFocus onClick={() => setEditError(undefined)}>
-                OK
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      {editError && <AlertDialog message={editError} actions={[{ label: "OK", primary: true, onClick: () => setEditError(undefined) }]} onCancel={() => setEditError(undefined)} />}
       {restarted && (
-        <div className="modal-backdrop">
-          <div
-            className="dialog"
-            role="alertdialog"
-            aria-modal="true"
-            aria-labelledby="restart-title"
-            aria-describedby="restart-text"
-            onKeyDown={(e) => e.key === "Escape" && setRestarted(undefined)}
-          >
-            <h2 id="restart-title">
-              <Icon name="warning" size={16} /> {restarted === "memory" ? "Restarted to free memory" : "Restarted after a crash"}
-            </h2>
-            <p id="restart-text">{restartNotice(restarted, autoResolution.on)}</p>
-            <div className="dialog-actions">
-              <button type="button" className="ae-primary" autoFocus onClick={() => setRestarted(undefined)}>
-                OK
-              </button>
-            </div>
-          </div>
-        </div>
+        <AlertDialog
+          title={restarted === "memory" ? "Restarted to free memory" : "Restarted after a crash"}
+          message={restartNotice(restarted, autoResolution.on)}
+          actions={[{ label: "OK", primary: true, onClick: () => setRestarted(undefined) }]}
+          onCancel={() => setRestarted(undefined)}
+        />
       )}
     </div>
   );

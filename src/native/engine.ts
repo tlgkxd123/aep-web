@@ -2,6 +2,9 @@
 // > Preview Renderer > Vulkan, playback renders the RAM preview frames whose plan it supports (src/native/plan.ts)
 // natively, as pending work (media/pending.ts) playback waits on as it waits on footage; the frames it cannot render
 // yet, and every frame shown outside playback, stay the WebGL renderer's.
+//
+// Plans and frames cross as array buffers over the plugin's message channel (the aevkFrames object the app injects);
+// in WebViews without one, plans go through the plugin bridge as base64 and frames come back as files.
 import { Capacitor, registerPlugin } from "@capacitor/core";
 import type { CompItem, Project } from "../aep/model.ts";
 import { registerPendingSource } from "../media/pending.ts";
@@ -40,11 +43,71 @@ export function toBase64(bytes: Uint8Array): string {
   return btoa(text);
 }
 
-/** The Android plugin: frames come back as files in the app's cache, which the page fetches whole. */
+/** The object NativeEnginePlugin injects into the page for frame requests (WebViewCompat.addWebMessageListener). */
+export interface FrameChannel {
+  postMessage(message: ArrayBuffer | string): void;
+  addEventListener(type: "message", listener: (event: { data: unknown }) => void): void;
+}
+
+/** Bytes after a frame's pixels in a channel reply: the request's id, the width and the height (u32, little-endian). */
+const TRAILER = 12;
+/** A frame not back after this long is given up on, so playback does not wait on it for good. */
+const CHANNEL_TIMEOUT_MS = 15000;
+
+/**
+ * Renders over the plugin's message channel: a request is its id (u32, little-endian) and the plan; the reply is the
+ * frame's straight RGBA, rows top first, and TRAILER, or {id, error} as JSON text.
+ */
+export function channelBackend(channel: FrameChannel, probe: () => Promise<NativeDevice>): NativeBackend {
+  let last = 0;
+  const waiting = new Map<number, { resolve: (frame: ArrayBuffer) => void; reject: (error: Error) => void; timer: ReturnType<typeof setTimeout> }>();
+  const settle = (id: number) => {
+    const entry = waiting.get(id);
+    if (entry) clearTimeout(entry.timer);
+    waiting.delete(id);
+    return entry;
+  };
+  channel.addEventListener("message", ({ data }) => {
+    if (typeof data === "string") {
+      try {
+        const { id, error } = JSON.parse(data) as { id: number; error: string };
+        settle(id)?.reject(new Error(error));
+      } catch {
+        // Not a reply of ours.
+      }
+    } else if (data instanceof ArrayBuffer && data.byteLength >= TRAILER) {
+      settle(new DataView(data, data.byteLength - TRAILER).getUint32(0, true))?.resolve(data);
+    }
+  });
+  return {
+    probe,
+    async render(plan) {
+      const id = (last = (last + 1) >>> 0);
+      const request = new Uint8Array(4 + plan.length);
+      new DataView(request.buffer).setUint32(0, id, true);
+      request.set(plan, 4);
+      const frame = await new Promise<ArrayBuffer>((resolve, reject) => {
+        const timer = setTimeout(() => settle(id)?.reject(new Error("the frame did not come back")), CHANNEL_TIMEOUT_MS);
+        waiting.set(id, { resolve, reject, timer });
+        channel.postMessage(request.buffer);
+      });
+      const tail = new DataView(frame, frame.byteLength - TRAILER);
+      const width = tail.getUint32(4, true);
+      const height = tail.getUint32(8, true);
+      if (width * height * 4 + TRAILER !== frame.byteLength) throw new Error(`a frame of ${width}x${height} came with ${frame.byteLength} bytes`);
+      return createImageBitmap(new ImageData(new Uint8ClampedArray(frame, 0, width * height * 4), width, height));
+    },
+  };
+}
+
+/** The Android plugin: frames over its message channel where the WebView has one, else as files in the app's cache. */
 export function capacitorBackend(): NativeBackend {
   const plugin = registerPlugin<NativeEnginePlugin>("NativeEngine");
+  const probe = () => plugin.probe();
+  const channel = (globalThis as { aevkFrames?: FrameChannel }).aevkFrames;
+  if (channel && typeof channel.postMessage === "function" && typeof channel.addEventListener === "function") return channelBackend(channel, probe);
   return {
-    probe: () => plugin.probe(),
+    probe,
     async render(plan) {
       const { path, width, height } = await plugin.render({ plan: toBase64(plan) });
       const response = await fetch(Capacitor.convertFileSrc(`file://${path}`));
@@ -62,8 +125,11 @@ export interface FrameSink {
 
 /** Native renders failing in a row after which the engine is left alone for the session. */
 const MAX_FAILURES = 3;
-/** Renders handed to the engine at once. */
-const MAX_IN_FLIGHT = 2;
+/**
+ * Renders handed to the engine at once: one rendering, one on its way back to the page and one waiting, so the engine
+ * starts the next frame as soon as it hands one over.
+ */
+const MAX_IN_FLIGHT = 3;
 const PENDING = "native";
 
 /**
@@ -74,7 +140,10 @@ export class NativeFrames {
   private device: Promise<NativeDevice> | undefined;
   private known: NativeDevice | undefined;
   private failures = 0;
-  private readonly inFlight = new Set<string>();
+  /** Keys of the renders in flight, with when each was handed to the engine. */
+  private readonly inFlight = new Map<string, number>();
+  /** About how long a frame takes from handing its plan over to having its bitmap, in milliseconds (0 before one). */
+  latencyMs = 0;
   /** Views (at a content generation) with content the engine cannot render, and frames it failed on. */
   private readonly refused = new Set<string>();
   private refusedGeneration = -1;
@@ -128,6 +197,11 @@ export class NativeFrames {
     return this.inFlight.size > 0;
   }
 
+  /** Whether frame `frame` of cache view `view` is rendering in the engine for the current content. */
+  renderingFrame(view: string, frame: number): boolean {
+    return this.inFlight.has(`${view}:${frame}:${this.generation()}`);
+  }
+
   /**
    * Starts rendering `frame` of `comp` (cache view `view`) natively. Returns the pending entry to wait on (media/
    * pending.ts) while it or another frame renders, or undefined when the frame is the WebGL renderer's.
@@ -143,19 +217,22 @@ export class NativeFrames {
     const key = `${view}:${frame}:${generation}`;
     if (this.refused.has(key)) return undefined;
     if (!this.inFlight.has(key)) {
-      if (this.inFlight.size >= MAX_IN_FLIGHT) return `${PENDING}\n${this.inFlight.values().next().value}`;
+      if (this.inFlight.size >= MAX_IN_FLIGHT) return `${PENDING}\n${this.inFlight.keys().next().value}`;
       const plan = buildFramePlan(project, comp, time, { scale });
       if (plan.unsupported.length) {
         this.refused.add(view);
         this.lastRefusal = `left to WebGL: ${plan.unsupported.join("; ")}`;
         return undefined;
       }
-      this.inFlight.add(key);
+      const started = performance.now();
+      this.inFlight.set(key, started);
       this.backend()!
         .render(encodePlan(plan))
         .then(
           (bitmap) => {
             this.failures = 0;
+            const took = performance.now() - started;
+            this.latencyMs = this.latencyMs ? this.latencyMs + (took - this.latencyMs) * 0.3 : took;
             if (this.generation() === generation) this.sink.put(view, frame, bitmap, bitmap.width * bitmap.height * 4);
             else bitmap.close();
           },

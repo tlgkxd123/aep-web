@@ -28,6 +28,7 @@
   background: var(--app);
   font-variant-numeric: tabular-nums;
   -webkit-font-smoothing: antialiased;
+  accent-color: var(--accent);
 }
 
 * {
@@ -309,6 +310,23 @@ button.ae-button:disabled {
   cursor: default;
 }
 
+/* The filled button among small ones (the Render Queue's Render and Stop). */
+button.ae-button.ae-primary {
+  background: var(--accent);
+  border-color: transparent;
+  color: #fff;
+  font-weight: 600;
+}
+
+button.ae-button.ae-primary:hover:not(:disabled) {
+  background: #3d98f0;
+  border-color: transparent;
+}
+
+button.ae-button.ae-primary:disabled {
+  opacity: 1;
+}
+
 .ec-status {
   margin-left: 8px;
   color: var(--text-dim, #999);
@@ -339,8 +357,20 @@ button.ae-button:disabled {
   color: #fff;
 }
 
-.ae-primary:hover {
+.ae-primary:hover:not(:disabled) {
   background: #3d98f0;
+}
+
+.ae-primary:disabled {
+  background: #3b4b5c;
+  color: #9aa6b2;
+  cursor: default;
+}
+
+/* The accent outline is lost on an accent-filled control: a light ring outside it instead. */
+.ae-primary:focus-visible {
+  outline: 2px solid var(--text-hi);
+  outline-offset: 2px;
 }
 
 .ae-secondary {
@@ -928,6 +958,12 @@ button.fx-switch:disabled {
   background: #1d2733;
 }
 
+/* Where files are chosen rather than dropped (phones, the Android app), the dashed drop edge would promise a gesture
+   that does not exist. */
+.home-drop.pick {
+  border-style: solid;
+}
+
 .home-drop-title {
   color: var(--text-hi);
   font-size: 14px;
@@ -997,34 +1033,6 @@ button.fx-switch:disabled {
   display: grid;
   place-items: center;
   background: rgb(0 0 0 / 45%);
-}
-
-.dialog {
-  width: min(460px, calc(100vw - 40px));
-  padding: 18px 20px 16px;
-  background: #2b2b2b;
-  border: 1px solid #444;
-  border-radius: 6px;
-  box-shadow: 0 16px 40px rgb(0 0 0 / 60%);
-}
-
-.dialog h2 {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 10px;
-  color: var(--text-hi);
-  font-size: 14px;
-  font-weight: 600;
-}
-
-.dialog h2 .icon {
-  color: #e8b84a;
-}
-
-.dialog p {
-  line-height: 1.5;
-  overflow-wrap: anywhere;
 }
 
 .dialog-actions {
@@ -3065,6 +3073,12 @@ button.expr-eq:hover {
   border-bottom: 1px solid var(--line);
 }
 
+.rq-head .ae-button {
+  height: 24px;
+  padding: 0 14px;
+  border-radius: 12px;
+}
+
 .rq-spacer {
   flex: 1;
 }
@@ -3173,12 +3187,6 @@ button.expr-eq:hover {
   padding: 0;
   font-size: 11px;
   cursor: pointer;
-}
-
-.rq-perf {
-  margin: 0 10px 8px 96px;
-  color: var(--text-dim);
-  font-size: 10px;
 }
 
 .rq-perf {

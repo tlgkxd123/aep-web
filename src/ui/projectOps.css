@@ -63,12 +63,6 @@
   font-size: 12px;
 }
 
-.ae-window .ae-primary:disabled {
-  background: #3b4b5c;
-  color: #9aa6b2;
-  cursor: default;
-}
-
 .ae-window :focus-visible {
   outline: 1px solid var(--accent);
   outline-offset: 1px;

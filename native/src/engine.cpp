@@ -1,6 +1,7 @@
 #include "engine.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <cstdlib>
 #include <cstring>
@@ -20,6 +21,8 @@ namespace aevk {
 namespace {
 
 constexpr VkFormat kColorFormat = VK_FORMAT_R8G8B8A8_UNORM;
+/** Read-back frames: straight RGBA computed in integers (straight.frag). */
+constexpr VkFormat kStraightFormat = VK_FORMAT_R8G8B8A8_UINT;
 /** Frames a pooled target may go unused before it is deleted. */
 constexpr uint64_t kKeepFrames = 2;
 constexpr uint32_t kSetsPerPool = 1024;
@@ -175,6 +178,8 @@ struct Engine::Impl {
   VkShaderModule layerVert = VK_NULL_HANDLE, fullscreenVert = VK_NULL_HANDLE, layerFrag = VK_NULL_HANDLE;
   VkPipeline layerPipe = VK_NULL_HANDLE, compositePipe = VK_NULL_HANDLE, maskPipe = VK_NULL_HANDLE, premultiplyPipe = VK_NULL_HANDLE;
   VkPipeline coveragePipe = VK_NULL_HANDLE, featherPipe = VK_NULL_HANDLE, combinePipe = VK_NULL_HANDLE, paintPipe = VK_NULL_HANDLE;
+  VkPipeline straightPipe = VK_NULL_HANDLE;
+  FrameTimings timings;
   Buffer edges;
   VkDeviceSize edgesUsed = 0;
   Buffer staging;
@@ -281,6 +286,9 @@ struct Engine::Impl {
         break;
       }
     }
+    VkFormatProperties straight;
+    vk::vkGetPhysicalDeviceFormatProperties(physical, kStraightFormat, &straight);
+    if (!(straight.optimalTilingFeatures & VK_FORMAT_FEATURE_COLOR_ATTACHMENT_BIT)) throw std::runtime_error("the device cannot render 8-bit integer images");
   }
 
   void createDevice() {
@@ -455,6 +463,7 @@ struct Engine::Impl {
 
     passes[kColorFormat] = renderPass(kColorFormat);
     if (!passes.count(coverageFormat)) passes[coverageFormat] = renderPass(coverageFormat);
+    passes[kStraightFormat] = renderPass(kStraightFormat);
     layerVert = shader(kShader_layer_vert, sizeof kShader_layer_vert);
     fullscreenVert = shader(kShader_fullscreen_vert, sizeof kShader_fullscreen_vert);
     layerFrag = shader(kShader_layer_frag, sizeof kShader_layer_frag);
@@ -468,6 +477,7 @@ struct Engine::Impl {
     featherPipe = pipeline(fullscreenVert, shader(kShader_feather_frag, sizeof kShader_feather_frag), coverage, false);
     combinePipe = pipeline(fullscreenVert, shader(kShader_combine_frag, sizeof kShader_combine_frag), coverage, false);
     paintPipe = pipeline(fullscreenVert, shader(kShader_paint_frag, sizeof kShader_paint_frag), color, false);
+    straightPipe = pipeline(fullscreenVert, shader(kShader_straight_frag, sizeof kShader_straight_frag), passes[kStraightFormat], false);
 
     edges = hostBuffer(1 << 16, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
     dummy = createTarget(1, 1, kColorFormat);
@@ -632,10 +642,10 @@ struct Engine::Impl {
   // --- recording ---------------------------------------------------------------------------------------------------
 
   void begin() {
-    VkCommandBufferBeginInfo info{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
-    info.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+    VkCommandBufferBeginInfo beginInfo{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO};
+    beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
     AEVK_CHECK(vk::vkResetCommandBuffer(cmd, 0));
-    AEVK_CHECK(vk::vkBeginCommandBuffer(cmd, &info));
+    AEVK_CHECK(vk::vkBeginCommandBuffer(cmd, &beginInfo));
     recording = true;
   }
 
@@ -643,21 +653,21 @@ struct Engine::Impl {
   void submit(VkSemaphore wait = VK_NULL_HANDLE, VkSemaphore signal = VK_NULL_HANDLE) {
     AEVK_CHECK(vk::vkEndCommandBuffer(cmd));
     recording = false;
-    VkSubmitInfo info{VK_STRUCTURE_TYPE_SUBMIT_INFO};
+    VkSubmitInfo submitInfo{VK_STRUCTURE_TYPE_SUBMIT_INFO};
     const VkPipelineStageFlags stage = VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT;
     if (wait) {
-      info.waitSemaphoreCount = 1;
-      info.pWaitSemaphores = &wait;
-      info.pWaitDstStageMask = &stage;
+      submitInfo.waitSemaphoreCount = 1;
+      submitInfo.pWaitSemaphores = &wait;
+      submitInfo.pWaitDstStageMask = &stage;
     }
     if (signal) {
-      info.signalSemaphoreCount = 1;
-      info.pSignalSemaphores = &signal;
+      submitInfo.signalSemaphoreCount = 1;
+      submitInfo.pSignalSemaphores = &signal;
     }
-    info.commandBufferCount = 1;
-    info.pCommandBuffers = &cmd;
+    submitInfo.commandBufferCount = 1;
+    submitInfo.pCommandBuffers = &cmd;
     AEVK_CHECK(vk::vkResetFences(device, 1, &fence));
-    AEVK_CHECK(vk::vkQueueSubmit(queue, 1, &info, fence));
+    AEVK_CHECK(vk::vkQueueSubmit(queue, 1, &submitInfo, fence));
     AEVK_CHECK(vk::vkWaitForFences(device, 1, &fence, VK_TRUE, UINT64_MAX));
     AEVK_CHECK(vk::vkResetDescriptorPool(device, descriptorPool, 0));
     edgesUsed = 0;
@@ -704,13 +714,13 @@ struct Engine::Impl {
   void beginPass(Target& out, VkClearColorValue clear = {}) {
     VkClearValue value{};
     value.color = clear;
-    VkRenderPassBeginInfo info{VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO};
-    info.renderPass = passes.at(out.format);
-    info.framebuffer = out.framebuffer;
-    info.renderArea = {{0, 0}, {out.width, out.height}};
-    info.clearValueCount = 1;
-    info.pClearValues = &value;
-    vk::vkCmdBeginRenderPass(cmd, &info, VK_SUBPASS_CONTENTS_INLINE);
+    VkRenderPassBeginInfo passInfo{VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO};
+    passInfo.renderPass = passes.at(out.format);
+    passInfo.framebuffer = out.framebuffer;
+    passInfo.renderArea = {{0, 0}, {out.width, out.height}};
+    passInfo.clearValueCount = 1;
+    passInfo.pClearValues = &value;
+    vk::vkCmdBeginRenderPass(cmd, &passInfo, VK_SUBPASS_CONTENTS_INLINE);
   }
 
   /** Draws `pipeline` into all of `out` (or the `scissor` part of it; the rest is cleared) with `inputs` bound to units 0..3. */
@@ -803,7 +813,7 @@ struct Engine::Impl {
   /** The layer's image drawn through its matrix into a new target of the comp image's size. */
   Target* place(const Layer& layer, uint32_t width, uint32_t height, int depth) {
     LayerImage image = layerImage(layer, depth);
-    Target* out = cleared(width, height);
+    Target* out = acquire(width, height);
     const float k = image.scale;
     drawLayerQuad(*out, *image.target, (float(image.width) + 2 * kPad) / k, (float(image.height) + 2 * kPad) / k, (image.originX - kPad) / k,
                   (image.originY - kPad) / k, layer.matrix.data(), layer.zoom);
@@ -1044,12 +1054,17 @@ struct Engine::Impl {
   // --- frames ------------------------------------------------------------------------------------------------------
 
   Target* render(const Plan& p) {
+    using Clock = std::chrono::steady_clock;
+    const Clock::time_point started = Clock::now();
     plan = &p;
     begin();
     Target* result = nullptr;
     try {
       result = renderComp(p.root, 0);
+      const Clock::time_point recorded = Clock::now();
       submit();
+      timings.recordMs = std::chrono::duration<double, std::milli>(recorded - started).count();
+      timings.gpuMs = std::chrono::duration<double, std::milli>(Clock::now() - recorded).count();
     } catch (...) {
       if (recording) {
         vk::vkEndCommandBuffer(cmd);
@@ -1064,39 +1079,41 @@ struct Engine::Impl {
     return result;
   }
 
-  void readPixels(const Target& target, std::vector<uint8_t>& rgba) {
-    const VkDeviceSize bytes = VkDeviceSize(target.width) * target.height * 4;
-    Buffer& buffer = stagingFor(bytes);
-    begin();
-    barrier(target.image, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
-            VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_ACCESS_TRANSFER_READ_BIT);
-    VkBufferImageCopy region{};
-    region.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
-    region.imageExtent = {target.width, target.height, 1};
-    vk::vkCmdCopyImageToBuffer(cmd, target.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, buffer.buffer, 1, &region);
-    barrier(target.image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_TRANSFER_BIT, 0,
-            VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, VK_ACCESS_SHADER_READ_BIT);
-    VkBufferMemoryBarrier host{VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER};
-    host.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
-    host.dstAccessMask = VK_ACCESS_HOST_READ_BIT;
-    host.srcQueueFamilyIndex = host.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
-    host.buffer = buffer.buffer;
-    host.size = VK_WHOLE_SIZE;
-    vk::vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_HOST_BIT, 0, 0, nullptr, 1, &host, 0, nullptr);
-    submit();
-    // Premultiplied with the border to straight without it, as Renderer.readPixels returns pixels.
+  /** The frame as straight RGBA without the border (straight.frag), copied into the staging buffer, which it returns. */
+  const uint8_t* mapPixels(const Target& target) {
     const uint32_t w = target.width - 2 * kPad, h = target.height - 2 * kPad;
-    rgba.resize(size_t(w) * h * 4);
-    const auto* src = static_cast<const uint8_t*>(buffer.mapped);
-    for (uint32_t y = 0; y < h; y++) {
-      const uint8_t* row = src + (size_t(y + kPad) * target.width + kPad) * 4;
-      uint8_t* out = rgba.data() + size_t(y) * w * 4;
-      for (uint32_t x = 0; x < w * 4; x += 4) {
-        const uint32_t a = row[x + 3];
-        for (int c = 0; c < 3; c++) out[x + c] = a ? uint8_t(std::min<uint32_t>(255, (row[x + c] * 255u * 2 + a) / (2 * a))) : 0;
-        out[x + 3] = uint8_t(a);
+    Buffer& buffer = stagingFor(VkDeviceSize(w) * h * 4);
+    begin();
+    Target* straight = nullptr;
+    try {
+      straight = acquire(w, h, kStraightFormat);
+      const int32_t pad = kPad;
+      pass(*straight, straightPipe, {&target}, &pad, sizeof pad, 3);
+      barrier(straight->image, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_PIPELINE_STAGE_COLOR_ATTACHMENT_OUTPUT_BIT,
+              VK_ACCESS_COLOR_ATTACHMENT_WRITE_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_ACCESS_TRANSFER_READ_BIT);
+      VkBufferImageCopy region{};
+      region.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+      region.imageExtent = {w, h, 1};
+      vk::vkCmdCopyImageToBuffer(cmd, straight->image, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, buffer.buffer, 1, &region);
+      VkBufferMemoryBarrier host{VK_STRUCTURE_TYPE_BUFFER_MEMORY_BARRIER};
+      host.srcAccessMask = VK_ACCESS_TRANSFER_WRITE_BIT;
+      host.dstAccessMask = VK_ACCESS_HOST_READ_BIT;
+      host.srcQueueFamilyIndex = host.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
+      host.buffer = buffer.buffer;
+      host.size = VK_WHOLE_SIZE;
+      vk::vkCmdPipelineBarrier(cmd, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_PIPELINE_STAGE_HOST_BIT, 0, 0, nullptr, 1, &host, 0, nullptr);
+      submit();
+    } catch (...) {
+      if (recording) {
+        vk::vkEndCommandBuffer(cmd);
+        recording = false;
       }
+      release(straight);
+      throw;
     }
+    // The next render pass over it starts from an undefined layout, so it goes back to the pool as it is.
+    release(straight);
+    return static_cast<const uint8_t*>(buffer.mapped);
   }
 
   // --- presentation ------------------------------------------------------------------------------------------------
@@ -1213,13 +1230,13 @@ struct Engine::Impl {
     VkDescriptorSet set = descriptorSet({&frame}, false);
     VkClearValue clear{};
     clear.color = {{background[0], background[1], background[2], 1}};
-    VkRenderPassBeginInfo info{VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO};
-    info.renderPass = swap.pass;
-    info.framebuffer = swap.framebuffers[index];
-    info.renderArea = {{0, 0}, swap.extent};
-    info.clearValueCount = 1;
-    info.pClearValues = &clear;
-    vk::vkCmdBeginRenderPass(cmd, &info, VK_SUBPASS_CONTENTS_INLINE);
+    VkRenderPassBeginInfo passInfo{VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO};
+    passInfo.renderPass = swap.pass;
+    passInfo.framebuffer = swap.framebuffers[index];
+    passInfo.renderArea = {{0, 0}, swap.extent};
+    passInfo.clearValueCount = 1;
+    passInfo.pClearValues = &clear;
+    vk::vkCmdBeginRenderPass(cmd, &passInfo, VK_SUBPASS_CONTENTS_INLINE);
     VkViewport viewport{0, 0, viewW, viewH, 0, 1};
     VkRect2D scissor{{0, 0}, swap.extent};
     vk::vkCmdSetViewport(cmd, 0, 1, &viewport);
@@ -1254,7 +1271,7 @@ struct Engine::Impl {
       dummy = nullptr;
       destroyBuffer(edges);
       destroyBuffer(staging);
-      for (VkPipeline p : {layerPipe, compositePipe, maskPipe, premultiplyPipe, coveragePipe, featherPipe, combinePipe, paintPipe})
+      for (VkPipeline p : {layerPipe, compositePipe, maskPipe, premultiplyPipe, coveragePipe, featherPipe, combinePipe, paintPipe, straightPipe})
         if (p) vk::vkDestroyPipeline(device, p, nullptr);
       for (VkShaderModule m : modules) vk::vkDestroyShaderModule(device, m, nullptr);
       for (auto& [format, pass] : passes) vk::vkDestroyRenderPass(device, pass, nullptr);
@@ -1313,14 +1330,23 @@ std::shared_ptr<Frame> Engine::renderFrame(const Plan& plan, std::string& error)
   }
 }
 
-bool Engine::readPixels(const Frame& frame, std::vector<uint8_t>& rgba, std::string& error) {
+const FrameTimings& Engine::lastTimings() const { return impl_->timings; }
+
+bool Engine::mapPixels(const Frame& frame, const uint8_t*& rgba, std::string& error) {
   try {
-    impl_->readPixels(*frame.state_->target, rgba);
+    rgba = impl_->mapPixels(*frame.state_->target);
     return true;
   } catch (const std::exception& e) {
     error = e.what();
     return false;
   }
+}
+
+bool Engine::readPixels(const Frame& frame, std::vector<uint8_t>& rgba, std::string& error) {
+  const uint8_t* pixels = nullptr;
+  if (!mapPixels(frame, pixels, error)) return false;
+  rgba.assign(pixels, pixels + size_t(frame.width() - 2 * kPad) * (frame.height() - 2 * kPad) * 4);
+  return true;
 }
 
 bool Engine::render(const Plan& plan, std::vector<uint8_t>& rgba, uint32_t& width, uint32_t& height, std::string& error) {

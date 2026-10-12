@@ -650,6 +650,38 @@ button,
   }
 }
 
+/* The compact chrome under a mouse (a narrow desktop window, a tablet with a trackpad) answers hover as the desktop
+   chrome does; fingers only see the pressed state. */
+@media (hover: hover) {
+  .mtop-btn:hover:not(:disabled),
+  .mtransport-btn:hover,
+  .sheet-back:hover,
+  .sheet-close:hover,
+  .tl-comp-settings:hover {
+    background: var(--hover);
+    color: var(--text-hi);
+  }
+
+  .mtransport-btn.mtransport-play:hover {
+    background: #3d98f0;
+    color: #fff;
+  }
+
+  .mtab:hover:not(.active) {
+    color: var(--text);
+  }
+
+  .sheet-item:hover:not(:disabled) {
+    background: var(--hover);
+    color: var(--text-hi);
+  }
+}
+
+.mtransport-btn.mtransport-play:focus-visible {
+  outline: 2px solid var(--text-hi);
+  outline-offset: 2px;
+}
+
 /* ---------- panels on compact screens ---------- */
 
 .app.compact .frame-mobile {
@@ -781,12 +813,37 @@ button,
   width: 18px;
 }
 
-.app.compact .tl-time {
-  min-width: 0;
+/* The Timeline's controls run the full width above the column heads and the ruler: the layer outline, at 60% of a
+   phone's width, has no room for the time, the search field and the work area buttons side by side. */
+.app.compact .tl-head {
+  display: grid;
+  grid-template-columns: var(--outline-w) minmax(0, 1fr);
+  grid-template-rows: auto auto;
+}
+
+.app.compact .tl-head-left {
+  display: contents;
 }
 
 .app.compact .tl-controls {
-  gap: 6px;
+  grid-column: 1 / -1;
+  gap: 8px;
+  height: 48px;
+}
+
+.app.compact .tl-colhead {
+  grid-column: 1;
+  align-self: end;
+  height: 28px;
+}
+
+.app.compact .tl-head-right {
+  grid-column: 2;
+}
+
+.app.compact .tl-time {
+  flex: none;
+  white-space: nowrap;
 }
 
 .app.compact .tl-search {
@@ -840,7 +897,9 @@ button,
   }
 }
 
+/* Below the controls row, so the grip does not sit over the search field. */
 .app.compact .tl-split {
+  top: 48px;
   bottom: 40px;
 }
 
@@ -857,6 +916,18 @@ button,
 .app.compact .tl-foot .tl-tool {
   width: 36px;
   height: 36px;
+}
+
+/* The In/Out/Duration/Stretch panes are not shown here; the switches/modes toggle keeps to one line. */
+.app.compact .tl-foot-left > span.tl-tool {
+  display: none;
+}
+
+.app.compact .tl-foot-toggle {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .app.compact .tl-zoom {
@@ -879,12 +950,13 @@ button,
 
 .app.compact .rq-head .ae-button {
   min-height: 38px;
-  padding: 0 14px;
+  padding: 0 16px;
+  border-radius: 19px;
 }
 
 .app.compact .rq-cols,
 .app.compact .rq-row {
-  grid-template-columns: 40px minmax(0, 1fr) 92px 72px 40px;
+  grid-template-columns: 56px minmax(0, 1fr) 84px 64px 40px;
 }
 
 .app.compact .rq-row {
@@ -953,11 +1025,6 @@ button,
   min-height: 40px;
 }
 
-.fxp-apply .ae-primary:disabled {
-  background: #3a3a3a;
-  color: #7a7a7a;
-}
-
 /* ---------- home and dialogs on compact screens ---------- */
 
 .app.compact .home {
@@ -1003,12 +1070,6 @@ button,
   position: fixed;
   grid-template: minmax(0, 1fr) / minmax(0, 1fr);
   padding: max(8px, env(safe-area-inset-top)) 8px max(8px, env(safe-area-inset-bottom));
-}
-
-.app.compact .dialog {
-  width: min(460px, 100%);
-  max-height: 100%;
-  overflow-y: auto;
 }
 
 .app.compact .ae-window {

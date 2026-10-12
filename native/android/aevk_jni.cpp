@@ -4,6 +4,7 @@
 #include <android/native_window_jni.h>
 #include <jni.h>
 
+#include <cstdio>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -18,6 +19,8 @@ struct Session {
   std::mutex lock;
   std::unique_ptr<aevk::Engine> engine;
   std::unique_ptr<aevk::Player> player;
+  /** The frame nativeRenderFrame rendered, until nativeReadFrame or nativeWriteFrame takes its pixels. */
+  std::shared_ptr<aevk::Frame> frame;
   std::string error;
 };
 
@@ -81,6 +84,7 @@ JNIEXPORT void JNICALL Java_com_zionschxma_aev3_NativeEngine_nativeDestroy(JNIEn
   if (!s) return;
   {
     std::lock_guard<std::mutex> guard(s->lock);
+    s->frame.reset();
     s->player.reset();
     s->engine.reset();
   }
@@ -107,21 +111,67 @@ JNIEXPORT jobjectArray JNICALL Java_com_zionschxma_aev3_NativeEngine_nativeDevic
   return out;
 }
 
-/** Straight RGBA, rows top first, with size = {width, height}; null when the plan cannot be rendered. */
-JNIEXPORT jbyteArray JNICALL Java_com_zionschxma_aev3_NativeEngine_nativeRender(JNIEnv* env, jclass, jlong handle, jbyteArray planBytes,
-                                                                               jintArray size) {
+/**
+ * Renders the plan in planBytes[offset, offset + length) and keeps the frame for nativeReadFrame or nativeWriteFrame;
+ * its size as width << 32 | height, or 0 when the plan cannot be rendered.
+ */
+JNIEXPORT jlong JNICALL Java_com_zionschxma_aev3_NativeEngine_nativeRenderFrame(JNIEnv* env, jclass, jlong handle, jbyteArray planBytes, jint offset,
+                                                                               jint length) {
   Session* s = session(handle);
-  const std::vector<uint8_t> data = bytes(env, planBytes);
+  std::vector<uint8_t> data;
+  if (planBytes && offset >= 0 && length >= 0 && offset <= env->GetArrayLength(planBytes) - length) {
+    data.resize(size_t(length));
+    env->GetByteArrayRegion(planBytes, offset, length, reinterpret_cast<jbyte*>(data.data()));
+  }
   std::lock_guard<std::mutex> guard(s->lock);
+  s->frame.reset();
   aevk::Plan plan;
-  std::vector<uint8_t> rgba;
-  uint32_t width = 0, height = 0;
-  if (!aevk::decodePlan(data.data(), data.size(), plan, s->error) || !s->engine->render(plan, rgba, width, height, s->error)) return nullptr;
-  const jint dims[2] = {jint(width), jint(height)};
-  if (size && env->GetArrayLength(size) >= 2) env->SetIntArrayRegion(size, 0, 2, dims);
-  jbyteArray out = env->NewByteArray(jsize(rgba.size()));
-  if (out) env->SetByteArrayRegion(out, 0, jsize(rgba.size()), reinterpret_cast<const jbyte*>(rgba.data()));
-  return out;
+  if (!aevk::decodePlan(data.data(), data.size(), plan, s->error)) return 0;
+  s->frame = s->engine->renderFrame(plan, s->error);
+  if (!s->frame) return 0;
+  return jlong(s->frame->width() - 2 * aevk::kPad) << 32 | jlong(s->frame->height() - 2 * aevk::kPad);
+}
+
+/** The rendered frame's straight RGBA, rows top first, into the start of `out`; false when there is none or it does not fit. */
+JNIEXPORT jboolean JNICALL Java_com_zionschxma_aev3_NativeEngine_nativeReadFrame(JNIEnv* env, jclass, jlong handle, jbyteArray out) {
+  Session* s = session(handle);
+  std::lock_guard<std::mutex> guard(s->lock);
+  std::shared_ptr<aevk::Frame> frame = std::move(s->frame);
+  if (!frame) {
+    s->error = "no frame was rendered";
+    return JNI_FALSE;
+  }
+  const size_t size = size_t(frame->width() - 2 * aevk::kPad) * (frame->height() - 2 * aevk::kPad) * 4;
+  if (!out || size_t(env->GetArrayLength(out)) < size) {
+    s->error = "the frame does not fit the array";
+    return JNI_FALSE;
+  }
+  const uint8_t* rgba = nullptr;
+  if (!s->engine->mapPixels(*frame, rgba, s->error)) return JNI_FALSE;
+  env->SetByteArrayRegion(out, 0, jsize(size), reinterpret_cast<const jbyte*>(rgba));
+  return JNI_TRUE;
+}
+
+/** The rendered frame's straight RGBA, rows top first, as the file at `path`. */
+JNIEXPORT jboolean JNICALL Java_com_zionschxma_aev3_NativeEngine_nativeWriteFrame(JNIEnv* env, jclass, jlong handle, jstring path) {
+  Session* s = session(handle);
+  const std::string file = utf(env, path);
+  std::lock_guard<std::mutex> guard(s->lock);
+  std::shared_ptr<aevk::Frame> frame = std::move(s->frame);
+  if (!frame) {
+    s->error = "no frame was rendered";
+    return JNI_FALSE;
+  }
+  const size_t size = size_t(frame->width() - 2 * aevk::kPad) * (frame->height() - 2 * aevk::kPad) * 4;
+  const uint8_t* rgba = nullptr;
+  if (!s->engine->mapPixels(*frame, rgba, s->error)) return JNI_FALSE;
+  std::FILE* out = std::fopen(file.c_str(), "wb");
+  const bool written = out && std::fwrite(rgba, 1, size, out) == size;
+  if ((out && std::fclose(out) != 0) || !written) {
+    s->error = "the frame file could not be written";
+    return JNI_FALSE;
+  }
+  return JNI_TRUE;
 }
 
 JNIEXPORT jboolean JNICALL Java_com_zionschxma_aev3_NativeEngine_nativeAttach(JNIEnv* env, jclass, jlong handle, jobject surface) {

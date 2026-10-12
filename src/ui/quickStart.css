@@ -150,9 +150,24 @@
   grid-template-columns: minmax(0, 1fr);
 }
 
+/* Each file on two lines: its label, then the button and the chosen name or the hint, which has room to wrap. */
 .app.compact .qs-file {
-  grid-template-columns: 76px auto minmax(0, 1fr) auto;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 4px 10px;
   min-height: 44px;
+}
+
+.app.compact .qs-file + .qs-file {
+  margin-top: 10px;
+}
+
+.app.compact .qs-file-label {
+  grid-column: 1 / -1;
+}
+
+.app.compact .qs-file-name {
+  white-space: normal;
+  line-height: 1.4;
 }
 
 .app.compact .quick-start .qs-file .ae-secondary {

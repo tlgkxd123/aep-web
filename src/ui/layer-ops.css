@@ -137,34 +137,15 @@ button.hot-link {
   cursor: pointer;
 }
 
-/* Solid Settings */
+/* Solid Settings (an .ae-window; .ae-field comes from projectOps.css) */
 
-.dialog.solid-dialog {
+.solid-dialog {
+  width: 430px;
+}
+
+.sd-form {
   display: grid;
   gap: 12px;
-  width: min(430px, calc(100vw - 40px));
-}
-
-.dialog.solid-dialog h2 {
-  margin-bottom: 0;
-}
-
-.ae-field {
-  height: 22px;
-  padding: 0 6px;
-  border: 1px solid #484848;
-  border-radius: 3px;
-  background: var(--field);
-  color: var(--text-hi);
-}
-
-.ae-field:focus {
-  border-color: var(--accent);
-  outline: none;
-}
-
-select.ae-field {
-  padding-right: 2px;
 }
 
 .sd-row {
@@ -283,11 +264,5 @@ select.ae-field {
 }
 
 .dialog-actions.sd-actions {
-  gap: 8px;
   margin-top: 4px;
-}
-
-.ae-primary:disabled {
-  opacity: 0.45;
-  cursor: default;
 }

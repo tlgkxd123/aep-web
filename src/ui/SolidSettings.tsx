@@ -1,6 +1,7 @@
-import { useId, useState, type FormEvent, type KeyboardEvent } from "react";
+import { useState, type FormEvent } from "react";
 import type { CompItem, Project } from "../aep/model.ts";
 import { autoName, solidColorName } from "../edit/layers.ts";
+import { Dialog } from "./Dialog.tsx";
 import { colorCss } from "./format.ts";
 import { Icon } from "./icons.tsx";
 
@@ -56,7 +57,6 @@ export function SolidSettings({
   onOk: (solid: SolidSpec) => void;
   onCancel: () => void;
 }) {
-  const id = useId();
   const [color, setColor] = useState(lastColor);
   const [typedName, setTypedName] = useState<string>();
   const [width, setWidth] = useState(String(comp.width));
@@ -88,17 +88,10 @@ export function SolidSettings({
     lastColor = color;
     onOk({ name: name.trim(), width: w, height: h, pixelAspect, color });
   };
-  const onKeyDown = (e: KeyboardEvent) => {
-    if (e.key === "Escape") {
-      e.stopPropagation();
-      onCancel();
-    }
-  };
 
   return (
-    <div className="modal-backdrop">
-      <form className="dialog ae-dialog solid-dialog" role="dialog" aria-modal="true" aria-labelledby={`${id}-title`} onSubmit={submit} onKeyDown={onKeyDown}>
-        <h2 id={`${id}-title`}>Solid Settings</h2>
+    <Dialog title="Solid Settings" className="solid-dialog" onCancel={onCancel}>
+      <form className="sd-form" onSubmit={submit}>
         <label className="sd-row sd-name">
           <span>Name:</span>
           <input className="ae-field" value={name} autoFocus onFocus={(e) => e.currentTarget.select()} onChange={(e) => setTypedName(e.target.value)} />
@@ -185,6 +178,6 @@ export function SolidSettings({
           </button>
         </div>
       </form>
-    </div>
+    </Dialog>
   );
 }

@@ -92,6 +92,16 @@ export class ViewerEngine {
   warnings: string[] = [];
   /** Milliseconds the last render took. */
   lastRenderMs = 0;
+  /** Milliseconds of this thread's time the last prefetch took: a render, or building the plan the Vulkan engine renders. */
+  lastPrefetchMs = 0;
+  /**
+   * What the last prefetch did with its frame: rendered it into the RAM cache, left it rendering in the Vulkan engine
+   * (it lands in the cache when done), found the engine with no room for it yet, or rendered it before its footage or
+   * spectra were all there.
+   */
+  lastPrefetch: "cached" | "native" | "engine full" | "incomplete" = "cached";
+  /** Whether this view's frames go to the Vulkan engine, as the last prefetch found. */
+  private native = false;
   /**
    * Work the last render found in progress (footage decoding, spectra computing; see pending.ts); null when that
    * cannot be told (a movie whose decoder was opening).
@@ -222,18 +232,35 @@ export class ViewerEngine {
    * loading, or the Vulkan engine (Preview Renderer) is rendering it; `lastWaiting` says which.
    */
   prefetch(frame: number): boolean {
+    this.lastPrefetch = "cached";
     if (!this.project || !this.comp) return true;
     checkFootageFiles();
     if (this.cached(frame)) return true;
+    const started = performance.now();
     const native = nativeFrames.prefetch(this.project, this.comp, this.view, frame, frame * frameDuration(this.comp), 1 / this.factor);
+    this.native = !!native;
     if (native) {
       this.lastWaiting = [native];
+      this.lastPrefetch = nativeFrames.renderingFrame(this.view, frame) ? "native" : "engine full";
+      this.lastPrefetchMs = performance.now() - started;
       return false;
     }
     const { bitmap, complete } = this.render(frame);
     if (complete) ramCache.put(this.view, frame, bitmap, bitmap.width * bitmap.height * 4);
     else bitmap.close();
+    this.lastPrefetch = complete ? "cached" : "incomplete";
+    this.lastPrefetchMs = performance.now() - started;
     return complete;
+  }
+
+  /** Whether the Vulkan engine is rendering `frame` of what the viewer shows. */
+  renderingNatively(frame: number): boolean {
+    return !!this.comp && nativeFrames.renderingFrame(this.view, frame);
+  }
+
+  /** How long the Vulkan engine takes to return a frame of this view, in milliseconds; 0 when WebGL renders them. */
+  nativeLatencyMs(): number {
+    return this.native && nativeFrames.active ? nativeFrames.latencyMs : 0;
   }
 
   /**

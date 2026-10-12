@@ -57,6 +57,12 @@ struct PresentRect {
   float x = 0, y = 0, width = 0, height = 0;
 };
 
+/** What the last frame cost: recording its commands on the CPU, then from submitting them until the GPU was done. */
+struct FrameTimings {
+  double recordMs = 0;
+  double gpuMs = 0;
+};
+
 class Engine {
  public:
   /** An engine on the best Vulkan device there is; null with `error` set when there is none. */
@@ -69,7 +75,13 @@ class Engine {
 
   /** Renders the plan and keeps the frame on the GPU; null with `error` set when it cannot. */
   std::shared_ptr<Frame> renderFrame(const Plan& plan, std::string& error);
-  /** Straight-alpha RGBA of a frame, rows top first, without the border. */
+  const FrameTimings& lastTimings() const;
+  /**
+   * Straight-alpha RGBA of a frame, rows top first, without the border, in the engine's own memory: `rgba` stays valid
+   * until the next call on the engine.
+   */
+  bool mapPixels(const Frame& frame, const uint8_t*& rgba, std::string& error);
+  /** mapPixels, copied. */
   bool readPixels(const Frame& frame, std::vector<uint8_t>& rgba, std::string& error);
   /** renderFrame then readPixels. */
   bool render(const Plan& plan, std::vector<uint8_t>& rgba, uint32_t& width, uint32_t& height, std::string& error);

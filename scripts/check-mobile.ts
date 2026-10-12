@@ -162,7 +162,9 @@ async function interact(page: Page, fingers: Fingers) {
   check(await until(() => viewer.isVisible()), `a tap on the selected ${COMP} opens it in the viewer`);
   check((await page.getByRole("tab", { name: "Timeline", exact: true }).getAttribute("aria-selected")) === "true", "opening a comp shows its Timeline tab");
 
-  // A tap selects a Timeline layer.
+  // A tap selects a Timeline layer. Not straight after the taps that opened the comp: a tap close in time and place to
+  // the one before makes a double tap, which on a layer opens its source.
+  await page.waitForTimeout(500);
   const row = page.getByRole("tree", { name: "Timeline layers" }).getByRole("treeitem", { name: CARD });
   await row.locator(".c-name").tap();
   const box = page.locator(".sel-box polygon");

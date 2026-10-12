@@ -191,7 +191,7 @@ export function RenderQueuePanel({ project, activeComp }: { project: Project | u
         <span>Comp Name</span>
         <span>Status</span>
         <span>Started</span>
-        <span>Render Time</span>
+        <span>{compact ? "Time" : "Render Time"}</span>
         <span />
       </div>
       <div className="rq-list" role="list" aria-label="Render Queue">
