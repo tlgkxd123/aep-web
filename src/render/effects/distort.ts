@@ -3,7 +3,7 @@
 // at a reduced resolution. Look-alikes from the effects' documented behaviour,
 // not yet measured against After Effects renders.
 import { cornerPinInverse, geometryMatrix, invert, type Affine } from "./stockMath.ts";
-import { imageRect, layerPass, layerRect, registerStock, unionRect, warp, type Rect } from "./stockUtil.ts";
+import { clampRect, imageRect, layerPass, layerRect, registerStock, unionRect, warp, type Rect } from "./stockUtil.ts";
 
 /** An affine map of layer points scaled by k: S(k) m S(1/k). */
 const scaled = (m: Affine, k: number): Affine => [m[0], m[1], m[2], m[3], m[4] * k, m[5] * k];
@@ -73,15 +73,6 @@ uniform float u_blend;`,
   ctx.pool.release(input.target);
   return out;
 });
-
-/** The largest output a distortion may grow the layer to, per side (image pixels). */
-const MAX_EXTENT = 16384;
-
-const clampRect = (r: Rect): Rect => {
-  const x = Math.max(-MAX_EXTENT, Math.floor(r.x));
-  const y = Math.max(-MAX_EXTENT, Math.floor(r.y));
-  return { x, y, width: Math.min(MAX_EXTENT, Math.ceil(r.x + r.width)) - x, height: Math.min(MAX_EXTENT, Math.ceil(r.y + r.height)) - y };
-};
 
 // Corner Pin: the layer's box mapped projectively onto the four pins; the output covers the pinned quad.
 registerStock("ADBE Corner Pin", (input, p, ctx, layer) => {

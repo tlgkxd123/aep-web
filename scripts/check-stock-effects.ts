@@ -1,5 +1,5 @@
 // Renders every stock effect renderer of src/render/effects/{colorCorrection,blurSharpen,distort,transitions,
-// stylize,matte}.ts on a fixture layer in headless Chrome (any WebGL2, SwiftShader included): each must compile and
+// stylize,matte,generate,displace}.ts on a fixture layer in headless Chrome (any WebGL2, SwiftShader included): each must compile and
 // draw without errors or "not rendered" warnings, change the frame when its parameters say so, and the per-pixel
 // colour effects must match their formulas on the unchanged frame; at half resolution each must stay close to the
 // full-resolution frame averaged down (parameters in layer pixels follow the scale). Not a comparison with After
@@ -12,7 +12,7 @@ import { execSync } from "node:child_process";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { chromium } from "playwright-core";
-import { blackWhiteGray, levels } from "../src/render/effects/stockMath.ts";
+import { blackWhiteGray, levels, vibrance } from "../src/render/effects/stockMath.ts";
 import { encodePng } from "./lib/png.ts";
 
 const args = process.argv.slice(2);
@@ -107,6 +107,31 @@ const cases: Case[] = [
   { name: "set_matte_self_luma", matchName: "ADBE Set Matte3", values: { 1: 0, 2: 5, 3: 0, 4: 1, 5: 1, 6: 1 } },
   { name: "simple_choker", matchName: "ADBE Simple Choker", values: { 1: 1, 2: 4 } },
   { name: "simple_choker_spread", matchName: "ADBE Simple Choker", values: { 1: 1, 2: -20 } },
+  { name: "vibrance", matchName: "ADBE Vibrance", values: { 1: 60, 2: 20 }, expect: (c) => vibrance(c, 0.6, 0.2) },
+  { name: "vibrance_identity", matchName: "ADBE Vibrance", values: { 1: 0, 2: 0 }, identity: true },
+  { name: "radial_blur_spin", matchName: "ADBE Radial Blur", values: { 1: 20, 2: [60, 45], 3: 1, 4: 1 } },
+  { name: "radial_blur_zoom", matchName: "ADBE Radial Blur", values: { 1: 30, 2: [40, 30], 3: 2, 4: 2 } },
+  { name: "fractal_noise", matchName: "ADBE Fractal Noise", values: { 1: 1, 2: 3, 3: 0, 4: 100, 5: 0, 6: 4, 8: 0, 9: 1, 10: 40, 13: [60, 45], 15: 3, 17: 70, 18: 56, 23: 90, 29: 100, 30: 2 } },
+  { name: "fractal_noise_turbulent_blend", matchName: "ADBE Fractal Noise", values: { 1: 4, 2: 4, 3: 1, 4: 150, 5: 10, 6: 3, 8: 30, 9: 0, 11: 60, 12: 30, 15: 2.5, 23: 400, 25: 1, 26: 2, 27: 7, 29: 70, 30: 8 } },
+  { name: "fractal_noise_block", matchName: "ADBE Fractal Noise", values: { 1: 3, 2: 1, 10: 50, 15: 1, 30: 1 }, noScaleCheck: true },
+  { name: "four_color_gradient", matchName: "ADBE 4ColorGradient", values: { 1: [10, 10], 2: [1, 1, 0, 1], 3: [110, 10], 4: [0, 1, 1, 1], 5: [10, 80], 6: [1, 0, 1, 1], 7: [110, 80], 8: [0, 0, 1, 1], 9: 100, 10: 0, 13: 100, 14: 1 } },
+  { name: "four_color_gradient_multiply", matchName: "ADBE 4ColorGradient", values: { 1: [20, 30], 2: [1, 0.5, 0, 1], 3: [100, 20], 4: [0.2, 1, 0.4, 1], 5: [30, 70], 6: [0.8, 0.8, 1, 1], 7: [90, 85], 8: [1, 1, 1, 1], 9: 40, 13: 70, 14: 5 } },
+  { name: "turbulent_displace", matchName: "ADBE Turbulent Displace", values: { 1: 1, 2: 40, 3: 30, 4: [60, 45], 5: 2, 6: 45, 12: 1, 13: 0 } },
+  { name: "turbulent_displace_twist", matchName: "ADBE Turbulent Displace", values: { 1: 3, 2: 80, 3: 40, 4: [50, 40], 5: 1.5, 6: 0, 12: 3, 13: 1 } },
+  { name: "turbulent_displace_cross", matchName: "ADBE Turbulent Displace", values: { 1: 9, 2: 50, 3: 25, 5: 1, 12: 1, 13: 1 } },
+  { name: "wave_warp", matchName: "ADBE Wave Warp", values: { 1: 1, 2: 8, 3: 30, 4: 90, 5: 0, 6: 1, 7: 0 } },
+  { name: "wave_warp_triangle_pinned", matchName: "ADBE Wave Warp", values: { 1: 3, 2: 6, 3: 25, 4: 45, 5: 0, 6: 2, 7: 30 } },
+  { name: "wave_warp_identity", matchName: "ADBE Wave Warp", values: { 1: 1, 2: 0, 3: 30, 4: 90, 5: 1 }, identity: true },
+  { name: "bulge", matchName: "ADBE Bulge", values: { 1: 40, 2: 30, 3: [60, 45], 4: 2, 5: 0, 7: 0 } },
+  { name: "bulge_pinch_pinned", matchName: "ADBE Bulge", values: { 1: 70, 2: 50, 3: [50, 40], 4: -1.5, 5: 0, 7: 1 } },
+  { name: "bulge_identity", matchName: "ADBE Bulge", values: { 1: 40, 2: 30, 3: [60, 45], 4: 0 }, identity: true },
+  { name: "twirl", matchName: "ADBE Twirl", values: { 1: 180, 2: 40, 3: [60, 45] } },
+  { name: "twirl_identity", matchName: "ADBE Twirl", values: { 1: 0, 2: 50, 3: [60, 45] }, identity: true },
+  { name: "optics_compensation", matchName: "ADBE Optics Compensation", values: { 1: 90, 2: 0, 3: 1, 4: [60, 45], 5: 0, 6: 1 } },
+  { name: "optics_compensation_reverse_resize", matchName: "ADBE Optics Compensation", values: { 1: 100, 2: 1, 3: 3, 4: [60, 45], 5: 0, 6: 3 } },
+  { name: "optics_compensation_identity", matchName: "ADBE Optics Compensation", values: { 1: 0, 2: 1, 4: [60, 45] }, identity: true },
+  { name: "displacement_map_self", matchName: "ADBE Displacement Map", values: { 1: 0, 2: 1, 3: 10, 4: 2, 5: 10, 6: 1, 7: 0, 8: 1 } },
+  { name: "displacement_map_wrap", matchName: "ADBE Displacement Map", values: { 1: 0, 2: 5, 3: -15, 4: 6, 5: 8, 6: 3, 7: 1, 8: 0 } },
 ];
 
 if (!args.includes("--no-build")) execSync("npx vite build -c vite.harness.config.ts --logLevel error", { stdio: "inherit" });

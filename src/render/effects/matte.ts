@@ -1,10 +1,9 @@
 // Stock Generate, Channel and Matte effects that colour or matte the layer:
 // Fill, Set Matte and Simple Choker. Look-alikes from the effects' documented
 // behaviour, not yet measured against After Effects renders.
-import type { CompItem, Layer } from "../../aep/model.ts";
 import type { LayerImage, RenderContext } from "../registry.ts";
 import { grown, mapPass, PASS_HEADER } from "./fxextraUtil.ts";
-import { COLOR_LIB, imageRect, layerPass, layerRect, registerStock } from "./stockUtil.ts";
+import { COLOR_LIB, compOf, imageRect, layerPass, layerRect, registerStock } from "./stockUtil.ts";
 
 const FILL_FS = `${PASS_HEADER}
 uniform vec3 u_color;
@@ -30,12 +29,6 @@ registerStock("ADBE Fill", (input, p, ctx) => {
     ctx.gl.uniform1f(u("u_opacity"), opacity);
   });
 });
-
-/** The composition a layer belongs to. */
-function compOf(ctx: RenderContext, layer: Layer): CompItem | undefined {
-  for (const item of ctx.project.items.values()) if (item.kind === "comp" && item.layers.includes(layer)) return item;
-  return undefined;
-}
 
 /** Set Matte's Use For Matte popup. */
 const MatteChannel = { RED: 1, GREEN: 2, BLUE: 3, ALPHA: 4, LUMINANCE: 5, HUE: 6, LIGHTNESS: 7, SATURATION: 8, FULL: 9, OFF: 10 } as const;

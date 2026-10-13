@@ -1,7 +1,7 @@
 // Stock Color Correction and Channel effects that change each pixel's colour on
 // its own: Tint, Tritone, Brightness & Contrast (and its legacy version),
-// Exposure, Hue/Saturation, Color Balance (HLS), Channel Mixer, Black & White,
-// Levels, Invert, Posterize, Threshold and Shift Channels. They work on straight
+// Exposure, Hue/Saturation, Vibrance, Color Balance (HLS), Channel Mixer, Black &
+// White, Levels, Invert, Posterize, Threshold and Shift Channels. They work on straight
 // colour and keep the alpha (Invert's and Shift Channels' alpha options and
 // Levels on the alpha channel aside).
 //
@@ -123,6 +123,23 @@ vec3 adjust(vec3 s) {
     },
   );
 });
+
+// Vibrance: Saturation scales every colour's distance from its luma, Vibrance mostly the duller colours' (stockMath.ts
+// vibrance).
+registerColor(
+  "ADBE Vibrance",
+  `uniform float u_vibrance;
+uniform float u_saturation;
+vec3 adjust(vec3 s) {
+  float l = luma(s);
+  float sat = max(s.r, max(s.g, s.b)) - min(s.r, min(s.g, s.b));
+  return l + (s - l) * max(0.0, (1.0 + u_saturation) * (1.0 + u_vibrance * (1.0 - sat)));
+}`,
+  (p, gl, u) => {
+    gl.uniform1f(u("u_vibrance"), Math.min(1, Math.max(-1, pct(p.num(1, 0)))));
+    gl.uniform1f(u("u_saturation"), Math.min(1, Math.max(-1, pct(p.num(2, 0)))));
+  },
+);
 
 registerColor(
   "ADBE Color Balance (HLS)",

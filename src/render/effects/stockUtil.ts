@@ -5,12 +5,12 @@
 //
 // Layer points are in layer pixels, y down, pixel centres at +0.5. Images are
 // padded premultiplied targets in GL row order (registry.ts).
-import type { Layer, PropertyGroup } from "../../aep/model.ts";
-import { effectNumber, effectVector } from "../effectParams.ts";
+import type { CompItem, Layer, PropertyGroup } from "../../aep/model.ts";
+import { effectNumber, effectProperty, effectVector } from "../effectParams.ts";
 import { registerEffect, type EffectOptions, type LayerImage, type RenderContext } from "../registry.ts";
 import { boxBlur } from "./boxBlur.ts";
 import { mapPass, PASS_HEADER, type Uniforms } from "./fxextraUtil.ts";
-import { boxRadiusForSigma, EXACT_SIGMA_LIMIT, type Rect } from "./stockMath.ts";
+import { boxRadiusForSigma, EXACT_SIGMA_LIMIT, popupChoice, type Rect } from "./stockMath.ts";
 
 export type { Rect } from "./stockMath.ts";
 
@@ -21,6 +21,11 @@ export interface Params {
   bool(index: number, fallback: boolean): boolean;
   /** A colour parameter's RGB. */
   rgb(index: number, fallback: [number, number, number]): [number, number, number];
+  /**
+   * A popup's choice (1-based, separators skipped; popupChoice): the effect definition's menu when the project
+   * holds it, else `menu` (After Effects' own, separators included); `fallback` when the parameter is absent.
+   */
+  choice(index: number, fallback: number, menu?: readonly string[]): number;
 }
 
 export function params(effect: PropertyGroup, layer: Layer, time: number): Params {
@@ -37,7 +42,17 @@ export function params(effect: PropertyGroup, layer: Layer, time: number): Param
       const v = vec(index, fallback);
       return [v[0] ?? fallback[0], v[1] ?? fallback[1], v[2] ?? fallback[2]];
     },
+    choice: (index, fallback, menu = []) => {
+      const v = num(index, Number.NaN);
+      return Number.isNaN(v) ? fallback : popupChoice(v, effectProperty(effect, index)?.options ?? menu);
+    },
   };
+}
+
+/** The composition a layer belongs to. */
+export function compOf(ctx: RenderContext, layer: Layer): CompItem | undefined {
+  for (const item of ctx.project.items.values()) if (item.kind === "comp" && item.layers.includes(layer)) return item;
+  return undefined;
 }
 
 export type StockRenderer = (input: LayerImage, p: Params, ctx: RenderContext, layer: Layer, time: number, effect: PropertyGroup) => LayerImage;
@@ -124,6 +139,23 @@ export function growRect(r: Rect, gx: number, gy = gx): Rect {
   const x = Math.ceil(Math.max(0, gx));
   const y = Math.ceil(Math.max(0, gy));
   return { x: r.x - x, y: r.y - y, width: r.width + 2 * x, height: r.height + 2 * y };
+}
+
+/** The largest output a distortion may grow the layer to, per side (image pixels). */
+export const MAX_EXTENT = 16384;
+
+/** `r` grown to whole pixels, within MAX_EXTENT of the origin. */
+export const clampRect = (r: Rect): Rect => {
+  const x = Math.max(-MAX_EXTENT, Math.floor(r.x));
+  const y = Math.max(-MAX_EXTENT, Math.floor(r.y));
+  return { x, y, width: Math.min(MAX_EXTENT, Math.ceil(r.x + r.width)) - x, height: Math.min(MAX_EXTENT, Math.ceil(r.y + r.height)) - y };
+};
+
+/** The default of an effect's centre point (layer pixels): the middle of a sized layer's box, else of its image. */
+export function layerCenter(layer: Layer, input: LayerImage): [number, number] {
+  if (layer.width > 0 && layer.height > 0) return [layer.width / 2, layer.height / 2];
+  const k = input.scale ?? 1;
+  return [(input.origin[0] + input.width / 2) / k, (input.origin[1] + input.height / 2) / k];
 }
 
 /** A new padded image covering `rect`. */
