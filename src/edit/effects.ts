@@ -176,6 +176,32 @@ export function setInstancePoint(sspc: Chunk, matchName: string, n: number, poin
   cdat.data = doubles(values);
 }
 
+/** Layer parameters set on instances, by parameter name: adding an instance points them again after clearing the rest. */
+const layerReferences = new WeakMap<Chunk, Map<string, number>>();
+
+function setReference(ref: Chunk, value: number): void {
+  const data = ref.data.slice();
+  new DataView(data.buffer).setInt32(0, value);
+  ref.data = data;
+}
+
+/**
+ * Points a layer parameter (the layer's id) or a mask parameter (the mask's 1-based index) of an instance, as
+ * Editor.setLayerReference and setMaskReference point an effect's.
+ */
+export function setInstanceReference(sspc: Chunk, matchName: string, n: number, value: number): void {
+  const { tdbs } = stream(sspc, matchName, n);
+  const layer = findChild(tdbs, "tdpi");
+  const ref = layer ?? findChild(tdbs, "tdli");
+  if (!ref || ref.data.length < 4) throw new Error(`${paramName(matchName, n)} is not a layer or mask parameter`);
+  setReference(ref, value);
+  if (layer) {
+    const refs = layerReferences.get(sspc) ?? new Map<string, number>();
+    refs.set(paramName(matchName, n), value);
+    layerReferences.set(sspc, refs);
+  }
+}
+
 function arbitraryData(sspc: Chunk, matchName: string, n: number): Chunk | undefined {
   const tdgp = findList(sspc, "tdgp");
   return findChild(tdgp && paramList(tdgp, paramName(matchName, n), "aRbs"), "aRbp");
@@ -295,6 +321,11 @@ export function addEffects(editor: Editor, comp: CompItem, layerId: number, effe
     for (const { template, instance } of effects) {
       const sspc = clone(instance);
       bindLayer(sspc, template.matchName, layer.id);
+      const tdgp = findList(sspc, "tdgp");
+      for (const [name, id] of layerReferences.get(instance) ?? []) {
+        const tdpi = findChild(tdgp && paramList(tdgp, name, "tdbs"), "tdpi");
+        if (tdpi) setReference(tdpi, id);
+      }
       setTimebase(sspc, timebase);
       added.push(leaf("tdmn", fixedUtf8(template.matchName, 40)), sspc);
     }

@@ -7,16 +7,17 @@ import { isMobileOS } from "./responsive.ts";
 /** How projects get into the app on this platform, as the Home screen tells it; `drop` when files can be dragged in. */
 function openingHint(): { lede: string; title: string; sub: string; drop: boolean } {
   const where = "The project is read on this device and is never uploaded.";
+  const footage = "Choose its footage files along with it, or open a .zip saved with its footage. Avee Player templates (.viz) open as new After Effects projects.";
   if (Capacitor.isNativePlatform())
     return {
-      lede: `Choose an .aep file, or open one from your file manager or another app with Open with or Share. ${where}`,
+      lede: `Choose an .aep file, or open one from your file manager or another app with Open with or Share. ${footage} ${where}`,
       title: "Choose a project",
       sub: "Tap to browse your files",
       drop: false,
     };
-  if (isMobileOS()) return { lede: `Choose an .aep file from your files. ${where}`, title: "Choose a project", sub: "Tap to browse your files", drop: false };
+  if (isMobileOS()) return { lede: `Choose an .aep file from your files. ${footage} ${where}`, title: "Choose a project", sub: "Tap to browse your files", drop: false };
   return {
-    lede: `Drop an .aep file anywhere in this window, or choose one. Installed as an app, AEP Web also opens .aep files from your file manager. ${where}`,
+    lede: `Drop an .aep file, its folder or a .zip saved with its footage anywhere in this window, or choose one. Avee Player templates (.viz) open as new After Effects projects. Installed as an app, AEP Web also opens .aep files from your file manager. ${where}`,
     title: "Drop a project here",
     sub: "or click to choose a file",
     drop: true,

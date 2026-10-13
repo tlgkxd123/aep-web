@@ -91,6 +91,9 @@ const NEAR_SAMPLES = 90;
 /** How far behind its last sample (where decoding ahead left it) a decoder still takes a request. */
 const BEHIND_SAMPLES = 2 * READ_AHEAD;
 
+/** Frames of a sequence listed at most, against frame ranges a damaged project reports. */
+const MAX_SEQUENCE = 1_000_000;
+
 /** The footage store's prefix among the sources of work renders wait for (pending.ts). */
 const PENDING = "footage";
 
@@ -222,6 +225,47 @@ export class FootageStore {
       }
     }
     return best?.blob;
+  }
+
+  /**
+   * The located files of a file footage item, named as the item expects them: its file, or the located frames of a
+   * sequence. Undefined when its file is not located.
+   */
+  sourceFiles(item: FootageItem): { name: string; blob: Blob }[] | undefined {
+    const media = this.mediaOf(item);
+    const source = item.mainSource;
+    if (!media?.blob || source.sourceType !== "FileSource") return undefined;
+    const sequence = source.sequence;
+    if (media.kind !== "sequence" || !sequence) return [{ name: source.fileName || (split(media.path).pop() ?? item.name), blob: media.blob }];
+    const folder = media.path.replace(/[\\/][^\\/]*$/, "");
+    const files: { name: string; blob: Blob }[] = [];
+    const last = sequence.endFrame >= sequence.startFrame && sequence.endFrame - sequence.startFrame < MAX_SEQUENCE ? sequence.endFrame : sequence.startFrame;
+    for (let n = sequence.startFrame; n <= last; n++) {
+      const name = sequenceFrameName(sequence, n);
+      const blob = n === sequence.startFrame ? media.blob : this.locate(`${folder}/${name}`);
+      if (blob) files.push({ name, blob });
+    }
+    return files;
+  }
+
+  /**
+   * Swaps located files read from one Blob for another holding the same bytes, as when the file they were read from
+   * has been written again (its old Blobs can no longer be read). Open decoders start again on the new Blobs.
+   */
+  rebind(blobs: ReadonlyMap<Blob, Blob>): void {
+    let changed = false;
+    for (const list of this.byName.values()) {
+      for (const file of list) {
+        const blob = blobs.get(file.blob);
+        if (blob) {
+          file.blob = blob;
+          changed = true;
+        }
+      }
+    }
+    if (!changed) return;
+    this.generation++;
+    this.releaseMemory(true);
   }
 
   /** Whether the item's file has been located (always true for solids, never for placeholders). */

@@ -34,7 +34,11 @@ import { AlertDialog, type AlertAction } from "./Dialog.tsx";
 import { CompSettingsDialog } from "./CompSettingsDialog.tsx";
 import { ImportDialog } from "./ImportDialog.tsx";
 import { QUICK_START, type MenuCommand } from "./MenuBar.tsx";
-import { pickMediaFiles, saveProjectBytes, type ProjectHandle } from "./projectFiles.ts";
+import { safeName } from "../edit/collect.ts";
+import { writeZip } from "../media/zip.ts";
+import { exportViz } from "../viz/export.ts";
+import { projectArchive, type Archived } from "./projectArchive.ts";
+import { formatOf, pickMediaFiles, saveFileBytes, saveProject, withExtension, type ProjectContents, type ProjectFormat, type ProjectHandle } from "./projectFiles.ts";
 import { QuickStartDialog } from "./QuickStart.tsx";
 import type { ProjectPanelOps } from "./ProjectPanel.tsx";
 import type { FileInfo } from "./RightPanels.tsx";
@@ -46,6 +50,8 @@ export interface Session {
   handle?: ProjectHandle;
   /** The file as last opened or saved, what File > Revert goes back to. */
   bytes?: Uint8Array;
+  /** The file the project was opened from: missing footage is looked for next to it. */
+  origin?: { file: File; handle?: ProjectHandle };
 }
 
 export interface ProjectOpsHost {
@@ -104,13 +110,14 @@ const compSettingsOf = (comp: CompItem): CompSettings => ({
   displayStartTime: comp.displayStartTime,
 });
 
-const fileName = (name: string) => (/\.aep$/i.test(name) ? name : `${name}.aep`);
+const fileName = (name: string) => (/\.(aep|zip)$/i.test(name) ? name : `${name}.aep`);
 
-/** File > Increment and Save's name: "Project.aep" becomes "Project 2.aep", "Project 2.aep" "Project 3.aep". */
+/** File > Increment and Save's name: "Project.aep" becomes "Project 2.aep", "Project 2.aep" "Project 3.aep" (a .zip stays a .zip). */
 export function incrementedName(name: string): string {
-  const base = fileName(name).replace(/\.aep$/i, "");
+  const extension = formatOf(name);
+  const base = fileName(name).replace(/\.(aep|zip)$/i, "");
   const numbered = /^(.*?)[ _]?(\d+)$/.exec(base);
-  return numbered && numbered[1] ? `${numbered[1]} ${Number(numbered[2]) + 1}.aep` : `${base} 2.aep`;
+  return numbered && numbered[1] ? `${numbered[1]} ${Number(numbered[2]) + 1}.${extension}` : `${base} 2.${extension}`;
 }
 const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 
@@ -130,6 +137,8 @@ export function useProjectOps(host: ProjectOpsHost) {
   const [alert, setAlert] = useState<Alert>();
   const [renamingId, setRenamingId] = useState<number>();
   const [quickStart, setQuickStart] = useState<QuickStartTemplate>();
+  /** What a long save is doing, shown meanwhile. */
+  const [status, setStatus] = useState<string>();
 
   const live = (id: number | undefined) => (id !== undefined ? editor?.project.items.get(id) : undefined);
   const selectedItems = () => selectedIds.map(live).filter((i): i is Item => !!i);
@@ -158,17 +167,51 @@ export function useProjectOps(host: ProjectOpsHost) {
 
   // ------------------------------------------------------------ save / close
 
-  /** Save, Save As (`saveAs`), or Increment and Save, which saves as a new file under `name`. */
-  const save = async (saveAs: boolean, name = session?.file.name): Promise<boolean> => {
+  /**
+   * What a save writes: the .aep, or a .zip of the project and its located
+   * footage. `archived` receives the archive, when one was written.
+   */
+  const contentsOf = (current: Session, bytes: Uint8Array, archived: (archive: Archived) => void): ProjectContents => async (format, target) => {
+    if (format === "aep") return bytes;
+    setStatus("Collecting files…");
+    try {
+      const archive = await projectArchive(current.editor, target, (done, total) =>
+        setStatus(`Collecting files… ${total ? Math.floor((100 * done) / total) : 100}%`),
+      );
+      archived(archive);
+      return archive.blob;
+    } finally {
+      setStatus(undefined);
+    }
+  };
+
+  const reportMissing = (name: string, archive: Archived | undefined) => {
+    const missing = archive?.missing ?? [];
+    if (!missing.length) return;
+    const listed = missing.slice(0, 5).map((m) => `"${m}"`).join(", ") + (missing.length > 5 ? ` and ${missing.length - 5} more` : "");
+    report(`"${name}" was saved without ${plural(missing.length, "footage item")} whose files are missing: ${listed}. Locate the footage and save again to include it.`);
+  };
+
+  /**
+   * Save, Save As (`saveAs`), or Increment and Save, which saves as a new file
+   * under `name`. A project opened or saved as a .zip saves as a .zip again,
+   * with its footage.
+   */
+  const save = async (saveAs: boolean, name = session?.file.name, format: ProjectFormat = formatOf(name ?? "")): Promise<boolean> => {
     if (!session || !name) return false;
     try {
       const bytes = session.editor.save();
-      const saved = await saveProjectBytes(bytes, name, session.handle, saveAs || !session.handle);
+      const written: { archive?: Archived } = {};
+      const saved = await saveProject(contentsOf(session, bytes, (a) => (written.archive = a)), name, format, session.handle, saveAs || !session.handle);
       if (!saved) return false;
+      const { archive } = written;
+      if (archive && saved.handle) archive.rebind(await saved.handle.getFile());
       session.editor.markSaved();
-      host.updateSession({ ...session, file: { ...session.file, name: saved.name, size: bytes.length }, handle: saved.handle, bytes });
+      host.updateSession({ ...session, file: { ...session.file, name: saved.name, size: archive?.blob.size ?? bytes.length }, handle: saved.handle, bytes });
+      reportMissing(saved.name, archive);
       return true;
     } catch (error) {
+      setStatus(undefined);
       fail(error);
       return false;
     }
@@ -205,8 +248,49 @@ export function useProjectOps(host: ProjectOpsHost) {
   const saveCopy = async () => {
     if (!session) return;
     try {
-      await saveProjectBytes(session.editor.save(), `${fileName(session.file.name).replace(/\.aep$/i, "")} copy.aep`, undefined, true);
+      const format = formatOf(session.file.name);
+      const written: { archive?: Archived } = {};
+      const name = `${fileName(session.file.name).replace(/\.(aep|zip)$/i, "")} copy.${format}`;
+      const saved = await saveProject(contentsOf(session, session.editor.save(), (a) => (written.archive = a)), name, format, undefined, true);
+      if (saved) reportMissing(saved.name, written.archive);
     } catch (error) {
+      setStatus(undefined);
+      fail(error);
+    }
+  };
+
+  /** File > Export > Avee Player Template: the active comp (else the largest) as a .viz, then what it left out. */
+  const exportAvee = async () => {
+    if (!editor) return;
+    const comps = [...editor.project.items.values()].filter((i): i is CompItem => i.kind === "comp");
+    const active = activeComp ? live(activeComp.id) : undefined;
+    const comp = active?.kind === "comp" ? active : comps.reduce<CompItem | undefined>((best, c) => (!best || c.layers.length > best.layers.length ? c : best), undefined);
+    if (!comp) return fail("There is no composition to export as an Avee Player template.");
+    try {
+      setStatus("Exporting the Avee Player template…");
+      const { files, report: left } = exportViz(editor.project, comp, (item) => footageStore.sourceFiles(item));
+      const { blob } = await writeZip(files);
+      setStatus(undefined);
+      const saved = await saveFileBytes(blob, safeName(comp.name), "Avee Player template", ".viz");
+      if (!saved) return;
+      setAlert({
+        message: (
+          <>
+            <p>{`"${saved}" holds "${comp.name}" as an Avee Player template.${left.length ? " Some of it has no place in a template:" : ""}`}</p>
+            {left.length > 0 && (
+              <ul className="viz-report">
+                {left.map((line) => (
+                  <li key={line}>{line}</li>
+                ))}
+              </ul>
+            )}
+          </>
+        ),
+        actions: [{ label: "OK", primary: true, onClick: () => setAlert(undefined) }],
+        onCancel: () => setAlert(undefined),
+      });
+    } catch (error) {
+      setStatus(undefined);
       fail(error);
     }
   };
@@ -463,6 +547,12 @@ export function useProjectOps(host: ProjectOpsHost) {
       case "save-copy":
         void saveCopy();
         return true;
+      case "save-zip":
+        if (session) void save(true, withExtension(session.file.name, "zip"), "zip");
+        return true;
+      case "export-viz":
+        void exportAvee();
+        return true;
       case "increment-save":
         if (session) void save(true, incrementedName(session.file.name));
         return true;
@@ -536,7 +626,7 @@ export function useProjectOps(host: ProjectOpsHost) {
   // The panel and the context menus are memoized and the window's key listener
   // is re-attached only after a render commits: they get stable callbacks that
   // run the latest closures.
-  const fresh = { rename, move, remove, createFolder, openNewComp, openCompSettings, importFiles, replaceWith, handleKey, itemCommand, removeUnused, reduce };
+  const fresh = { rename, move, remove, createFolder, openNewComp, openCompSettings, importFiles, replaceWith, handleKey, itemCommand, removeUnused, reduce, command };
   const latest = useRef(fresh);
   latest.current = fresh;
   const keyDown = useCallback((e: KeyboardEvent) => latest.current.handleKey(e), []);
@@ -546,6 +636,7 @@ export function useProjectOps(host: ProjectOpsHost) {
       openCompSettings: (compId: number) => latest.current.openCompSettings(compId),
       removeUnusedFootage: () => latest.current.removeUnused(),
       reduceProject: () => latest.current.reduce(),
+      collectFiles: () => void latest.current.command("save-zip"),
     }),
     [],
   );
@@ -594,6 +685,11 @@ export function useProjectOps(host: ProjectOpsHost) {
         />
       )}
       {alert && <AlertDialog message={alert.message} actions={alert.actions} onCancel={alert.onCancel} />}
+      {status && (
+        <div className="busy" role="status">
+          {status}
+        </div>
+      )}
     </>
   );
 
@@ -605,6 +701,8 @@ export function useProjectOps(host: ProjectOpsHost) {
       save: !!editor,
       "save-as": !!editor,
       "save-copy": !!editor,
+      "save-zip": !!editor,
+      "export-viz": !!editor,
       "increment-save": !!editor,
       revert: !!session?.bytes && !!editor?.dirty,
       "remove-unused-footage": !!editor,

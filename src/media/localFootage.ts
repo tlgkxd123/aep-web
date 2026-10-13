@@ -1,7 +1,8 @@
 // Loads a project's footage from this machine through the dev server
 // (server/local-footage.ts): it opens the paths the project stores and, for
-// files that moved, searches the local disks like After Effects' relink.
-// Unavailable in static builds; the Locate Footage pickers remain.
+// files that moved, looks next to the project file, then searches the local
+// disks like After Effects' relink. Unavailable in static builds; the Locate
+// Footage pickers remain.
 import { sequenceFrameName } from "../aep/footage.ts";
 import type { FootageItem, Project } from "../aep/model.ts";
 import { footageStore } from "./store.ts";
@@ -37,10 +38,17 @@ function sequenceFrames(source: FileSource, siblings: string[]): string[] {
 
 /**
  * Locates and loads every file footage item that is not located yet, adding
- * each file as soon as it is read. Returns how many files were added; files
- * that cannot be read are skipped.
+ * each file as soon as it is read: first what is near `projectFile` (the file
+ * the project was opened from), then what the search of the disks finds.
+ * Returns how many files were added; files that cannot be read are skipped.
  */
-export async function loadLocalFootage(project: Project): Promise<number> {
+export async function loadLocalFootage(project: Project, projectFile?: File): Promise<number> {
+  let added = 0;
+  if (projectFile) added += await locateAndLoad(project, projectFile, true);
+  return added + (await locateAndLoad(project, projectFile, false));
+}
+
+async function locateAndLoad(project: Project, projectFile: File | undefined, nearOnly: boolean): Promise<number> {
   const key = token();
   if (!key) return 0;
   const sources = new Map<string, FileSource>();
@@ -53,7 +61,14 @@ export async function loadLocalFootage(project: Project): Promise<number> {
   const response = await fetch("/__aep/footage/locate", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ token: key, paths, sequences: paths.map((p) => !!sources.get(p)!.sequence || sources.get(p)!.targetIsFolder) }),
+    body: JSON.stringify({
+      token: key,
+      paths,
+      sequences: paths.map((p) => !!sources.get(p)!.sequence || sources.get(p)!.targetIsFolder),
+      project: projectFile && { name: projectFile.name, size: projectFile.size, lastModified: projectFile.lastModified },
+      relative: paths.map((p) => sources.get(p)!.relativePath),
+      nearOnly,
+    }),
   });
   if (!response.ok) throw new Error(`footage locate failed: ${response.status}`);
   const { results } = (await response.json()) as { results: LocateResult[] };

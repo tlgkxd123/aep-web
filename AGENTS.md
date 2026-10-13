@@ -50,6 +50,20 @@ frame by frame against After Effects 2025's own renders. React + TypeScript + Vi
   projects built through the editor around the user's song, with a Bass slider keyed from its low end
   (`bass.ts`). Masks come from `src/edit/masks.ts`. Gates: `gates/quickstart.md`; `node scripts/quickstart-sample.ts
   [--aerender]` writes (and has After Effects render) both templates.
+- `src/viz/` - Avee Player templates (`.viz`: a ZIP of `scene.json` and images, or the unpacked folder) converted into
+ projects through the editor, like the Quick Start templates, around the user's song (`convert.ts`), and projects
+ exported back as templates (`export.ts`, File > Export > Avee Player Template: every comp, the active one first) with
+ every property Avee stores (`data/schema.json`, from `node scripts/viz-schema.ts <templates>`). Effects Avee has no
+ element for become Avee Custom Shaders (`shaders.ts`, GLSL ES 1.00 ported from the renderer's formulas; `node
+ scripts/check-viz-shaders.ts` compiles them as WebGL 1). `docs/viz-format.md` says what is known about the
+ format and how sure. Gates: `gates/viz.md`; `node scripts/viz-sample.ts <template> [song.wav] [--at s] [--aerender]
+ [--export]` writes the converted project in the collected layout (and has After Effects render it).
+- Projects save as a `.zip` with their footage (File > Save As > Save As Zip with Footage, Dependencies > Collect Files):
+ `src/edit/collect.ts` lays the footage out under `(Footage)/` and points the archived project at it with After Effects'
+ relative link (`alas` ascend counts); `src/media/zip.ts` writes and reads ZIP archives as Blobs made of the footage's
+ own Blobs. Opening a `.zip` puts its footage in the footage store.
+- After Effects localises effect parameter names: expressions the app writes name parameters by index
+ (`effect("Bass")(1)`), not by name.
 - `native/` - the C++17 Vulkan engine (aevk) the Android app runs. Gates: `gates/native.md`.
  - The page builds a frame plan (`src/native/plan.ts`: evaluated layers, matrices, masks, mattes, nested comps, shape
  paints from `planShapeLayer` in `shapes.ts`) with the same evaluator and expression engine, and `src/native/wire.ts`

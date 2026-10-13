@@ -103,7 +103,7 @@ export function QuickStartCards({ onChoose }: { onChoose: (id: QuickStartId) => 
   );
 }
 
-function FilePick({
+export function FilePick({
   label,
   hint,
   accept,

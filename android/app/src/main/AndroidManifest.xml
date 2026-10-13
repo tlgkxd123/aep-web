@@ -24,7 +24,8 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
 
-            <!-- Open with: Android has no type for .aep, so file managers hand it over as binary data, or by name. -->
+            <!-- Open with: Android has no type for .aep, so file managers hand it over as binary data, or by name.
+                 A .zip holds a project saved with its footage. -->
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
                 <category android:name="android.intent.category.DEFAULT" />
@@ -33,6 +34,8 @@
                 <data android:mimeType="application/octet-stream" />
                 <data android:mimeType="application/vnd.adobe.aftereffects.project" />
                 <data android:mimeType="application/x-aep" />
+                <data android:mimeType="application/zip" />
+                <data android:mimeType="application/x-zip-compressed" />
             </intent-filter>
             <intent-filter>
                 <action android:name="android.intent.action.VIEW" />
@@ -45,6 +48,10 @@
                 <data android:pathPattern=".*\\..*\\.aep" />
                 <data android:pathPattern=".*\\..*\\..*\\.aep" />
                 <data android:pathPattern=".*\\.AEP" />
+                <!-- Avee Player templates, converted to After Effects projects. -->
+                <data android:pathPattern=".*\\.viz" />
+                <data android:pathPattern=".*\\..*\\.viz" />
+                <data android:pathPattern=".*\\.VIZ" />
             </intent-filter>
 
             <!-- Share -->
@@ -54,6 +61,8 @@
                 <data android:mimeType="application/octet-stream" />
                 <data android:mimeType="application/vnd.adobe.aftereffects.project" />
                 <data android:mimeType="application/x-aep" />
+                <data android:mimeType="application/zip" />
+                <data android:mimeType="application/x-zip-compressed" />
             </intent-filter>
 
         </activity>

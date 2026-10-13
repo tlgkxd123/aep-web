@@ -95,17 +95,18 @@ export const RING_RADIUS = 270;
 /** How much larger than the frame the background is, so the shake never shows its edges. */
 const OVERSCAN = 1.1;
 
-const AUDIO_SPECTRUM = "ADBE AudSpect";
-const SLIDER = "ADBE Slider Control";
+export const AUDIO_SPECTRUM = "ADBE AudSpect";
+export const SLIDER = "ADBE Slider Control";
 const RAMP = "ADBE Ramp";
-const MIRROR = "ADBE Mirror";
+export const MIRROR = "ADBE Mirror";
 const POLAR = "ADBE Polar Coordinates";
 const GLOW = "ADBE Glo2";
-const BLUR = "ADBE Gaussian Blur 2";
+export const BLUR = "ADBE Gaussian Blur 2";
 const BRIGHTNESS = "ADBE Brightness & Contrast 2";
-const PARTICULAR = "tc Particular";
+export const PARTICULAR = "tc Particular";
 
-const AS = {
+/** Audio Spectrum's parameters, by number. */
+export const AS = {
   audioLayer: 1,
   start: 2,
   end: 3,
@@ -124,15 +125,16 @@ const AS = {
   side: 21,
   compositeOnOriginal: 23,
 } as const;
-const DIGITAL = 1;
-const SIDE_B = 2;
+export const DIGITAL = 1;
+export const SIDE_A = 1;
+export const SIDE_B = 2;
 const RADIAL_RAMP = 2;
 const RECT_TO_POLAR = 1;
-const PHYSICS_TIME_FACTOR = 25;
+export const PHYSICS_TIME_FACTOR = 25;
 
 // The user's "Particles" layer (bass-supreme.aep, the fxextra_particular_white fixture):
 // a wide box of glowing dots drifting sideways on the wind.
-const PARTICLE_NUMBERS: [number, number][] = [
+export const PARTICLE_NUMBERS: [number, number][] = [
   [5, 2], // Emitter Type: Box
   [113, 1], // Direction: Uniform
   [10, 20], // Direction Spread
@@ -152,11 +154,12 @@ const PARTICLE_NUMBERS: [number, number][] = [
   [75, 100], // Opacity Random
   [227, 100], // Pre Run: the frame is full of particles from the first frame
 ];
-const PARTICLE_POSITION = [0.5, 0.5, -653];
+export const PARTICLE_POSITION = [0.5, 0.5, -653];
 
-const BASS = 'thisComp.layer("Controls").effect("Bass")("Slider") / 100';
-const SHAKE_EXPRESSION = `var bass = ${BASS};\nwiggle(12, thisComp.layer("Controls").effect("Shake")("Slider") * bass * bass)`;
-const BOUNCE_EXPRESSION = `var bass = ${BASS};\nvar s = 100 + thisComp.layer("Controls").effect("Bounce")("Slider") * bass;\n[s, s]`;
+// Effect parameters go by index: After Effects localises their names ("Slider" is "Deslizador" in Spanish).
+const BASS = 'thisComp.layer("Controls").effect("Bass")(1) / 100';
+const SHAKE_EXPRESSION = `var bass = ${BASS};\nwiggle(12, thisComp.layer("Controls").effect("Shake")(1) * bass * bass)`;
+const BOUNCE_EXPRESSION = `var bass = ${BASS};\nvar s = 100 + thisComp.layer("Controls").effect("Bounce")(1) * bass;\n[s, s]`;
 const PARTICLES_EXPRESSION = `var bass = ${BASS};\n0.5 + 2.5 * bass`;
 
 export interface QuickStartMedia {
@@ -182,12 +185,12 @@ const isVisual = (file: FootageFile) => file.info.kind !== "audio" && file.info.
 const fileName = (file: FootageFile) => file.path.replace(/^.*[\\/]/, "");
 
 /** The effects of `matchName` on a layer, in stack order. */
-function effectsOf(layer: Layer, matchName: string): PropertyGroup[] {
+export function effectsOf(layer: Layer, matchName: string): PropertyGroup[] {
   const parade = layer.properties.find((n): n is PropertyGroup => n.kind === "group" && n.matchName === "ADBE Effect Parade");
   return (parade?.children ?? []).filter((n): n is PropertyGroup => n.kind === "group" && n.matchName === matchName);
 }
 
-function param(effect: PropertyGroup, n: number): Property {
+export function param(effect: PropertyGroup, n: number): Property {
   const name = `${effect.matchName}-${String(n).padStart(4, "0")}`;
   const prop = effect.children.find((c): c is Property => c.kind === "property" && c.matchName === name);
   if (!prop) throw new Error(`${effect.name} has no parameter ${n}`);

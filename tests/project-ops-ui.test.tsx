@@ -1,11 +1,13 @@
 // @vitest-environment jsdom
-import { File as NodeFile } from "node:buffer";
+import { Blob as NodeBlob, File as NodeFile } from "node:buffer";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { act, cleanup, createEvent, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
+import type { FootageItem } from "../src/aep/model.ts";
 import { parseProject } from "../src/aep/parse.ts";
 import { footageStore } from "../src/media/store.ts";
+import { readZip, writeZip } from "../src/media/zip.ts";
 import { App } from "../src/ui/App.tsx";
 
 const refs = resolve("refs");
@@ -18,6 +20,7 @@ afterEach(() => {
   cleanup();
   footageStore.clear();
   vi.restoreAllMocks();
+  vi.unstubAllGlobals();
   delete (window as { showSaveFilePicker?: unknown }).showSaveFilePicker;
 });
 
@@ -69,7 +72,7 @@ async function newComp(fields: Record<string, string> = {}) {
 /** The browser's file dialog, answered with `picked`. */
 function answerFileDialogs(picked: () => File[]) {
   vi.spyOn(HTMLInputElement.prototype, "click").mockImplementation(function (this: HTMLInputElement) {
-    if (this.type !== "file" || this.accept === ".aep") return;
+    if (this.type !== "file" || this.accept.includes(".aep")) return;
     Object.defineProperty(this, "files", { value: picked(), configurable: true });
     this.dispatchEvent(new Event("change"));
   });
@@ -350,6 +353,104 @@ test("Save As writes through the file picker and Save then writes to the same fi
   expect(picker).toHaveBeenCalledTimes(1);
   expect(writes).toHaveLength(2);
   expect([...parseProject(writes[1]).items.values()].map((i) => i.kind).sort()).toEqual(["comp", "folder"]);
+});
+
+test("Save As Zip with Footage writes the project with its footage, which the archive brings back when dropped", async () => {
+  // Archives are Blobs made of the footage's Blobs, which jsdom's Blob cannot hold.
+  vi.stubGlobal("Blob", NodeBlob);
+  await startNewProject();
+  answerFileDialogs(() => [file("media/straight.png")]);
+  shortcut("KeyI");
+  await waitFor(() => expect(rowNames()).toEqual(["straight.png"]));
+  const writes: Blob[] = [];
+  const handle = {
+    name: "mine.zip",
+    getFile: async () => new NodeFile([new Uint8Array(await writes.at(-1)!.arrayBuffer())], "mine.zip") as unknown as File,
+    createWritable: async () => ({ write: async (data: Blob) => void writes.push(data), close: async () => {} }),
+  };
+  const picker = vi.fn(async (_options: { suggestedName: string }) => handle);
+  (window as { showSaveFilePicker?: unknown }).showSaveFilePicker = picker;
+  fireEvent.click(screen.getByRole("menuitem", { name: "File" }));
+  fireEvent.click(screen.getByRole("menuitem", { name: "Save As" }));
+  fireEvent.click(within(screen.getByRole("menu", { name: "Save As" })).getByRole("menuitem", { name: "Save As Zip with Footage..." }));
+  await waitFor(() => expect(document.title).toBe("mine.zip - AEP Web"));
+  expect(picker.mock.calls[0][0].suggestedName).toBe("Untitled Project.zip");
+  const entries = await readZip(writes[0]);
+  expect(entries.map((e) => e.path)).toEqual(["mine.aep", "(Footage)/straight.png"]);
+  expect(new Uint8Array(await (await entries[1].read()).arrayBuffer())).toEqual(new Uint8Array(readFileSync(resolve(refs, "media/straight.png"))));
+  // Save writes back to the archive, footage included.
+  shortcut("KeyS");
+  await waitFor(() => expect(writes).toHaveLength(2));
+  expect((await readZip(writes[1])).map((e) => e.path)).toEqual(["mine.aep", "(Footage)/straight.png"]);
+
+  cleanup();
+  footageStore.clear();
+  render(<App />);
+  const archive = new NodeFile([new Uint8Array(await writes[1].arrayBuffer())], "mine.zip") as unknown as File;
+  fireEvent.drop(document.querySelector(".app")!, { dataTransfer: transfer([archive]) });
+  await waitFor(() => expect(rowNames()).toEqual(["straight.png"]));
+  expect(document.title).toBe("mine.zip - AEP Web");
+  expect(within(tree()).queryAllByLabelText("missing")).toHaveLength(0);
+});
+
+test("a project dropped with its footage opens with that footage located", async () => {
+  render(<App />);
+  const dropped = [file("media/straight.png"), file("fixtures/footage.aep"), file("media/photo.jpg")];
+  fireEvent.drop(document.querySelector(".app")!, { dataTransfer: transfer(dropped) });
+  await waitFor(() => expect(document.title).toBe("footage.aep - AEP Web"));
+  const items = [...parseProject(new Uint8Array(readFileSync(resolve(refs, "fixtures/footage.aep")))).items.values()];
+  const located = (name: string) => items.filter((i) => i.name === name).map((i) => footageStore.isLocated(i as FootageItem));
+  expect(located("straight.png")).toEqual([true, true, true]);
+  expect(located("photo.jpg")).toEqual([true, true]);
+  expect(located("premul.png")).toEqual([false, false]);
+});
+
+test("a dropped Avee Player template converts to a new project, saying what it left out", async () => {
+  // Templates are read as slices of the archive's Blob, which jsdom's Blob cannot give.
+  vi.stubGlobal("Blob", NodeBlob);
+  render(<App />);
+  const scene = {
+    objType: "Root",
+    compositions: [
+      {
+        elements: [
+          { objType: "Image", tag: { v: "Picture", t: "ptxt" }, customImage: { v: "local:pic", t: "img" }, keepAspectRatioAndCropToFit: { v: 1, t: "b" } },
+          { objType: "Text", tag: { v: "Title", t: "ptxt" } },
+        ],
+      },
+    ],
+  };
+  const { blob } = await writeZip([
+    { path: "scene.json", data: new TextEncoder().encode(JSON.stringify(scene)) },
+    { path: "pic", data: new Uint8Array(readFileSync(resolve(refs, "media/photo.jpg"))) },
+  ]);
+  const viz = new NodeFile([new Uint8Array(await blob.arrayBuffer())], "Party.viz") as unknown as File;
+  fireEvent.drop(document.querySelector(".app")!, { dataTransfer: transfer([viz]) });
+  const dialog = await screen.findByRole("dialog", { name: "Avee Player Template" }, { timeout: 10_000 });
+  expect(within(dialog).getByText("Party")).toBeTruthy();
+  fireEvent.click(within(dialog).getByRole("button", { name: "Convert" }));
+  const notice = await screen.findByRole("alertdialog", { name: "Converted from Avee Player" }, { timeout: 10_000 });
+  expect(notice.textContent).toContain('"Text" elements are not converted.');
+  fireEvent.click(within(notice).getByRole("button", { name: "OK" }));
+  await waitFor(() => expect(document.title).toBe("Party.aep * - AEP Web"));
+  expect(rowNames()).toEqual(expect.arrayContaining(["Party", "pic.jpg"]));
+  expect(within(row("pic.jpg")).queryAllByLabelText("missing")).toHaveLength(0);
+
+  // And back: File > Export > Avee Player Template writes the comp as a .viz with the picture in it.
+  const writes: Blob[] = [];
+  const picker = vi.fn(async (_options: { suggestedName: string }) => ({
+    name: "Party.viz",
+    getFile: async () => new NodeFile([], "Party.viz") as unknown as File,
+    createWritable: async () => ({ write: async (data: Blob) => void writes.push(data), close: async () => {} }),
+  }));
+  (window as { showSaveFilePicker?: unknown }).showSaveFilePicker = picker;
+  fireEvent.click(screen.getByRole("menuitem", { name: "File" }));
+  fireEvent.click(screen.getByRole("menuitem", { name: "Export" }));
+  fireEvent.click(within(screen.getByRole("menu", { name: "Export" })).getByRole("menuitem", { name: "Avee Player Template (.viz)..." }));
+  const exported = await screen.findByRole("alertdialog", {}, { timeout: 10_000 });
+  expect(exported.textContent).toContain('"Party.viz" holds "Party" as an Avee Player template.');
+  expect(picker.mock.calls[0][0].suggestedName).toBe("Party.viz");
+  expect((await readZip(writes[0])).map((e) => e.path)).toEqual(["scene.json", "pic.jpg"]);
 });
 
 test("New Project asks to save unsaved changes first", async () => {

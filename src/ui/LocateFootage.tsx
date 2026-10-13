@@ -7,7 +7,8 @@ import { footageStore } from "../media/store.ts";
 import { Icon } from "./icons.tsx";
 import "./footage.css";
 
-type Picked = { path: string; blob: Blob };
+/** A picked or dropped file, by its path below what was picked or dropped. */
+export type Picked = { path: string; blob: File };
 
 const subscribe = (onChange: () => void) => footageStore.subscribe(onChange);
 const filesVersion = () => footageStore.filesVersion;
@@ -49,16 +50,23 @@ async function readEntry(entry: FileSystemEntry, out: Picked[]): Promise<void> {
   }
 }
 
-/** Adds files and folders dropped on the window to the footage store. */
-export async function addDroppedFootage(data: DataTransfer): Promise<number> {
-  // Entries must be taken while the drop event is being dispatched.
+/** The files dropped on the window, those in dropped folders included. Must be called while the drop event is dispatched. */
+export function readDroppedFiles(data: DataTransfer): Promise<Picked[]> {
   const entries = Array.from(data.items ?? [])
     .map((item) => item.webkitGetAsEntry?.())
     .filter((entry): entry is FileSystemEntry => !!entry);
-  const picked: Picked[] = [];
-  if (entries.length) for (const entry of entries) await readEntry(entry, picked);
-  else for (const file of Array.from(data.files)) picked.push({ path: file.name, blob: file });
-  return footageStore.addFiles(picked);
+  const files = Array.from(data.files);
+  return (async () => {
+    const picked: Picked[] = [];
+    if (entries.length) for (const entry of entries) await readEntry(entry, picked);
+    else for (const file of files) picked.push({ path: file.name, blob: file });
+    return picked;
+  })();
+}
+
+/** Adds files and folders dropped on the window to the footage store. Must be called while the drop event is dispatched. */
+export async function addDroppedFootage(data: DataTransfer): Promise<number> {
+  return footageStore.addFiles(await readDroppedFiles(data));
 }
 
 /** Opens a file input: files keep their path below the chosen folder (`webkitRelativePath`) when `folder` is set. */

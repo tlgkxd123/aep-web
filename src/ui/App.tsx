@@ -27,6 +27,7 @@ import { invalidate } from "../playback/ramCache.ts";
 import { autoResolution } from "../playback/viewer.ts";
 import { audioPreview } from "../media/audioPreview.ts";
 import { loadLocalFootage, localFootageAvailable } from "../media/localFootage.ts";
+import { footageStore } from "../media/store.ts";
 import { playhead } from "../playback/playhead.ts";
 import { appRenderOptions, setSapphireLookalikes, useRenderOptionsVersion } from "../playback/renderOptions.ts";
 import { DEFAULT_PREVIEW, usePlayback, type PreviewSettings } from "../playback/usePlayback.ts";
@@ -55,11 +56,16 @@ import { EffectsPresetsPanel, useEffectLibrary } from "./EffectsPresetsPanel.tsx
 import { HomeScreen } from "./HomeScreen.tsx";
 import { Icon } from "./icons.tsx";
 import { canRunLayerCommand, isLayerCommand, layerShortcut, runLayerCommand, type LayerCommand, type LayerTarget } from "./layerCommands.ts";
-import { addDroppedFootage, locateFootageFolder, useFootageVersion } from "./LocateFootage.tsx";
+import { locateFootageFolder, readDroppedFiles, useFootageVersion, type Picked } from "./LocateFootage.tsx";
 import { APPLY_EFFECT, MenuBar, OPEN_HELP, quickStartCommand, SHOW_PANEL, TRANSFORM_DIALOG, type DynamicMenu, type MenuCommand, type TransformDialogKind } from "./MenuBar.tsx";
 import { MobileTabs, MobileWorkspace, Transport, type MobileTab } from "./MobileWorkspace.tsx";
 import { PanelFrame, type PanelTab } from "./Panel.tsx";
-import { droppedHandle, pickProjectHandle, type ProjectHandle } from "./projectFiles.ts";
+import { isZipHeader } from "../media/zip.ts";
+import { createVizProject } from "../viz/create.ts";
+import { vizFromArchive, vizFromFiles, type VizTemplate } from "../viz/scene.ts";
+import { openProjectArchive } from "./projectArchive.ts";
+import { VizDialog } from "./VizDialog.tsx";
+import { droppedHandle, isArchiveName, pickProjectHandle, withExtension, type ProjectHandle } from "./projectFiles.ts";
 import { layerEffects } from "./properties.ts";
 import { ProjectPanel } from "./ProjectPanel.tsx";
 import { RenderQueuePanel } from "./RenderQueuePanel.tsx";
@@ -163,7 +169,7 @@ export function restartNotice(reason: PageRestart, autoResolutionOn: boolean): s
   return `${what} Changes that were not saved are lost. For the rest of this session the app keeps fewer frames and layers in memory.${advice}`;
 }
 
-async function readBytes(file: File): Promise<Uint8Array> {
+async function readBytes(file: Blob): Promise<Uint8Array> {
   if (typeof file.arrayBuffer === "function") return new Uint8Array(await file.arrayBuffer());
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -171,6 +177,16 @@ async function readBytes(file: File): Promise<Uint8Array> {
     reader.onerror = () => reject(reader.error);
     reader.readAsArrayBuffer(file);
   });
+}
+
+const PROJECT_FILE = /\.(aep|zip|viz)$/i;
+
+/** The project among picked or dropped files: the .aep nearest the top, else a .zip, else an Avee Player template. */
+export function projectAmong(files: readonly Picked[]): File | undefined {
+  const depth = (p: Picked) => p.path.split(/[\\/]/).length;
+  const nearest = (pattern: RegExp) =>
+    files.filter((p) => pattern.test(p.path)).sort((a, b) => depth(a) - depth(b) || a.path.localeCompare(b.path))[0]?.blob;
+  return nearest(/\.aep$/i) ?? nearest(/\.zip$/i) ?? nearest(/\.viz$/i);
 }
 
 function initialComp(project: Project): CompItem | undefined {
@@ -194,6 +210,9 @@ export function App() {
   const [loaded, setLoaded] = useState<Session>();
   const [error, setError] = useState<string>();
   const [busy, setBusy] = useState(false);
+  /** An Avee Player template waiting for its song. */
+  const [vizTemplate, setVizTemplate] = useState<VizTemplate>();
+  const [notice, setNotice] = useState<{ title: string; message: ReactNode }>();
   const [dragging, setDragging] = useState(false);
   const dragDepth = useRef(0);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -270,7 +289,7 @@ export function App() {
     setShowHome(false);
     setPlaying(false);
     audioPreview.reset();
-    void loadLocalFootage(session.editor.project).catch((e: Error) => setError(`Could not load footage from disk: ${e.message}`));
+    void loadLocalFootage(session.editor.project, session.origin?.file).catch((e: Error) => setError(`Could not load footage from disk: ${e.message}`));
   }, [setSelectedItemId]);
 
   const showComp = useCallback((id: number) => {
@@ -320,20 +339,39 @@ export function App() {
     if (activeCompId === undefined && openComps.length) setActiveCompId(openComps[openComps.length - 1]);
   }, [activeCompId, openComps]);
 
+  /** Opens an .aep, or a .zip holding one with its footage; `footage`: files picked or dropped along with it. */
   const open = useCallback(
-    async (file: File, handle?: ProjectHandle) => {
+    async (file: File, handle?: ProjectHandle, footage: readonly Picked[] = []) => {
       if (!(await confirmClose())) return;
       setBusy(true);
       setError(undefined);
       setPlaying(false);
       try {
-        const bytes = await readBytes(file);
+        const zip = isZipHeader(await readBytes(file.slice(0, 4)));
+        const viz = zip ? await vizFromArchive(file, file.name) : undefined;
+        if (viz) {
+          setVizTemplate(viz);
+          return;
+        }
+        if (/\.viz$/i.test(file.name)) throw new Error("this Avee Player template is damaged (it is not a ZIP archive with a scene.json)");
+        const archive = zip ? await openProjectArchive(file) : undefined;
+        const bytes = archive ? archive.bytes : await readBytes(file);
         // A heavy project reads for seconds on a phone, with the page frozen: the status shows first.
         await afterPaint();
         const started = performance.now();
         const opened = Editor.fromBytes(bytes);
         const parseMs = performance.now() - started;
-        showSession({ editor: opened, file: { name: file.name, size: bytes.length, parseMs }, handle, bytes });
+        footageStore.addFiles(footage);
+        let name = file.name;
+        let saveTo = handle;
+        if (archive) {
+          const complete = await archive.addFootage(opened.project);
+          // Save writes back to the archive only when it would lose none of its files, and as a .zip.
+          if (!complete || !isArchiveName(name)) saveTo = undefined;
+          name = withExtension(name, "zip");
+        }
+        const info = { name, size: archive ? file.size : bytes.length, parseMs };
+        showSession({ editor: opened, file: info, handle: saveTo, bytes, origin: { file, handle } });
         setRecent((prev) => [{ file, handle }, ...prev.filter((r) => r.file.name !== file.name)].slice(0, 10));
       } catch (e) {
         setError(`Could not read ${file.name}: ${(e as Error).message}`);
@@ -343,6 +381,44 @@ export function App() {
     },
     [confirmClose, showSession],
   );
+
+  /** Offers to convert the Avee Player template among picked or dropped files (an unpacked .viz); false without one. */
+  const openUnpackedViz = useCallback(
+    async (files: readonly Picked[]): Promise<boolean> => {
+      let viz: VizTemplate | undefined;
+      try {
+        viz = await vizFromFiles(files);
+      } catch (e) {
+        setError(`Could not read the Avee Player template: ${(e as Error).message}`);
+        return true;
+      }
+      if (!viz) return false;
+      if (await confirmClose()) setVizTemplate(viz);
+      return true;
+    },
+    [confirmClose],
+  );
+
+  const createFromViz = async (template: VizTemplate, song: File | undefined) => {
+    const project = await createVizProject(template, song);
+    setVizTemplate(undefined);
+    showSession({ editor: project.editor, file: { name: `${template.name}.aep`, size: project.editor.save().length, parseMs: 0 } });
+    if (project.report.length) {
+      setNotice({
+        title: "Converted from Avee Player",
+        message: (
+          <>
+            <p>{`"${template.name}" was converted. Some of it has no After Effects counterpart:`}</p>
+            <ul className="viz-report">
+              {project.report.map((line) => (
+                <li key={line}>{line}</li>
+              ))}
+            </ul>
+          </>
+        ),
+      });
+    }
+  };
 
   const openRef = useRef(open);
   openRef.current = open;
@@ -975,10 +1051,17 @@ export function App() {
       setDragging(false);
       if (handled) return;
       const files = Array.from(e.dataTransfer.files);
-      const projectFile = files.find((f) => /\.aep$/i.test(f.name));
-      if (loaded && !projectFile) void addDroppedFootage(e.dataTransfer);
-      else if (projectFile) void droppedHandle(e.dataTransfer, projectFile).then((handle) => open(projectFile, handle));
-      else if (files[0]) void open(files[0]);
+      const projectFile = projectAmong(files.map((f) => ({ path: f.name, blob: f })));
+      const handle = projectFile ? droppedHandle(e.dataTransfer, projectFile) : Promise.resolve(undefined);
+      const dropped = readDroppedFiles(e.dataTransfer);
+      void dropped.then(async (picked) => {
+        // A dropped folder opens the project inside it, unless one is open already: then it holds footage.
+        const project = projectFile ?? (loaded ? undefined : projectAmong(picked));
+        if (project) return void open(project, await handle, picked.filter((p) => p.blob !== project && !PROJECT_FILE.test(p.path)));
+        if (await openUnpackedViz(picked)) return;
+        if (loaded) footageStore.addFiles(picked);
+        else if (files[0]) void open(files[0]);
+      });
     },
   };
 
@@ -1057,7 +1140,7 @@ export function App() {
       locateFootage: () => void locateFootageFolder(),
       reloadFootage:
         project && localFootageAvailable()
-          ? () => void loadLocalFootage(project).catch((e: Error) => setError(`Could not load footage from disk: ${e.message}`))
+          ? () => void loadLocalFootage(project, loaded?.origin?.file).catch((e: Error) => setError(`Could not load footage from disk: ${e.message}`))
           : undefined,
       showEffectControls: (compId, layerId) => {
         selectLayer(compId, layerId);
@@ -1094,7 +1177,7 @@ export function App() {
         newCompFromSelection: () => menuCommandRef.current("new-comp-from-selection"),
       }),
     }),
-    [openItem, selectLayer, project, editor, ops.contextMenu],
+    [openItem, selectLayer, project, loaded?.origin, editor, ops.contextMenu],
   );
 
   // The panels, docked in frames on desktop screens and one at a time beside the viewer on compact ones.
@@ -1482,13 +1565,20 @@ export function App() {
       <input
         ref={inputRef}
         type="file"
-        accept={isMobileOS() ? undefined : ".aep"}
+        multiple
+        accept={isMobileOS() ? undefined : ".aep,.zip,.viz"}
         aria-label="Open After Effects project"
         hidden
         onChange={(e) => {
-          const file = e.target.files?.[0];
-          if (file) void open(file);
+          // The project's footage can be picked along with it, and an unpacked template's files together.
+          const picked = Array.from(e.target.files ?? []).map((f) => ({ path: f.name, blob: f }));
           e.target.value = "";
+          const file = projectAmong(picked);
+          if (file) void open(file, undefined, picked.filter((p) => p.blob !== file && !PROJECT_FILE.test(p.path)));
+          else
+            void openUnpackedViz(picked).then((opened) => {
+              if (!opened && picked[0]) void open(picked[0].blob);
+            });
         }}
       />
       {ops.dialogs}
@@ -1506,6 +1596,12 @@ export function App() {
         </div>
       )}
       {error && <AlertDialog title="Could not open project" message={error} actions={[{ label: "OK", primary: true, onClick: () => setError(undefined) }]} onCancel={() => setError(undefined)} />}
+      {vizTemplate && (
+        <VizDialog key={vizTemplate.name} template={vizTemplate} onCreate={(song) => createFromViz(vizTemplate, song)} onCancel={() => setVizTemplate(undefined)} />
+      )}
+      {notice && (
+        <AlertDialog title={notice.title} message={notice.message} actions={[{ label: "OK", primary: true, onClick: () => setNotice(undefined) }]} onCancel={() => setNotice(undefined)} />
+      )}
       {solidComp?.kind === "comp" && project && editor && (
         <SolidSettings
           project={project}

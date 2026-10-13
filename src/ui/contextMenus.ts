@@ -42,6 +42,8 @@ export interface AppActions {
   newCompFromSelection?: () => void;
   reduceProject?: () => void;
   removeUnusedFootage?: () => void;
+  /** Saves the project as a .zip with its footage. */
+  collectFiles?: () => void;
 }
 
 export type ProjectItemCommand = "rename" | "duplicate" | "delete" | "replace-footage" | "new-folder" | "new-comp" | "import";
@@ -65,7 +67,7 @@ const item = (label: string, onSelect?: () => void, shortcut?: string): MenuEntr
 const dialog = (a: AppActions, kind: TransformDialogKind) => (a.transformDialog ? () => a.transformDialog!(kind) : undefined);
 const dependencies = (a: AppActions): MenuEntry =>
   sub("Dependencies", [
-    item("Collect Files..."),
+    item("Collect Files...", a.collectFiles),
     item("Consolidate All Footage"),
     item("Remove Unused Footage", a.removeUnusedFootage),
     item("Reduce Project", a.reduceProject),

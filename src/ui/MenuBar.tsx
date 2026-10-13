@@ -28,6 +28,8 @@ export type MenuCommand =
   | "save"
   | "save-as"
   | "save-copy"
+  | "save-zip"
+  | "export-viz"
   | "increment-save"
   | "revert"
   | "import"
@@ -175,6 +177,7 @@ const MENUS: { name: string; items: Entry[] }[] = [
       sub("Save As", [
         { label: "Save As...", shortcut: "Ctrl+Shift+S", command: "save-as", needsProject: true },
         { label: "Save a Copy...", command: "save-copy", needsProject: true },
+        { label: "Save As Zip with Footage...", command: "save-zip", needsProject: true },
         { label: "Save a Copy As XML..." },
       ]),
       { label: "Increment and Save", shortcut: "Ctrl+Alt+Shift+S", command: "increment-save", needsProject: true },
@@ -192,6 +195,7 @@ const MENUS: { name: string; items: Entry[] }[] = [
       sub("Export", [
         { label: "Add to Adobe Media Encoder Queue...", shortcut: "Ctrl+Alt+M" },
         { label: "Add to Render Queue", command: "add-to-render-queue", needsProject: true },
+        { label: "Avee Player Template (.viz)...", command: "export-viz", needsProject: true },
       ]),
       "-",
       { label: "Find...", shortcut: "Ctrl+F", command: "find", needsProject: true },
@@ -199,7 +203,7 @@ const MENUS: { name: string; items: Entry[] }[] = [
       { label: "New Comp from Selection", shortcut: "Alt+\\", command: "new-comp-from-selection", needsProject: true },
       "-",
       sub("Dependencies", [
-        { label: "Collect Files..." },
+        { label: "Collect Files...", command: "save-zip", needsProject: true },
         { label: "Consolidate All Footage" },
         { label: "Remove Unused Footage", command: "remove-unused-footage", needsProject: true },
         { label: "Reduce Project", command: "reduce-project", needsProject: true },
