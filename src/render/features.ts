@@ -26,3 +26,5 @@ import "./effects/distort.ts";
 import "./effects/transitions.ts";
 import "./effects/stylize.ts";
 import "./effects/matte.ts";
+import "./effects/generate.ts";
+import "./effects/displace.ts";
