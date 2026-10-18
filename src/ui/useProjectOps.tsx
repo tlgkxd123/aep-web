@@ -4,6 +4,7 @@
 import { useCallback, useMemo, useRef, useState, type ReactNode } from "react";
 import type { CompItem, FootageItem, Item, Project } from "../aep/model.ts";
 import { Editor } from "../edit/editor.ts";
+import { importProject } from "../edit/import-project.ts";
 import { nextName } from "../edit/items.ts";
 import {
   DEFAULT_COMP_SETTINGS,
@@ -23,7 +24,7 @@ import {
   type CompSettings,
   type FootageFile,
 } from "../edit/project.ts";
-import { identifyLocal, localFootageAvailable, readLocal } from "../media/localFootage.ts";
+import { identifyLocal, loadLocalFootage, localFootageAvailable, readLocal } from "../media/localFootage.ts";
 import { isImportable, probeMedia } from "../media/probe.ts";
 import { footageStore } from "../media/store.ts";
 import { quickStartTemplate, type QuickStartId, type QuickStartTemplate } from "../quickstart/catalog.ts";
@@ -457,9 +458,31 @@ export function useProjectOps(host: ProjectOpsHost) {
   const importFiles = async (files: File[], folderId = targetFolder(), paths?: (string | null)[]) => {
     if (!editor || !files.length) return;
     try {
-      const footage = await footageFiles(files, paths);
-      const items = importFootage(editor, footage, folderId);
+      const projects: { source: Project; name: string; file: File }[] = [];
+      const media: File[] = [];
+      const mediaPaths: (string | null)[] = [];
+      for (const [i, file] of files.entries()) {
+        if (/\.aep$/i.test(file.name)) {
+          const bytes = typeof file.arrayBuffer === "function" ? await file.arrayBuffer() : await new Promise<ArrayBuffer>((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve(reader.result as ArrayBuffer);
+            reader.onerror = () => reject(reader.error);
+            reader.readAsArrayBuffer(file);
+          });
+          projects.push({ source: Editor.fromBytes(new Uint8Array(bytes)).project, name: file.name, file });
+        } else {
+          media.push(file);
+          mediaPaths.push(paths?.[i] ?? null);
+        }
+      }
+      const footage = await footageFiles(media, paths ? mediaPaths : undefined);
+      const items: Item[] = [];
+      editor.runProjectCommand(projects.length ? "Import Project" : footage.length === 1 ? "Import File" : "Import Files", () => {
+        for (const p of projects) items.push(importProject(editor, p.source, p.name, folderId));
+        items.push(...importFootage(editor, footage, folderId));
+      });
       host.select(items.map((i) => i.id));
+      for (const p of projects) void loadLocalFootage(p.source, p.file).catch(fail);
     } catch (error) {
       fail(error);
     }
@@ -483,7 +506,7 @@ export function useProjectOps(host: ProjectOpsHost) {
 
   const systemPick = async (target: ImportTarget) => {
     setImportTarget(undefined);
-    const files = await pickMediaFiles(target.mode === "import");
+    const files = await pickMediaFiles(target.mode === "import", target.mode === "import");
     if (!files.length) return;
     if (target.mode === "import") await importFiles(files, target.folderId);
     else await replaceWith(target.item, files[0]);
@@ -671,6 +694,7 @@ export function useProjectOps(host: ProjectOpsHost) {
           title={importTarget.mode === "import" ? "Import File" : `Replace Footage File (${importTarget.item.name})`}
           action={importTarget.mode === "import" ? "Import" : "Replace"}
           multiple={importTarget.mode === "import"}
+          projects={importTarget.mode === "import"}
           onChoose={(paths) => void chooseLocal(paths)}
           onSystemDialog={() => void systemPick(importTarget)}
           onCancel={() => setImportTarget(undefined)}

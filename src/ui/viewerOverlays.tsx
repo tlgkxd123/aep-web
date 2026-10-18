@@ -1,8 +1,8 @@
-// Composition viewer overlays and options: mask paths of the selected layer,
-// safe zones and grids, channel display filters, and layer snapping.
-import { valueAtTime } from "../aep/evaluate.ts";
-import { isShapeValue, type CompItem, type Layer, type PropertyGroup } from "../aep/model.ts";
-import { apply, layerAffine, type Matrix } from "./animate.ts";
+// Composition viewer overlays and options: safe zones and grids, channel display
+// filters, and layer snapping. Mask and shape paths are PathOverlay.tsx's.
+import type { CompItem, Layer } from "../aep/model.ts";
+import { shapeLayerBounds } from "../render/shapes.ts";
+import { apply, layerAffine } from "./animate.ts";
 
 export type Channel = "rgb" | "red" | "green" | "blue" | "alpha" | "straight";
 export interface GuideOptions {
@@ -16,34 +16,6 @@ const ACTION_SAFE = 0.1;
 const TITLE_SAFE = 0.2;
 const PROPORTIONAL = 4;
 const GRID_PX = 50;
-
-/** The selected layer's mask paths in comp space, AE's yellow outlines. */
-export function MaskPaths({ layer, matrix, time, scale }: { layer: Layer; matrix: Matrix; time: number; scale: number }) {
-  const parade = layer.properties.find((n): n is PropertyGroup => n.kind === "group" && n.matchName === "ADBE Mask Parade");
-  const masks = (parade?.children ?? []).filter((n): n is PropertyGroup => n.kind === "group" && !!n.mask);
-  return (
-    <g className="mask-paths" strokeWidth={1 / scale}>
-      {masks.map((mask, i) => {
-        const shapeProp = mask.children.find((c) => c.matchName === "ADBE Mask Shape");
-        const shape = shapeProp?.kind === "property" ? valueAtTime(shapeProp, time, layer) : null;
-        if (!isShapeValue(shape) || !shape.vertices.length) return null;
-        const { vertices: v, inTangents: inT, outTangents: outT } = shape;
-        const p = (x: number, y: number) => apply(matrix, x, y).join(" ");
-        let d = `M${p(v[0][0], v[0][1])}`;
-        const segments = shape.closed ? v.length : v.length - 1;
-        for (let k = 0; k < segments; k++) {
-          const a = v[k];
-          const b = v[(k + 1) % v.length];
-          const bi = inT[(k + 1) % v.length];
-          d += `C${p(a[0] + outT[k][0], a[1] + outT[k][1])} ${p(b[0] + bi[0], b[1] + bi[1])} ${p(b[0], b[1])}`;
-        }
-        if (shape.closed) d += "Z";
-        const [r, g, b] = mask.mask!.color;
-        return <path key={i} d={d} stroke={`rgb(${r * 255} ${g * 255} ${b * 255})`} fill="none" />;
-      })}
-    </g>
-  );
-}
 
 /** Safe zones, proportional grid and grid over the comp frame. */
 export function Guides({ comp, options, scale }: { comp: CompItem; options: GuideOptions; scale: number }) {
@@ -101,12 +73,23 @@ export function channelFilter(channel: Channel, exposure: number): string | unde
   return parts.length ? parts.join(" ") : undefined;
 }
 
+/**
+ * The layer-space box [x0, y0, x1, y1] the viewer selects and outlines a layer by at `time`: its source's
+ * frame, or for a shape layer what its contents draw (undefined when they draw nothing).
+ */
+export function layerBox(layer: Layer, time: number): [number, number, number, number] | undefined {
+  if (layer.layerType === "ShapeLayer") return shapeLayerBounds(layer, time) ?? undefined;
+  return layer.width > 0 ? [0, 0, layer.width, layer.height] : undefined;
+}
+
 /** Comp-space bounding box [x0, y0, x1, y1] of a 2D layer at `time`. */
 export function bounds(comp: CompItem, layer: Layer, time: number): [number, number, number, number] | undefined {
-  if (layer.threeDLayer || layer.width <= 0) return undefined;
+  const box = layer.threeDLayer ? undefined : layerBox(layer, time);
+  if (!box) return undefined;
   const m = layerAffine(layer, comp, time);
   if (!m) return undefined;
-  const pts = [apply(m, 0, 0), apply(m, layer.width, 0), apply(m, layer.width, layer.height), apply(m, 0, layer.height)];
+  const [x0, y0, x1, y1] = box;
+  const pts = [apply(m, x0, y0), apply(m, x1, y0), apply(m, x1, y1), apply(m, x0, y1)];
   const xs = pts.map((p) => p[0]);
   const ys = pts.map((p) => p[1]);
   return [Math.min(...xs), Math.min(...ys), Math.max(...xs), Math.max(...ys)];

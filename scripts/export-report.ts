@@ -335,6 +335,17 @@ for (const c of CASES) {
   const ref = await call<{ frames: number; width: number; height: number; fps: number; times: number[]; bgColor: number[]; frameRate: number }>("reference", c.name, c.comp, settings);
   const refFrame = (i: number) => new Uint8Array(uploads.get(`${c.name}/ref/${i}`)!);
   console.log(`${ref.frames} frames at ${ref.fps.toFixed(3)} fps, ${ref.width}x${ref.height}`);
+  if (c.stopAfter === undefined) {
+    const sizes = [[ref.width, ref.height], [ref.width & ~1, ref.height & ~1]];
+    for (const [w, h] of new Map(sizes.map(([w, h]) => [`${w}x${h}`, [w, h]])).values()) {
+      const gpu = await call<{ frames: number; bytes: number; matted: number; straight: number; alpha: number }>("gpuPictures", c.comp, settings, w, h);
+      check(
+        `${c.name}: I420 converted on the GPU at ${w}x${h} equals the CPU conversion byte for byte (matted, straight, alpha)`,
+        gpu.frames === ref.frames && gpu.matted + gpu.straight + gpu.alpha === 0,
+        `${gpu.frames} frames, ${gpu.bytes} bytes each; differing: matted ${gpu.matted}, straight ${gpu.straight}, alpha ${gpu.alpha}`,
+      );
+    }
+  }
   for (const o of c.outputs) {
     const key = `${c.name}/${o.format}-${o.channels}`;
     const tag = `${c.name} ${o.format} ${o.channels.toUpperCase()}`;

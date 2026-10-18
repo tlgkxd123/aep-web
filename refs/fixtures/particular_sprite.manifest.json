@@ -1,0 +1,41 @@
+{
+ "project": "particular_sprite.aep",
+ "comps": [
+  {
+   "comp": "particular_sprite_types",
+   "frames": [
+    156
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "particular_sprite_shape",
+   "frames": [
+    156
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "particular_sprite_spin",
+   "frames": [
+    156
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "particular_sprite_time",
+   "frames": [
+    60,
+    156
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "particular_fit_sprite_size",
+   "frames": [
+    156
+   ],
+   "fps": 24.0
+  }
+ ]
+}

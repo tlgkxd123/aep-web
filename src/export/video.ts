@@ -8,9 +8,14 @@ export interface EncodedFrame {
   meta?: EncodedVideoChunkMetadata;
 }
 
-/** An encoder of I420 pictures whose frames are complete after `flush`. */
+/**
+ * An encoder of I420 pictures whose frames are complete after `flush`. `encode` may take the picture's buffer (transfer
+ * it), so a picture is not used again once encoded.
+ */
 export interface PictureEncoder {
   readonly frames: EncodedFrame[];
+  /** Milliseconds the encoder worked on its own, beside the caller, once flushed; for encoders that measure it. */
+  readonly busyMs?: number;
   encode(picture: I420, timestamp: number, duration: number, key: boolean): Promise<void>;
   flush(): Promise<void>;
   close(): void;

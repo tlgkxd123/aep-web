@@ -1,31 +1,84 @@
 // H.264 encoded in WebAssembly (minih264 through h264-mp4-encoder, MIT / public domain / MPL 1.1 libmp4v2), for
-// browsers whose WebCodecs has no H.264 encoder, such as Android's WebView. The encoder writes an MP4 of its own;
-// its samples are read back so the export's muxer writes them with the audio track and the colour signalling.
+// browsers whose WebCodecs has no H.264 encoder, such as Android's WebView. It encodes in a worker, so a frame encodes
+// while the next one renders. The encoder writes an MP4 of its own; its samples are read back so the export's muxer
+// writes them with the audio track and the colour signalling.
 import type { H264MP4Encoder } from "h264-mp4-encoder";
 import type { Quality } from "./settings.ts";
 import type { EncodedFrame, PictureEncoder } from "./video.ts";
 import { BT709, type I420 } from "./yuv.ts";
 
-type Hme = { createH264MP4Encoder(): Promise<H264MP4Encoder> };
-let loaded: Promise<Hme> | undefined;
+let source: Promise<string> | undefined;
 
-/** The web build only declares a global `HME`; as a module it exports it instead of touching the page's globals. */
-function loadEncoder(): Promise<Hme> {
-  loaded ??= (async () => {
-    const { default: encoderSource } = await import("h264-mp4-encoder/embuild/dist/h264-mp4-encoder.web.js?raw");
-    const url = URL.createObjectURL(new Blob([`${encoderSource}\nexport default HME;`], { type: "text/javascript" }));
-    try {
-      return (await import(/* @vite-ignore */ url)).default as Hme;
-    } finally {
-      URL.revokeObjectURL(url);
-    }
-  })();
-  return loaded;
+/** The encoder's web build: a classic script declaring a global `HME`. */
+function encoderSource(): Promise<string> {
+  source ??= import("h264-mp4-encoder/embuild/dist/h264-mp4-encoder.web.js?raw").then((m) => m.default);
+  return source;
 }
 
-export const softwareH264Supported = (): boolean => typeof WebAssembly !== "undefined";
+export const softwareH264Supported = (): boolean => typeof WebAssembly !== "undefined" && typeof Worker !== "undefined";
 
 const SPEED: Record<Quality, number> = { fast: 10, good: 5, high: 0 };
+
+/** Pictures handed to the worker and not yet encoded, at most: the rendering keeps this far ahead of the encoding. */
+const MAX_QUEUED = 2;
+
+interface EncoderSettings {
+  width: number;
+  height: number;
+  frameRate: number;
+  kbps: number;
+  speed: number;
+  groupOfPictures: number;
+}
+
+type ToWorker = ({ type: "init" } & EncoderSettings) | { type: "frame"; data: ArrayBuffer; offset: number; length: number } | { type: "finish" };
+type FromWorker = { type: "ready" } | { type: "encoded"; ms: number } | { type: "finished"; mp4: Uint8Array } | { type: "error"; message: string };
+
+interface WorkerScope {
+  onmessage: ((event: MessageEvent<ToWorker>) => void) | null;
+  postMessage(message: FromWorker, transfer?: Transferable[]): void;
+}
+
+/**
+ * The worker's code, after the encoder's script: one encoder fed pictures in order. Its source becomes the worker's,
+ * so it uses nothing but its arguments.
+ */
+function encoderWorker(hme: { createH264MP4Encoder(): Promise<H264MP4Encoder> }, scope: WorkerScope): void {
+  let encoder: H264MP4Encoder | null = null;
+  const fail = (e: unknown) => scope.postMessage({ type: "error", message: e instanceof Error ? e.message : String(e) });
+  scope.onmessage = (event) => {
+    const message = event.data;
+    try {
+      if (message.type === "init") {
+        hme.createH264MP4Encoder().then((created) => {
+          encoder = created;
+          encoder.width = message.width;
+          encoder.height = message.height;
+          encoder.frameRate = message.frameRate;
+          encoder.kbps = message.kbps;
+          encoder.speed = message.speed;
+          encoder.groupOfPictures = message.groupOfPictures;
+          encoder.outputFilename = "export.mp4";
+          encoder.initialize();
+          scope.postMessage({ type: "ready" });
+        }, fail);
+      } else if (message.type === "frame") {
+        const started = performance.now();
+        encoder!.addFrameYuv(new Uint8Array(message.data, message.offset, message.length));
+        scope.postMessage({ type: "encoded", ms: performance.now() - started });
+      } else {
+        encoder!.finalize();
+        const mp4 = encoder!.FS.readFile(encoder!.outputFilename);
+        encoder!.FS.unlink(encoder!.outputFilename);
+        encoder!.delete();
+        encoder = null;
+        scope.postMessage({ type: "finished", mp4 }, [mp4.buffer]);
+      }
+    } catch (e) {
+      fail(e);
+    }
+  };
+}
 
 interface Box {
   type: string;
@@ -104,42 +157,93 @@ const hex = (n: number) => n.toString(16).padStart(2, "0");
 
 export class SoftwareH264 implements PictureEncoder {
   readonly frames: EncodedFrame[] = [];
+  busyMs = 0;
   private readonly times: { timestamp: number; duration: number }[] = [];
-  private encoder: H264MP4Encoder | null;
+  private worker: Worker | null;
   private readonly width: number;
   private readonly height: number;
+  private started = false;
+  private queued = 0;
+  private mp4: Uint8Array | null = null;
+  private failure: Error | null = null;
+  private readonly waiters: (() => void)[] = [];
 
-  private constructor(encoder: H264MP4Encoder, width: number, height: number) {
-    this.encoder = encoder;
+  private constructor(worker: Worker, width: number, height: number) {
+    this.worker = worker;
     this.width = width;
     this.height = height;
+    worker.onmessage = (event: MessageEvent<FromWorker>) => this.receive(event.data);
+    worker.onerror = (event) => {
+      event.preventDefault();
+      this.fail(event.message || "its worker stopped");
+    };
   }
 
   static async create(width: number, height: number, fps: number, bitrate: number, keyInterval: number, quality: Quality): Promise<SoftwareH264> {
-    const encoder = await (await loadEncoder()).createH264MP4Encoder();
-    encoder.width = width;
-    encoder.height = height;
-    encoder.frameRate = Math.max(1, Math.round(fps));
-    encoder.kbps = Math.max(1, Math.round(bitrate / 1000));
-    encoder.speed = SPEED[quality];
-    encoder.groupOfPictures = keyInterval;
-    encoder.outputFilename = "export.mp4";
-    encoder.initialize();
-    return new SoftwareH264(encoder, width, height);
+    const script = `${await encoderSource()}\n(${encoderWorker.toString()})(HME, self);`;
+    const url = URL.createObjectURL(new Blob([script], { type: "text/javascript" }));
+    const encoder = new SoftwareH264(new Worker(url), width, height);
+    const settings: EncoderSettings = {
+      width,
+      height,
+      frameRate: Math.max(1, Math.round(fps)),
+      kbps: Math.max(1, Math.round(bitrate / 1000)),
+      speed: SPEED[quality],
+      groupOfPictures: keyInterval,
+    };
+    encoder.worker!.postMessage({ type: "init", ...settings } satisfies ToWorker);
+    try {
+      await encoder.until(() => encoder.started);
+    } catch (e) {
+      encoder.close();
+      throw e;
+    } finally {
+      URL.revokeObjectURL(url);
+    }
+    return encoder;
+  }
+
+  private receive(message: FromWorker): void {
+    if (message.type === "ready") this.started = true;
+    else if (message.type === "encoded") {
+      this.queued--;
+      this.busyMs += message.ms;
+    } else if (message.type === "finished") this.mp4 = message.mp4;
+    else return this.fail(message.message);
+    this.wake();
+  }
+
+  private fail(message: string): void {
+    this.failure ??= new Error(`The H.264 encoder failed: ${message}`);
+    this.wake();
+  }
+
+  private wake(): void {
+    for (const w of this.waiters.splice(0)) w();
+  }
+
+  private async until(done: () => boolean): Promise<void> {
+    for (;;) {
+      if (this.failure) throw this.failure;
+      if (!this.worker) throw new Error("The H.264 encoder is closed.");
+      if (done()) return;
+      await new Promise<void>((resolve) => this.waiters.push(resolve));
+    }
   }
 
   async encode(picture: I420, timestamp: number, duration: number): Promise<void> {
-    if (!this.encoder) throw new Error("The H.264 encoder is closed.");
-    this.encoder.addFrameYuv(picture.data);
+    await this.until(() => this.queued < MAX_QUEUED);
+    const { buffer, byteOffset, byteLength } = picture.data;
+    this.worker!.postMessage({ type: "frame", data: buffer as ArrayBuffer, offset: byteOffset, length: byteLength } satisfies ToWorker, [buffer as ArrayBuffer]);
+    this.queued++;
     this.times.push({ timestamp, duration });
   }
 
   async flush(): Promise<void> {
-    const encoder = this.encoder;
-    if (!encoder) return;
-    encoder.finalize();
-    const mp4 = encoder.FS.readFile(encoder.outputFilename);
-    encoder.FS.unlink(encoder.outputFilename);
+    if (!this.worker) return;
+    this.worker.postMessage({ type: "finish" } satisfies ToWorker);
+    await this.until(() => this.mp4 !== null);
+    const mp4 = this.mp4!;
     this.close();
     const { description, samples } = readMp4Video(mp4);
     const codec = `avc1.${hex(description[1])}${hex(description[2])}${hex(description[3])}`;
@@ -155,7 +259,8 @@ export class SoftwareH264 implements PictureEncoder {
   }
 
   close(): void {
-    this.encoder?.delete();
-    this.encoder = null;
+    this.worker?.terminate();
+    this.worker = null;
+    this.wake();
   }
 }

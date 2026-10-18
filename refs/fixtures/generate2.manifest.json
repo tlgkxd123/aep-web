@@ -1,0 +1,264 @@
+{
+ "project": "generate2.aep",
+ "comps": [
+  {
+   "comp": "generate2_checker",
+   "frames": [
+    0,
+    1,
+    2,
+    3,
+    4
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "generate2_checker_blend",
+   "frames": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    12,
+    13,
+    14,
+    15,
+    16,
+    17
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "generate2_checker_alpha",
+   "frames": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    12,
+    13,
+    14,
+    15,
+    16,
+    17
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "generate2_circle",
+   "frames": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "generate2_circle_blend",
+   "frames": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    12,
+    13,
+    14,
+    15,
+    16,
+    17
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "generate2_grid",
+   "frames": [
+    0,
+    1,
+    2,
+    3,
+    4
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "generate2_grid_invert",
+   "frames": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "generate2_grid_blend",
+   "frames": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    12,
+    13,
+    14,
+    15,
+    16,
+    17
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "generate2_ellipse",
+   "frames": [
+    0,
+    1,
+    2,
+    3,
+    4
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "generate2_ellipse_sizes",
+   "frames": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "generate2_beam",
+   "frames": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "generate2_beam_perspective",
+   "frames": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "generate2_eyedropper",
+   "frames": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "generate2_light_sweep",
+   "frames": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "generate2_light_sweep_band",
+   "frames": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "generate2_light_sweep_edge",
+   "frames": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "generate2_light_sweep_edge2",
+   "frames": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7
+   ],
+   "fps": 24.0
+  }
+ ]
+}

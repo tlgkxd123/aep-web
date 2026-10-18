@@ -7,6 +7,8 @@
 // padded premultiplied targets in GL row order (registry.ts).
 import type { CompItem, Layer, PropertyGroup } from "../../aep/model.ts";
 import { effectNumber, effectProperty, effectVector } from "../effectParams.ts";
+import { acquireFloat, releaseFloat } from "../floatTargets.ts";
+import type { Target } from "../gl.ts";
 import { registerEffect, type EffectOptions, type LayerImage, type RenderContext } from "../registry.ts";
 import { boxBlur } from "./boxBlur.ts";
 import { mapPass, PASS_HEADER, type Uniforms } from "./fxextraUtil.ts";
@@ -266,6 +268,110 @@ void main() {
   outColor = wsum > 0.0 ? sum / wsum : vec4(0.0);
 }`;
 
+/** Entries of PAIRED_GAUSS_FS's kernel at most: the centre and the pairs of taps out to 3 sigma at EXACT_SIGMA_LIMIT. */
+const MAX_KERNEL = 40;
+
+/**
+ * GAUSS_FS's sum without clamping, two taps a texture read: the bilinear read between taps i and i + 1, placed by
+ * their weights, returns their weighted sum. u_kernel holds (offset, weight) pairs, the centre's first, normalised.
+ */
+const PAIRED_GAUSS_FS = `${PASS_HEADER}
+uniform vec2 u_size;
+uniform float u_pad;
+uniform vec2 u_dir;
+uniform int u_taps;
+uniform vec2 u_kernel[${MAX_KERNEL}];
+void main() {
+  vec2 px = v_uv * u_size;
+  if (px.x < u_pad || px.y < u_pad || px.x > u_size.x - u_pad || px.y > u_size.y - u_pad) { outColor = vec4(0.0); return; }
+  vec4 sum = texture(u_source, v_uv) * u_kernel[0].y;
+  for (int k = 1; k < u_taps; k++) {
+    vec2 d = u_dir * (u_kernel[k].x / u_size);
+    sum += (texture(u_source, v_uv + d) + texture(u_source, v_uv - d)) * u_kernel[k].y;
+  }
+  outColor = sum;
+}`;
+
+/**
+ * A padded image of `u_source` (u_fromSize its target, u_fromHeight its content's) averaged over f x f blocks from
+ * its top-left corner (u_factor 2 or 4), each 2 x 2 of them one bilinear read. The loops count in ints to a constant,
+ * as every GLSL compiler takes them.
+ */
+const REDUCE_FS = `${PASS_HEADER}
+uniform vec2 u_size;
+uniform float u_pad;
+uniform vec2 u_fromSize;
+uniform float u_fromHeight;
+uniform float u_factor;
+void main() {
+  vec2 g = gl_FragCoord.xy;
+  if (g.x < u_pad || g.y < u_pad || g.x > u_size.x - u_pad || g.y > u_size.y - u_pad) { outColor = vec4(0.0); return; }
+  // The block's top-left content pixel, rows from the top.
+  vec2 block = vec2(floor(g.x - u_pad), floor(u_size.y - u_pad - g.y)) * u_factor;
+  int reads = int(u_factor) / 2;
+  vec4 sum = vec4(0.0);
+  for (int j = 0; j < 2; j++) {
+    for (int i = 0; i < 2; i++) {
+      if (i < reads && j < reads) {
+        vec2 at = vec2(u_pad + block.x + float(2 * i) + 1.0, u_pad + u_fromHeight - 1.0 - block.y - float(2 * j));
+        sum += texture(u_source, at / u_fromSize);
+      }
+    }
+  }
+  outColor = sum / float(reads * reads);
+}`;
+
+/** A reduced image of REDUCE_FS's (u_fromSize, u_fromHeight) read back at full size, bilinear. */
+const EXPAND_FS = `${PASS_HEADER}
+uniform vec2 u_size;
+uniform float u_pad;
+uniform vec2 u_fromSize;
+uniform float u_fromHeight;
+uniform float u_factor;
+uniform float u_height;
+void main() {
+  vec2 g = gl_FragCoord.xy;
+  if (g.x < u_pad || g.y < u_pad || g.x > u_size.x - u_pad || g.y > u_size.y - u_pad) { outColor = vec4(0.0); return; }
+  // This pixel's centre in the reduced image's pixels, rows from the top.
+  vec2 c = vec2(g.x - u_pad, u_height - (g.y - u_pad)) / u_factor;
+  outColor = texture(u_source, vec2(u_pad + c.x, u_pad + u_fromHeight - c.y) / u_fromSize);
+}`;
+
+/**
+ * Every Gaussian with GAUSS_FS, one read a tap at full resolution: on only to check the faster ways against. With
+ * `float`, its first pass keeps half float (the result alone rounds to 8 bits): a Gaussian as near true as this
+ * renderer draws one.
+ */
+export const exactBlurs = { on: false, float: false };
+
+/** Standard deviations (image pixels) from which a Gaussian is computed at half, and at a quarter, of the resolution. */
+const REDUCE_SIGMA = [10, 20] as const;
+
+/**
+ * The image's pixels a reduced blur adds to the variance per axis: REDUCE_FS's f x f block mean ((f^2 - 1) / 12)
+ * and the bilinear read back (a tent f pixels each side, f^2 / 6). The kernel takes them off, so the blur's width
+ * stays sigma; what is left is the interpolation of a blur too smooth to change between reduced pixels.
+ */
+const reducedVariance = (f: number) => (f * f - 1) / 12 + (f * f) / 6;
+
+/** GAUSS_FS's kernel for `sigma` out to `radius`, as PAIRED_GAUSS_FS reads it: (offset, weight) per texture read. */
+export function pairedKernel(sigma: number, radius: number): Float32Array {
+  const w = (i: number) => Math.exp((-0.5 * i * i) / (sigma * sigma));
+  let total = w(0);
+  for (let i = 1; i <= radius; i++) total += 2 * w(i);
+  const kernel = new Float32Array(2 * MAX_KERNEL);
+  kernel[1] = w(0) / total;
+  let n = 1;
+  for (let i = 1; i <= radius; i += 2) {
+    const a = w(i);
+    const b = i + 1 <= radius ? w(i + 1) : 0;
+    kernel[2 * n] = (i * a + (i + 1) * b) / (a + b);
+    kernel[2 * n + 1] = (a + b) / total;
+    n++;
+  }
+  return kernel.subarray(0, 2 * n);
+}
+
 export interface BlurOptions {
   /**
    * Repeat Edge Pixels: the result covers just this rectangle, and each pixel averages only the taps within it
@@ -293,19 +399,104 @@ export function gaussian(ctx: RenderContext, input: LayerImage, sigmaX: number, 
   const rx = Math.ceil(3 * sx);
   const ry = Math.ceil(3 * sy);
   let image = reframe(ctx, input, o.repeatEdges ?? growRect(imageRect(input), rx, ry));
+  // Wide on both axes: blurred at a lower resolution (see reducedVariance), where Repeat Edge Pixels does not ask more.
+  const exact = !!o.repeatEdges || exactBlurs.on;
+  const factor = exact ? 1 : Math.min(sx, sy) >= REDUCE_SIGMA[1] ? 4 : Math.min(sx, sy) >= REDUCE_SIGMA[0] ? 2 : 1;
+  if (factor > 1) return reducedGaussian(ctx, image, sx, sy, factor);
   for (const [sigma, radius, dir] of [
     [sx, rx, [1, 0]],
     [sy, ry, [0, 1]],
   ] as const) {
     if (!sigma) continue;
-    image = mapPass(ctx, image, GAUSS_FS, (u) => {
+    // Repeat Edge Pixels leaves out each tap beyond the edges, which a read of two taps cannot.
+    if (exact) {
+      const uniforms = (u: (name: string) => WebGLUniformLocation | null) => {
+        ctx.gl.uniform2f(u("u_dir"), dir[0], dir[1]);
+        ctx.gl.uniform1f(u("u_sigma"), sigma);
+        ctx.gl.uniform1i(u("u_radius"), radius);
+        ctx.gl.uniform1i(u("u_clamp"), o.repeatEdges ? 1 : 0);
+      };
+      if (exactBlurs.float && sx && sy && dir[0]) {
+        const half = acquireFloat(ctx, image.target.width, image.target.height, true);
+        ctx.pass(ctx.program(GAUSS_FS), half, [image.target], (u) => {
+          ctx.gl.uniform1i(u("u_source"), 0);
+          ctx.gl.uniform2f(u("u_size"), half.width, half.height);
+          ctx.gl.uniform1f(u("u_pad"), ctx.pad);
+          uniforms(u);
+        });
+        ctx.pool.release(image.target);
+        const out = ctx.pool.acquire(half.width, half.height, false);
+        ctx.pass(ctx.program(GAUSS_FS), out, [half], (u) => {
+          ctx.gl.uniform1i(u("u_source"), 0);
+          ctx.gl.uniform2f(u("u_size"), out.width, out.height);
+          ctx.gl.uniform1f(u("u_pad"), ctx.pad);
+          ctx.gl.uniform2f(u("u_dir"), 0, 1);
+          ctx.gl.uniform1f(u("u_sigma"), sy);
+          ctx.gl.uniform1i(u("u_radius"), ry);
+          ctx.gl.uniform1i(u("u_clamp"), o.repeatEdges ? 1 : 0);
+        });
+        releaseFloat(ctx, half);
+        return { ...image, target: out };
+      }
+      image = mapPass(ctx, image, GAUSS_FS, uniforms);
+      continue;
+    }
+    const kernel = pairedKernel(sigma, radius);
+    image = mapPass(ctx, image, PAIRED_GAUSS_FS, (u) => {
       ctx.gl.uniform2f(u("u_dir"), dir[0], dir[1]);
-      ctx.gl.uniform1f(u("u_sigma"), sigma);
-      ctx.gl.uniform1i(u("u_radius"), radius);
-      ctx.gl.uniform1i(u("u_clamp"), o.repeatEdges ? 1 : 0);
+      ctx.gl.uniform1i(u("u_taps"), kernel.length / 2);
+      ctx.gl.uniform2fv(u("u_kernel"), kernel);
     });
   }
   return image;
+}
+
+/**
+ * `image` blurred by sigmaX, sigmaY at 1 / `f` of its resolution and read back at full size; releases `image`. The
+ * reduced images are half float, so only the result rounds to 8 bits.
+ */
+function reducedGaussian(ctx: RenderContext, image: LayerImage, sigmaX: number, sigmaY: number, f: number): LayerImage {
+  const gl = ctx.gl;
+  const width = Math.ceil(image.width / f);
+  const height = Math.ceil(image.height / f);
+  const reduced = () => acquireFloat(ctx, width + 2 * ctx.pad, height + 2 * ctx.pad, true);
+  const placed = (u: (name: string) => WebGLUniformLocation | null, to: Target) => {
+    gl.uniform1i(u("u_source"), 0);
+    gl.uniform2f(u("u_size"), to.width, to.height);
+    gl.uniform1f(u("u_pad"), ctx.pad);
+  };
+  const scaled = (u: (name: string) => WebGLUniformLocation | null, from: Target, fromHeight: number, to: Target) => {
+    placed(u, to);
+    gl.uniform2f(u("u_fromSize"), from.width, from.height);
+    gl.uniform1f(u("u_fromHeight"), fromHeight);
+    gl.uniform1f(u("u_factor"), f);
+  };
+  let small = reduced();
+  ctx.pass(ctx.program(REDUCE_FS), small, [image.target], (u) => scaled(u, image.target, image.height, small));
+  for (const [sigma, dir] of [
+    [sigmaX, [1, 0]],
+    [sigmaY, [0, 1]],
+  ] as const) {
+    const s = Math.sqrt(Math.max(0, sigma * sigma - reducedVariance(f))) / f;
+    const kernel = pairedKernel(s, Math.ceil(3 * s));
+    const next = reduced();
+    ctx.pass(ctx.program(PAIRED_GAUSS_FS), next, [small], (u) => {
+      placed(u, next);
+      gl.uniform2f(u("u_dir"), dir[0], dir[1]);
+      gl.uniform1i(u("u_taps"), kernel.length / 2);
+      gl.uniform2fv(u("u_kernel"), kernel);
+    });
+    releaseFloat(ctx, small);
+    small = next;
+  }
+  const out: LayerImage = { ...image, target: ctx.pool.acquire(image.target.width, image.target.height, false) };
+  ctx.pass(ctx.program(EXPAND_FS), out.target, [small], (u) => {
+    scaled(u, small, height, out.target);
+    gl.uniform1f(u("u_height"), image.height);
+  });
+  releaseFloat(ctx, small);
+  ctx.pool.release(image.target);
+  return out;
 }
 
 /**

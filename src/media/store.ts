@@ -99,10 +99,14 @@ const PENDING = "footage";
 
 const split = (path: string) => path.split(/[\\/]+/).filter(Boolean).map((p) => p.toLowerCase());
 
-export async function decodeImage(blob: Blob): Promise<FootageFrame> {
+export async function decodeImage(blob: Blob, size?: { width: number; height: number }): Promise<FootageFrame> {
   const head = new Uint8Array(await blob.slice(0, 32).arrayBuffer());
   if (isTiff(head)) return decodeTiff(new Uint8Array(await blob.arrayBuffer()));
   if (isPsd(head)) return decodePsd(new Uint8Array(await blob.arrayBuffer()));
+  if (head[0] === 0x25 && head[1] === 0x50 && head[2] === 0x44 && head[3] === 0x46 && head[4] === 0x2d) {
+    const { decodePdf } = await import("./pdf.ts");
+    return decodePdf(blob, size);
+  }
   const image = await createImageBitmap(blob, { premultiplyAlpha: "none", colorSpaceConversion: "none" });
   return { kind: "bitmap", image, width: image.width, height: image.height };
 }
@@ -311,7 +315,7 @@ export class FootageStore {
       const started = performance.now();
       this.stats.imageDecodes++;
       this.track(
-        decodeImage(file).then(
+        decodeImage(file, item).then(
           (frame) => {
             this.stats.imageMs += performance.now() - started;
             this.put(key, frame);

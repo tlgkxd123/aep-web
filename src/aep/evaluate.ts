@@ -649,8 +649,24 @@ export function valueAtTime(prop: Property, compTime: number, layer: Layer, sibl
       if (parts.every((v) => typeof v === "number")) return parts as number[];
     }
   }
-  if (!prop.keyframes.length) return prop.value;
+  if (!prop.keyframes.length) return (liveValues.size ? liveValues.get(prop.matchName)?.(prop, compTime, layer) : undefined) ?? prop.value;
   return interpolate(prepare(prop, layer), layerTimeAt(layer, compTime));
+}
+
+/**
+ * The value of a property without keyframes that the app works out at each time although After Effects stores it
+ * static (Sound Keys' Outputs follow the audio); undefined keeps the stored value.
+ */
+export type LiveValue = (prop: Property, compTime: number, layer: Layer) => PropertyValue | undefined;
+const liveValues = new Map<string, LiveValue>();
+
+export function registerLiveValue(matchName: string, value: LiveValue): void {
+  liveValues.set(matchName, value);
+}
+
+/** True when `prop`, unkeyed, may take a live value (which needs an expression scope, see setExpressionScope). */
+export function hasLiveValue(prop: Property): boolean {
+  return !prop.keyframes.length && liveValues.has(prop.matchName);
 }
 
 /** Computes the post-expression value of a property; installed by the expression engine. */
@@ -665,6 +681,8 @@ export function setExpressionEvaluator(evaluator: ExpressionEvaluator | undefine
 export interface ExpressionScope {
   project: Project;
   warn(message: string): void;
+  /** Something a value needs (decoded audio) is still loading; the frame is incomplete. */
+  loading?(message: string): void;
 }
 let expressionScope: ExpressionScope | undefined;
 

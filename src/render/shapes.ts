@@ -388,6 +388,11 @@ function groupMatrix(r: Reader, transform: PropertyGroup | undefined): { matrix:
   return { matrix, opacity: r.num(transform, "ADBE Vector Group Opacity", 100) / 100 };
 }
 
+/** A shape group's Transform at `time`, from the group's contents space into its parent's, as the renderer applies it. */
+export function vectorGroupMatrix(layer: Layer, transform: PropertyGroup | undefined, time: number): Affine {
+  return groupMatrix(new Reader(layer, time), transform).matrix;
+}
+
 function liftDraw(d: Draw, m: Affine, opacity: number): Draw {
   return { ...d, toGroup: mul(m, d.toGroup), opacity: d.opacity * opacity };
 }
@@ -718,6 +723,16 @@ export function planShapeLayer(layer: Layer, time: number, imageScale: number, p
 }
 
 /** Rasterizes a shape layer's contents at `time` in layer space; null when it draws nothing. */
+/** The layer-space box [x0, y0, x1, y1] a shape layer draws into at `time`, strokes included; null when it draws nothing. */
+export function shapeLayerBounds(layer: Layer, time: number): [number, number, number, number] | null {
+  const root = layer.properties.find((n): n is PropertyGroup => n.kind === "group" && n.matchName === "ADBE Root Vectors Group");
+  if (!root) return null;
+  const r = new Reader(layer, time);
+  const visible = evaluateItems(r, root.children).draws.filter((d) => d.opacity > 0 && d.targets.some((t) => t.path.pieces.length));
+  const bounds = drawBounds(visible, r);
+  return bounds ? [bounds[0], bounds[1], bounds[2], bounds[3]] : null;
+}
+
 export function rasterizeShapeLayer(layer: Layer, time: number, pad: number): ShapeRaster | null {
   const root = layer.properties.find((n): n is PropertyGroup => n.kind === "group" && n.matchName === "ADBE Root Vectors Group");
   if (!root) return null;

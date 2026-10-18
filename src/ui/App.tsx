@@ -51,13 +51,16 @@ import { ChunkPanel } from "./ChunkPanel.tsx";
 import { CompositionPanel } from "./CompositionPanel.tsx";
 import { AlertDialog } from "./Dialog.tsx";
 import { EditingContext, type Editing, type ToolId } from "./editing.tsx";
+import { nextInFlyout, rememberTool } from "./drawTools.ts";
+import { layerMaskEntries } from "./maskCommands.ts";
 import { EffectControlsPanel } from "./EffectControlsPanel.tsx";
 import { EffectsPresetsPanel, useEffectLibrary } from "./EffectsPresetsPanel.tsx";
 import { HomeScreen } from "./HomeScreen.tsx";
 import { Icon } from "./icons.tsx";
 import { canRunLayerCommand, isLayerCommand, layerShortcut, runLayerCommand, type LayerCommand, type LayerTarget } from "./layerCommands.ts";
 import { locateFootageFolder, readDroppedFiles, useFootageVersion, type Picked } from "./LocateFootage.tsx";
-import { APPLY_EFFECT, MenuBar, OPEN_HELP, quickStartCommand, SHOW_PANEL, TRANSFORM_DIALOG, type DynamicMenu, type MenuCommand, type TransformDialogKind } from "./MenuBar.tsx";
+import { APPLY_EFFECT, MenuBar, OPEN_HELP, quickStartCommand, REVEAL, SHOW_PANEL, TRANSFORM_DIALOG, type DynamicMenu, type MenuCommand, type TransformDialogKind } from "./MenuBar.tsx";
+import { propertyReveals, revealForKey, revealTargets, type RevealKind } from "./propertyReveal.ts";
 import { MobileTabs, MobileWorkspace, Transport, type MobileTab } from "./MobileWorkspace.tsx";
 import { PanelFrame, type PanelTab } from "./Panel.tsx";
 import { isZipHeader } from "../media/zip.ts";
@@ -96,6 +99,8 @@ const ParticleMatchDialog = lazy(() => import("./ParticleMatchDialog.tsx").then(
 type Frame = "left" | "center" | "right" | "bottom";
 
 const TOOL_KEYS: Record<string, ToolId> = { v: "selection", w: "rotation", y: "anchor" };
+/** A reveal key pressed again within this many milliseconds asks for its doubled reveal (MM, UU...). */
+const DOUBLE_PRESS_MS = 400;
 const NUDGES: Record<string, [number, number]> = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] };
 
 /**
@@ -233,6 +238,9 @@ export function App() {
   const [workspaceName, setWorkspaceName] = useState<Workspace>("Default");
   const [preview, setPreview] = useState<PreviewSettings>(DEFAULT_PREVIEW);
   const [tool, setTool] = useState<ToolId>("selection");
+  const toolRef = useRef(tool);
+  toolRef.current = tool;
+  const lastRevealKey = useRef<{ letter: string; at: number }>(undefined);
   const [revision, setRevision] = useState(0);
   const [editError, setEditError] = useState<string>();
   const [restarted, setRestarted] = useState<PageRestart>();
@@ -274,6 +282,8 @@ export function App() {
     () => ({ editor, revision, tool, setTool, report: setEditError, snapping, setSnapping }),
     [editor, revision, tool, snapping],
   );
+  const editingRef = useRef(editing);
+  editingRef.current = editing;
 
   const showSession = useCallback((session: Session) => {
     const initial = initialComp(session.editor.project);
@@ -791,6 +801,10 @@ export function App() {
       if (canTransformDialog(kind)) setTransformDialog(kind);
       return true;
     }
+    if (cmd.startsWith(REVEAL)) {
+      if (activeComp) propertyReveals.request(activeComp, revealTargets(activeComp, selectedLayer), cmd.slice(REVEAL.length) as RevealKind);
+      return true;
+    }
     if (cmd.startsWith(SHOW_PANEL)) {
       showPanel(cmd.slice(SHOW_PANEL.length));
       return true;
@@ -970,6 +984,16 @@ export function App() {
         else if (lastEffectRef.current) applyEffectRef.current(lastEffectRef.current);
         return;
       }
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey && !e.altKey && editor && activeComp && selectedLayer) {
+        // Layer > Mask > New Mask and Inverted.
+        const entry = { n: "New Mask", i: "Inverted" }[e.key.toLowerCase()];
+        const item = entry && layerMaskEntries(editing, activeComp, selectedLayer).find((m) => m !== "-" && m.label === entry);
+        if (item && item !== "-" && item.onSelect) {
+          e.preventDefault();
+          item.onSelect();
+          return;
+        }
+      }
       if (ops.keyDown(e)) return;
       const menuCmd = loaded ? menuShortcut(e, focused === "left") : undefined;
       if (menuCmd) {
@@ -997,10 +1021,23 @@ export function App() {
         }
         return;
       }
-      const toolKey = editor && !e.shiftKey ? TOOL_KEYS[letter] : undefined;
+      // Q and G pick the shape and Pen tools, and pressed again step through their flyouts.
+      const flyoutKey = letter === "q" ? "shape" : letter === "g" ? "pen" : undefined;
+      const toolKey = editor && !e.shiftKey ? (flyoutKey ? nextInFlyout(toolRef.current, flyoutKey) : TOOL_KEYS[letter]) : undefined;
       if (toolKey) {
         e.preventDefault();
+        rememberTool(toolKey);
         setTool(toolKey);
+        return;
+      }
+      // P, S, U...: only that property of the selected layer (every layer when none is) in the Timeline; Shift adds it.
+      const last = lastRevealKey.current;
+      const twice = !!last && last.letter === letter && e.timeStamp - last.at < DOUBLE_PRESS_MS;
+      const revealKind = focused !== "left" ? revealForKey(letter, twice) : undefined;
+      if (revealKind) {
+        e.preventDefault();
+        lastRevealKey.current = twice ? undefined : { letter, at: e.timeStamp };
+        propertyReveals.request(activeComp, revealTargets(activeComp, selectedLayer), revealKind, e.shiftKey);
         return;
       }
       const nudge = NUDGES[e.key];
@@ -1027,7 +1064,7 @@ export function App() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [activeComp, pickFile, togglePlay, step, edge, editor, focused, selectedLayer, views, ops, loaded, command]);
+  }, [activeComp, pickFile, togglePlay, step, edge, editor, editing, focused, selectedLayer, views, ops, loaded, command]);
 
   const hasFiles = (e: DragEvent) => Array.from(e.dataTransfer?.types ?? []).includes("Files");
   const dropHandlers = {
@@ -1057,6 +1094,11 @@ export function App() {
       void dropped.then(async (picked) => {
         // A dropped folder opens the project inside it, unless one is open already: then it holds footage.
         const project = projectFile ?? (loaded ? undefined : projectAmong(picked));
+        if (loaded && project && /\.aep$/i.test(project.name)) {
+          footageStore.addFiles(picked.filter((p) => !PROJECT_FILE.test(p.path)));
+          ops.panel.importFiles([project], 0);
+          return;
+        }
         if (project) return void open(project, await handle, picked.filter((p) => p.blob !== project && !PROJECT_FILE.test(p.path)));
         if (await openUnpackedViz(picked)) return;
         if (loaded) footageStore.addFiles(picked);
@@ -1175,6 +1217,7 @@ export function App() {
         freezeFrame: () => menuCommandRef.current("freeze-frame"),
         canFreezeFrame: (_comp: CompItem, layer: Layer) => canRemapTime(editor.project, layer),
         newCompFromSelection: () => menuCommandRef.current("new-comp-from-selection"),
+        maskEntries: (comp: CompItem, layer: Layer) => layerMaskEntries(editingRef.current, comp, layer),
       }),
     }),
     [openItem, selectLayer, project, loaded?.origin, editor, ops.contextMenu],
@@ -1334,6 +1377,7 @@ export function App() {
   const menuEnabledExtra = (cmd: MenuCommand): boolean | undefined => {
     if (SWITCH_COMMANDS[cmd]) return editableLayer && (cmd === "toggle-guide" || isAVLayer(selectedLayer!));
     if (cmd.startsWith(TRANSFORM_DIALOG)) return canTransformDialog(cmd.slice(TRANSFORM_DIALOG.length) as TransformDialogKind);
+    if (cmd.startsWith(REVEAL)) return !!activeComp && activeComp.layers.length > 0;
     if (cmd.startsWith(SHOW_PANEL) || cmd.startsWith(OPEN_HELP)) return true;
     switch (cmd) {
       case "close":
@@ -1453,6 +1497,8 @@ export function App() {
         return layer && isAVLayer(layer) ? blendingModeEntries(layer.blendingMode, editor && ((mode) => onSelected((e, c, l) => e.setBlendingMode(c, l, mode))?.())) : undefined;
       case "track-matte":
         return comp && layer && isAVLayer(layer) ? trackMatteEntries(editing, editor, comp, layer) : undefined;
+      case "mask":
+        return comp && layer ? layerMaskEntries(editing, comp, layer) : undefined;
       case "resolution": {
         if (!comp) return undefined;
         const factor = Math.max(1, comp.resolutionFactor[0] || 1);

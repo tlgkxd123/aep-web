@@ -3,6 +3,7 @@
 import type { CompItem, Project, Property, PropertyGroup, PropertyValue } from "../aep/model.ts";
 import { parseProject } from "../aep/parse.ts";
 import { footageStore } from "../media/store.ts";
+import { exactBlurs } from "./effects/stockUtil.ts";
 import { finishGpu, type Target } from "./gl.ts";
 import type { RendererOptions } from "./registry.ts";
 import { Renderer } from "./renderer.ts";
@@ -100,6 +101,11 @@ const harness = {
     layer.effectsActive = true;
     // Cached layer images are keyed by stored values this edit bypasses.
     if (renderer) renderer.reuseLayers = false;
+  },
+  /** Draws every Gaussian with the exact kernel (exactBlurs), for timing the faster ways against it. */
+  setExactBlurs(on: boolean): void {
+    exactBlurs.on = on;
+    renderer?.clearCaches();
   },
   /** Makes a footage file available, by its path relative to the project (e.g. "media/clip.mp4"). */
   addFile(path: string, base64: string): void {
@@ -231,6 +237,48 @@ const harness = {
       if (bytes || a.length !== b.length) different.push({ frame: first + k, bytes, worst });
     }
     return { frames: count, different, incomplete, hits: stats.hits - before.hits, misses: stats.misses - before.misses, cachedMs, freshMs };
+  },
+  /**
+   * A frame with the Gaussians' fast ways (two taps a read, wide ones at a lower resolution) and with exactBlurs
+   * (one read a tap, rounded to 8 bits between passes), each against the frame with exactBlurs.float (rounded once):
+   * channels (premultiplied, of 255, border included) off by more than 1 and by more than 3, the largest difference,
+   * and the ms of the fast and exact frames (GPU work included).
+   */
+  async compareBlurs(compName: string, time: number) {
+    if (!project || !renderer) throw new Error("load a project first");
+    const comp = [...project.items.values()].find((i): i is CompItem => i.kind === "comp" && i.name === compName);
+    if (!comp) throw new Error(`no composition named ${compName}`);
+    const pass = async (exact: boolean, float = false) => {
+      Object.assign(exactBlurs, { on: exact, float });
+      try {
+        renderer!.clearCaches();
+        renderer!.release(await harness.renderTarget(comp, time));
+        renderer!.clearCaches();
+        const target = await harness.renderTarget(comp, time);
+        const ms = harness.lastPassMs;
+        const pixels = raw(renderer!, target);
+        renderer!.release(target);
+        return { pixels, ms };
+      } finally {
+        Object.assign(exactBlurs, { on: false, float: false });
+      }
+    };
+    const fast = await pass(false);
+    const exact = await pass(true);
+    const truth = await pass(true, true);
+    const against = (got: Uint8Array) => {
+      let overOne = 0;
+      let overThree = 0;
+      let worst = 0;
+      for (let i = 0; i < got.length; i++) {
+        const d = Math.abs(got[i] - truth.pixels[i]);
+        if (d > 1) overOne++;
+        if (d > 3) overThree++;
+        if (d > worst) worst = d;
+      }
+      return { overOne, overThree, worst };
+    };
+    return { channels: fast.pixels.length, fast: against(fast.pixels), exact: against(exact.pixels), fastMs: fast.ms, exactMs: exact.ms };
   },
   /**
    * A frame rendered at 1/factor resolution against the full-resolution render averaged over factor x factor

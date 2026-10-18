@@ -1,6 +1,6 @@
 # Gates: export - Render Queue, export pipeline, playback and RAM preview
 
-OWNS: src/export/**, src/playback/**, src/ui/RenderQueuePanel.tsx, src/render/contentCache.ts, scripts/export-report.ts, scripts/export/**, scripts/perf-report.ts, scripts/perf-profile.ts, scripts/perf/**, scripts/probe-codecs.ts, scripts/list-comps.ts, scripts/rank-comps.ts, scripts/lib/png-decode.ts, scripts/lib/zip-read.ts, scripts/lib/mp4-demux.ts, scripts/lib/webm-demux.ts, tests/playback.test.ts, tests/render-queue.test.tsx, gates/export.md
+OWNS: src/export/**, src/playback/**, src/ui/RenderQueuePanel.tsx, src/render/contentCache.ts, scripts/export-report.ts, scripts/export/**, scripts/bench-render-queue.ts, scripts/perf-report.ts, scripts/perf-profile.ts, scripts/perf/**, scripts/probe-codecs.ts, scripts/list-comps.ts, scripts/rank-comps.ts, scripts/lib/png-decode.ts, scripts/lib/zip-read.ts, scripts/lib/mp4-demux.ts, scripts/lib/webm-demux.ts, tests/playback.test.ts, tests/render-queue.test.tsx, gates/export.md
 
 Shared files with small focused edits: src/render/renderer.ts, src/render/gl.ts, src/ui/App.tsx, src/ui/CompositionPanel.tsx, src/ui/TimelinePanel.tsx, src/ui/MenuBar.tsx, src/styles.css, package.json, .gitignore.
 
@@ -14,7 +14,7 @@ Scope: AE's Render Queue (Composition > Add to Render Queue, render settings, ou
   CHECK: npx tsc --noEmit && echo TYPECHECK-CLEAN
   EXPECT: TYPECHECK-CLEAN
 
-- [ ] G2: Render Queue items exported in headless Edge are correct files: PNG sequences in a zip equal the renderer's frames byte for byte (RGB matted over the comp background, RGB+Alpha straight, Full/Half/Third resolution, sequential frame numbers); H.264 MP4 and VP9 WebM, demuxed in Node and decoded with VideoDecoder, reach PSNR of at least 35 dB on every frame both against the frame's ideal BT.709 4:2:0 round trip (codec loss) and on the frame's flat areas (colour matrix and range; a control proves a BT.601 or full-range misreading of the same video fails), with the right frame count, duration, frame rate (24 and 29.97 fps), size (H.264 cropped to even) and BT.709 colour signalling; VP9 WebM alpha decoded from its BlockAdditional stream reaches 35 dB in alpha and premultiplied colour; every file plays in a <video> element at the right duration and size with flat areas at 35 dB per frame and alpha at 30 dB; Stop ends a render as User Stopped and discards the file; H.264 and VP9 encoding is reported supported by VideoEncoder.isConfigSupported
+- [ ] G2: Render Queue items exported in headless Edge are correct files: PNG sequences in a zip equal the renderer's frames byte for byte (RGB matted over the comp background, RGB+Alpha straight, Full/Half/Third resolution, sequential frame numbers); H.264 MP4 and VP9 WebM, demuxed in Node and decoded with VideoDecoder, reach PSNR of at least 35 dB on every frame both against the frame's ideal BT.709 4:2:0 round trip (codec loss) and on the frame's flat areas (colour matrix and range; a control proves a BT.601 or full-range misreading of the same video fails), with the right frame count, duration, frame rate (24 and 29.97 fps), size (H.264 cropped to even) and BT.709 colour signalling; VP9 WebM alpha decoded from its BlockAdditional stream reaches 35 dB in alpha and premultiplied colour; the I420 pictures converted on the GPU for the encoders fed from memory equal rgbToI420 and alphaToI420 of the renderer's RGBA (matted, straight and alpha) byte for byte at the comp's size and at H.264's even crop; every file plays in a <video> element at the right duration and size with flat areas at 35 dB per frame and alpha at 30 dB; Stop ends a render as User Stopped and discards the file; H.264 and VP9 encoding is reported supported by VideoEncoder.isConfigSupported
   CHECK: node scripts/export-report.ts --require
   EXPECT: EXPORT-PASSED
 
@@ -41,3 +41,7 @@ Scope: AE's Render Queue (Composition > Add to Render Queue, render settings, ou
 - [ ] G8: the production bundle builds
   CHECK: npx vite build
   EXPECT: /built in/
+
+- [ ] G9: on this machine, a 2 s H.264 export of the 1080p 60 fps Trap Nation 2020 Quick Start template through the WebAssembly encoder (the path of a WebView without a WebCodecs H.264 encoder) finishes Done at 60 ms a frame or less, colour converted on the GPU and the encoder working in a worker
+  CHECK: node scripts/quickstart-sample.ts refs/fixtures/fxmisc_audio/fxmisc_music.wav --out dist-tools/qs-perf && node scripts/bench-render-queue.ts dist-tools/qs-perf/trap-nation-2020.aep "Trap Nation 2020" 0 2 --software-h264 --require-ms 60
+  EXPECT: BENCH-PASSED

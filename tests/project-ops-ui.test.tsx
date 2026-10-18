@@ -15,7 +15,15 @@ const refs = resolve("refs");
 // jsdom's File cannot be read back; Node's can.
 const file = (path: string) => new NodeFile([readFileSync(resolve(refs, path))], path.split("/").pop()!) as unknown as File;
 
-beforeEach(() => localStorage.clear());
+beforeEach(() => {
+  const data = new Map<string, string>();
+  vi.stubGlobal("localStorage", {
+    getItem: (key: string) => data.get(key) ?? null,
+    setItem: (key: string, value: string) => data.set(key, String(value)),
+    removeItem: (key: string) => data.delete(key),
+    clear: () => data.clear(),
+  });
+});
 afterEach(() => {
   cleanup();
   footageStore.clear();
@@ -72,7 +80,7 @@ async function newComp(fields: Record<string, string> = {}) {
 /** The browser's file dialog, answered with `picked`. */
 function answerFileDialogs(picked: () => File[]) {
   vi.spyOn(HTMLInputElement.prototype, "click").mockImplementation(function (this: HTMLInputElement) {
-    if (this.type !== "file" || this.accept.includes(".aep")) return;
+    if (this.type !== "file" || this.getAttribute("aria-label") === "Open After Effects project") return;
     Object.defineProperty(this, "files", { value: picked(), configurable: true });
     this.dispatchEvent(new Event("change"));
   });

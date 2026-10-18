@@ -1,0 +1,149 @@
+{
+ "project": "color2.aep",
+ "comps": [
+  {
+   "comp": "color2_balance",
+   "frames": [
+    0,
+    1,
+    2,
+    3
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "color2_gpg",
+   "frames": [
+    0,
+    1,
+    2
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "color2_levels",
+   "frames": [
+    0,
+    1,
+    2
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "color2_photofilter",
+   "frames": [
+    0,
+    1,
+    2,
+    3
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "color2_changecolor",
+   "frames": [
+    0,
+    1,
+    2,
+    3
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "color2_changetocolor",
+   "frames": [
+    0,
+    1,
+    2,
+    3
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "color2_leavecolor",
+   "frames": [
+    0,
+    1,
+    2
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "color2_toner",
+   "frames": [
+    0,
+    1,
+    2,
+    3,
+    4
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "color2_offset",
+   "frames": [
+    0,
+    1,
+    2,
+    3
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "color2_selective",
+   "frames": [
+    0,
+    1,
+    2,
+    3
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "color2_neutralizer",
+   "frames": [
+    0,
+    1,
+    2,
+    3
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "color2_kernel",
+   "frames": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "color2_colorama",
+   "frames": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "color2_curves",
+   "frames": [
+    0,
+    1,
+    2
+   ],
+   "fps": 24.0
+  }
+ ],
+ "known": {
+  "color2_toner@4": "the star's outer edge: the shared shape rasteriser places that anti-aliased edge differently from After Effects, and Toner's contrast against the background makes the coverage difference visible"
+ }
+}

@@ -30,11 +30,13 @@ import type { NameSource } from "./expressionSyntax.ts";
 import { addLayer } from "../edit/layers.ts";
 import { isTransformValue, resetTransform, toggleTransformStopwatch, transformProp } from "../edit/transform-ops.ts";
 import { keyframeAt, shownValue } from "./animate.ts";
-import { openContextMenu } from "./ContextMenu.tsx";
+import { openContextMenu, openMenuBelow } from "./ContextMenu.tsx";
+import { contentsAddEntries, isShapeItem, maskMenu, maskModeEntries, renameMaskTo, renameShapeItemTo, shapeItemMenu, toggleMaskInverted } from "./maskCommands.ts";
 import { AppActionsContext, layerMenu } from "./contextMenus.ts";
 import { attempt, EFFECT_MIME, ITEM_MIME, LAYER_MIME, nextDragKey, useEditing } from "./editing.tsx";
 import { modeEntries, parentEntries, QUALITY, trackMatteEntries } from "./layerRowMenus.ts";
 import { followPointer } from "./pointer.ts";
+import { propertyReveals, revealedRows } from "./propertyReveal.ts";
 import { useCompact } from "./responsive.ts";
 import { dragWorkArea, workAreaAt, workAreaAtTime, workAreaOf, type WorkAreaPart } from "./workArea.ts";
 import {
@@ -586,8 +588,10 @@ function KeyframeNav({ prop, layer, time, comp, onTime }: { prop: Property; laye
   );
 }
 
-function GroupExtras({ node, onReset }: { node: DisplayNode; onReset?: () => void }) {
+function GroupExtras({ node, onReset, comp, layer }: { node: DisplayNode; onReset?: () => void; comp: CompItem; layer: Layer }) {
+  const editing = useEditing();
   if (node.kind !== "group") return null;
+  const editable = !!editing.editor && !layer.locked;
   switch (node.role) {
     case "transform":
       return onReset ? (
@@ -607,7 +611,20 @@ function GroupExtras({ node, onReset }: { node: DisplayNode; onReset?: () => voi
     case "effect":
       return <span className="hot-link">Reset</span>;
     case "contents":
-      return (
+      return editable ? (
+        <button
+          type="button"
+          className="tl-add"
+          aria-haspopup="menu"
+          aria-label="Add to contents"
+          onClick={(e) => {
+            e.stopPropagation();
+            openMenuBelow(e.currentTarget, contentsAddEntries(editing, comp, layer));
+          }}
+        >
+          Add: <Icon name="plus" size={12} />
+        </button>
+      ) : (
         <span className="tl-add">
           Add: <Icon name="plus" size={12} />
         </span>
@@ -623,8 +640,13 @@ function GroupExtras({ node, onReset }: { node: DisplayNode; onReset?: () => voi
       if (!mask) return null;
       return (
         <span className="tl-mask-extras">
-          <Dropdown text={maskModeName(mask.maskMode)} label="Mask Mode" width={78} />
-          <Checkbox on={mask.inverted} label="Inverted" />
+          <Dropdown
+            text={maskModeName(mask.maskMode)}
+            label="Mask Mode"
+            width={78}
+            menu={editable ? () => maskModeEntries(editing, comp, layer, node.group) : undefined}
+          />
+          <Checkbox on={mask.inverted} label="Inverted" onToggle={editable ? () => toggleMaskInverted(editing, comp, layer, node.group) : undefined} />
           <span className="dim">Inverted</span>
         </span>
       );
@@ -653,6 +675,27 @@ function NodeRow({ row, project, comp, open, time, view, selectedKeys, onToggle,
   const propPath = useMemo(() => (prop ? addressOf(comp, layer, prop)?.path.join(".") : undefined), [comp, layer, prop]);
   const onReset =
     editor && node.kind === "group" && node.role === "transform" ? () => attempt(editing, () => resetTransform(editor, comp, [layer], time)) : undefined;
+  const [renaming, setRenaming] = useState(false);
+  const group = node.kind === "group" ? node.group : undefined;
+  const maskGroup = group && node.kind === "group" && node.role === "mask" && group.mask ? group : undefined;
+  const shapeItem = group && !maskGroup && isShapeItem(group) && !group.synthesized ? group : undefined;
+  const groupMenu = maskGroup
+    ? (e: ReactMouseEvent) => {
+        onSelect(layer.id);
+        openContextMenu(e, maskMenu(editing, comp, layer, maskGroup, () => setRenaming(true)));
+      }
+    : shapeItem
+      ? (e: ReactMouseEvent) => {
+          onSelect(layer.id);
+          openContextMenu(e, shapeItemMenu(editing, comp, layer, shapeItem, () => setRenaming(true)));
+        }
+      : undefined;
+  const finishRename = (name: string | undefined) => {
+    setRenaming(false);
+    if (name === undefined) return;
+    if (maskGroup) renameMaskTo(editing, comp, layer, maskGroup, name);
+    else if (shapeItem) renameShapeItemTo(editing, comp, shapeItem, name);
+  };
   return (
     <div
       role="treeitem"
@@ -669,7 +712,7 @@ function NodeRow({ row, project, comp, open, time, view, selectedKeys, onToggle,
               onSelect(layer.id);
               openContextMenu(e, effectMenu(editing, comp, layer, node.group));
             }
-          : undefined
+          : groupMenu
       }
     >
       <div className="tl-outline">
@@ -739,9 +782,24 @@ function NodeRow({ row, project, comp, open, time, view, selectedKeys, onToggle,
             ) : (
               <span className="stopwatch-space" />
             ))}
-          <span className="cell-text" onContextMenu={menu}>
-            {node.name}
-          </span>
+          {renaming ? (
+            <RenameField initial={node.name} onDone={finishRename} />
+          ) : (
+            <span
+              className="cell-text"
+              onContextMenu={menu}
+              onDoubleClick={
+                groupMenu && editor && !layer.locked
+                  ? (e) => {
+                      e.stopPropagation();
+                      setRenaming(true);
+                    }
+                  : undefined
+              }
+            >
+              {node.name}
+            </span>
+          )}
         </span>
         <span className={`c-prop-value ${prop?.expression && prop.expressionEnabled ? "has-expression" : ""}`}>
           {prop && transformValue ? (
@@ -751,7 +809,7 @@ function NodeRow({ row, project, comp, open, time, view, selectedKeys, onToggle,
           ) : prop ? (
             <PropertyValueView prop={prop} value={value} ctx={ctx} place="timeline" />
           ) : (
-            <GroupExtras node={node} onReset={onReset} />
+            <GroupExtras node={node} onReset={onReset} comp={comp} layer={layer} />
           )}
         </span>
       </div>
@@ -1138,14 +1196,28 @@ export const TimelinePanel = memo(function TimelinePanel({
 
   const setTime = useCallback((t: number) => onTime(comp.id, t), [onTime, comp.id]);
   const select = useCallback((id: number) => onSelectLayer(comp.id, id), [onSelectLayer, comp.id]);
+  const reveals = useSyncExternalStore(propertyReveals.subscribe, propertyReveals.get, propertyReveals.get).get(comp.id);
+  /** Per revealed layer, the rows its reveal opens: what its twirl-downs keep open once one is clicked. */
+  const revealOpen = useRef(new Map<number, Set<string>>());
   const toggle = useCallback(
-    (key: string) =>
+    (key: string) => {
+      const layerId = Number(/^L(\d+)/.exec(key)?.[1]);
+      const opened = !deferredQuery && reveals?.has(layerId) ? revealOpen.current.get(layerId) : undefined;
+      if (opened) propertyReveals.clear(comp.id, layerId);
       setExpanded((prev) => {
         const next = new Set(prev);
+        if (opened) {
+          const layerKey = `L${layerId}`;
+          for (const k of prev) if (k === layerKey || k.startsWith(`${layerKey}/`)) next.delete(k);
+          // Clicking a revealed layer's own twirl closes it, as After Effects does.
+          if (key === layerKey && opened.has(layerKey)) return next;
+          for (const k of opened) next.add(k);
+        }
         if (!next.delete(key)) next.add(key);
         return next;
-      }),
-    [],
+      });
+    },
+    [comp.id, reveals, deferredQuery],
   );
   const selectKey = useCallback(
     (key: string, add: boolean) =>
@@ -1169,8 +1241,9 @@ export const TimelinePanel = memo(function TimelinePanel({
     return layers;
   }, [deferredQuery, comp, project, revision]);
 
-  const rows = useMemo(() => {
+  const { rows, opened } = useMemo(() => {
     const out: Row[] = [];
+    const opened = new Map<number, Set<string>>();
     for (const layer of comp.layers) {
       if (hideShy && layer.shy) continue;
       const reveal = search?.get(layer.id);
@@ -1178,8 +1251,22 @@ export const TimelinePanel = memo(function TimelinePanel({
       const isOpen = (key: string) => expanded.has(key) || !!reveal?.has(key);
       const layerKey = `L${layer.id}`;
       out.push({ kind: "layer", key: layerKey, layer });
-      if (!isOpen(layerKey)) continue;
       const ctx = { project, layer };
+      const shortcut = search ? undefined : reveals?.get(layer.id);
+      if (shortcut) {
+        // A reveal shortcut (P, S, U...): only its rows, open as it opens them.
+        const open = new Set<string>();
+        const shown = revealedRows(ctx, comp, layerOutline(ctx), layerKey, shortcut);
+        for (const r of shown) {
+          for (let i = r.key.indexOf("/"); i >= 0; i = r.key.indexOf("/", i + 1)) open.add(r.key.slice(0, i));
+          if (r.open) open.add(r.key);
+          out.push({ kind: "node", key: r.key, layer, node: r.node, depth: r.depth });
+          if (r.node.kind === "property" && r.node.prop.expression) out.push({ kind: "expr", key: `${r.key}#expr`, layer, prop: r.node.prop, depth: r.depth + 1 });
+        }
+        opened.set(layer.id, open);
+        continue;
+      }
+      if (!isOpen(layerKey)) continue;
       const walk = (nodes: DisplayNode[], depth: number, parentKey: string) => {
         for (const node of nodes) {
           const key = `${parentKey}/${node.key}`;
@@ -1193,15 +1280,22 @@ export const TimelinePanel = memo(function TimelinePanel({
       };
       walk(layerOutline(ctx), 1, layerKey);
     }
-    return out;
+    return { rows: out, opened };
     // `revision`: edits rebuild the layers inside the same comp object.
-  }, [comp, project, expanded, hideShy, search, revision]);
+  }, [comp, project, expanded, hideShy, search, reveals, revision]);
+  revealOpen.current = opened;
 
   const openKeys = useMemo(() => {
     const keys = new Set(expanded);
     for (const reveal of search?.values() ?? []) for (const k of reveal) keys.add(k);
+    for (const [layerId, open] of opened) {
+      for (const k of keys) if (k === `L${layerId}` || k.startsWith(`L${layerId}/`)) keys.delete(k);
+      for (const k of open) keys.add(k);
+    }
     return keys;
-  }, [expanded, search]);
+  }, [expanded, search, opened]);
+
+  useEffect(() => propertyReveals.noteSelection(comp.id, selectedKeys), [comp.id, selectedKeys]);
 
   const timeFromX = (clientX: number) => {
     const rect = rulerRef.current?.getBoundingClientRect();

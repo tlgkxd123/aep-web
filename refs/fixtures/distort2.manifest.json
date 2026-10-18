@@ -1,0 +1,275 @@
+{
+ "project": "distort2.aep",
+ "comps": [
+  {
+   "comp": "distort2_card",
+   "frames": [
+    0
+   ],
+   "fps": 24
+  },
+  {
+   "comp": "distort2_spherize",
+   "frames": [
+    0,
+    1,
+    2
+   ],
+   "fps": 24
+  },
+  {
+   "comp": "distort2_ripple_asym",
+   "frames": [
+    0,
+    1
+   ],
+   "fps": 24
+  },
+  {
+   "comp": "distort2_ripple_sym",
+   "frames": [
+    0,
+    5
+   ],
+   "fps": 24
+  },
+  {
+   "comp": "distort2_magnify_circle",
+   "frames": [
+    0,
+    1
+   ],
+   "fps": 24
+  },
+  {
+   "comp": "distort2_magnify_square",
+   "frames": [
+    0,
+    1
+   ],
+   "fps": 24
+  },
+  {
+   "comp": "distort2_magnify_resize",
+   "frames": [
+    0
+   ],
+   "fps": 24
+  },
+  {
+   "comp": "distort2_magnify_soft",
+   "frames": [
+    0
+   ],
+   "fps": 24
+  },
+  {
+   "comp": "distort2_lens",
+   "frames": [
+    0,
+    1,
+    2
+   ],
+   "fps": 24
+  },
+  {
+   "comp": "distort2_slant",
+   "frames": [
+    0,
+    1,
+    2
+   ],
+   "fps": 24
+  },
+  {
+   "comp": "distort2_slant_color",
+   "frames": [
+    0
+   ],
+   "fps": 24
+  },
+  {
+   "comp": "distort2_tiler",
+   "frames": [
+    0,
+    1,
+    2
+   ],
+   "fps": 24
+  },
+  {
+   "comp": "distort2_split",
+   "frames": [
+    0,
+    1
+   ],
+   "fps": 24
+  },
+  {
+   "comp": "distort2_split2",
+   "frames": [
+    0,
+    1
+   ],
+   "fps": 24
+  },
+  {
+   "comp": "distort2_bender",
+   "frames": [
+    0,
+    1,
+    2,
+    3
+   ],
+   "fps": 24
+  },
+  {
+   "comp": "distort2_bender_adjust",
+   "frames": [
+    0
+   ],
+   "fps": 24
+  },
+  {
+   "comp": "distort2_powerpin",
+   "frames": [
+    0,
+    1,
+    2
+   ],
+   "fps": 24
+  },
+  {
+   "comp": "distort2_griddler",
+   "frames": [
+    0,
+    1,
+    2
+   ],
+   "fps": 24
+  },
+  {
+   "comp": "distort2_bezier_warp",
+   "frames": [
+    0,
+    1
+   ],
+   "fps": 24
+  },
+  {
+   "comp": "distort2_lines",
+   "frames": [
+    0
+   ],
+   "fps": 24
+  },
+  {
+   "comp": "distort2_narrow",
+   "frames": [
+    0
+   ],
+   "fps": 24
+  },
+  {
+   "comp": "distort2_ripple_narrow",
+   "frames": [
+    0,
+    1
+   ],
+   "fps": 24
+  },
+  {
+   "comp": "distort2_lens_narrow",
+   "frames": [
+    0
+   ],
+   "fps": 24
+  },
+  {
+   "comp": "distort2_magnify_feather",
+   "frames": [
+    0,
+    1,
+    2,
+    3
+   ],
+   "fps": 24
+  },
+  {
+   "comp": "distort2_split_sweep",
+   "frames": [
+    0,
+    1,
+    2,
+    3
+   ],
+   "fps": 24
+  },
+  {
+   "comp": "distort2_split_short",
+   "frames": [
+    0,
+    1
+   ],
+   "fps": 24
+  },
+  {
+   "comp": "distort2_slant_lines",
+   "frames": [
+    0,
+    1
+   ],
+   "fps": 24
+  },
+  {
+   "comp": "distort2_tiler_lines",
+   "frames": [
+    0
+   ],
+   "fps": 24
+  },
+  {
+   "comp": "distort2_powerpin_lines",
+   "frames": [
+    0,
+    1
+   ],
+   "fps": 24
+  },
+  {
+   "comp": "distort2_griddler_plain",
+   "frames": [
+    0,
+    1,
+    2
+   ],
+   "fps": 24
+  },
+  {
+   "comp": "distort2_griddler_narrow",
+   "frames": [
+    0,
+    1
+   ],
+   "fps": 24
+  },
+  {
+   "comp": "distort2_bender_below",
+   "frames": [
+    0,
+    1,
+    2
+   ],
+   "fps": 24
+  },
+  {
+   "comp": "distort2_bender_adjust_styles",
+   "frames": [
+    0,
+    1,
+    2
+   ],
+   "fps": 24
+  }
+ ]
+}

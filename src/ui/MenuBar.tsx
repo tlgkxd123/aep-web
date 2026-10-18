@@ -4,6 +4,7 @@ import { QUICK_START_TEMPLATES, type QuickStartId } from "../quickstart/catalog.
 import { openMenuSheet, type MenuEntries } from "./ContextMenu.tsx";
 import { Icon } from "./icons.tsx";
 import type { LayerCommand } from "./layerCommands.ts";
+import { REVEALS, type RevealKind } from "./propertyReveal.ts";
 
 export type MenuCommand =
   | "open"
@@ -72,7 +73,15 @@ export type MenuCommand =
   | `panel:${string}`
   | `help:${string}`
   | `apply-effect:${string}`
-  | `quick-start:${QuickStartId}`;
+  | `quick-start:${QuickStartId}`
+  | `reveal:${RevealKind}`;
+
+/** Prefix of the commands that show only some properties of the selected layers in the Timeline (P, S, U...). */
+export const REVEAL = "reveal:";
+const revealItem = (kind: RevealKind, label?: string): Item => {
+  const spec = REVEALS.find((r) => r.kind === kind)!;
+  return { label: label ?? spec.label, shortcut: spec.keys, command: `${REVEAL}${kind}`, needsProject: true };
+};
 
 /** The Layer > Transform value dialogs. */
 export type TransformDialogKind = "anchor" | "position" | "scale" | "rotation" | "opacity";
@@ -102,6 +111,7 @@ export type DynamicMenu =
   | "switches"
   | "frame-blending"
   | "blending-mode"
+  | "mask"
   | "track-matte"
   | "resolution"
   | "renderer"
@@ -301,7 +311,7 @@ const MENUS: { name: string; items: Entry[] }[] = [
       { label: "Open Layer Source", shortcut: "Alt+Num Enter", command: "open-layer-source", needsProject: true },
       { label: "Reveal in Explorer" },
       "-",
-      { label: "Mask", submenu: true },
+      dyn("Mask", "mask"),
       { label: "Mask and Shape Path", submenu: true },
       dyn("Quality", "quality"),
       dyn("Switches", "switches"),
@@ -377,9 +387,13 @@ const MENUS: { name: string; items: Entry[] }[] = [
       { label: "Track Motion" },
       { label: "Track Mask" },
       "-",
-      { label: "Reveal Properties with Keyframes", shortcut: "U" },
-      { label: "Reveal Properties with Animation" },
-      { label: "Reveal All Modified Properties" },
+      revealItem("keyframes", "Reveal Properties with Keyframes"),
+      revealItem("animation", "Reveal Properties with Animation"),
+      revealItem("modified", "Reveal All Modified Properties"),
+      sub(
+        "Show Properties",
+        REVEALS.map((r) => revealItem(r.kind)),
+      ),
     ],
   },
   {

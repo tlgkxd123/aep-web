@@ -1,0 +1,53 @@
+{
+ "project": "drawing.aep",
+ "comps": [
+  {
+   "comp": "drawing_mask_modes",
+   "frames": [
+    0
+   ],
+   "fps": 30
+  },
+  {
+   "comp": "drawing_mask_feather",
+   "frames": [
+    0
+   ],
+   "fps": 30
+  },
+  {
+   "comp": "drawing_mask_commands",
+   "frames": [
+    0
+   ],
+   "fps": 30
+  },
+  {
+   "comp": "drawing_mask_animated",
+   "frames": [
+    0,
+    15,
+    30
+   ],
+   "fps": 30
+  },
+  {
+   "comp": "drawing_shapes",
+   "frames": [
+    0
+   ],
+   "fps": 30
+  },
+  {
+   "comp": "drawing_shape_edits",
+   "frames": [
+    0,
+    30
+   ],
+   "fps": 30
+  }
+ ],
+ "known": {
+  "drawing_mask_feather@0": "the renderer's mask feather approximation (core suite mask_feather@0): AE's feather falls off slightly faster inside the edge than a Gaussian"
+ }
+}

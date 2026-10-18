@@ -199,6 +199,24 @@ const PATHS = {
     </>
   ),
   rect: <rect x="2.5" y="3.5" width="11" height="9" rx="0.5" />,
+  roundedRect: <rect x="2.5" y="3.5" width="11" height="9" rx="2.6" />,
+  ellipse: <ellipse cx="8" cy="8" rx="5.5" ry="4.5" />,
+  polygon: <path d="M8 2.5 13.2 6.3 11.2 12.5H4.8L2.8 6.3Z" />,
+  star: <path d="M8 2.2 9.7 6l4.1.4-3.1 2.8.9 4.1L8 11.1l-3.6 2.2.9-4.1-3.1-2.8L6.3 6Z" />,
+  addVertex: (
+    <>
+      <path d="M7 2.5 10.5 8.2l-2.2 4H5.7L3.5 8.2Z" />
+      <path d="M12 9.5v4M10 11.5h4" />
+    </>
+  ),
+  deleteVertex: (
+    <>
+      <path d="M7 2.5 10.5 8.2l-2.2 4H5.7L3.5 8.2Z" />
+      <path d="M10 11.5h4" />
+    </>
+  ),
+  convertVertex: <path d="M3 12.5 8 3.5l5 9M5.6 8h4.8" />,
+  typeVertical: <path d="M12.5 3v10M12.5 8H3M3 6v4M11 3h3M11 13h3" />,
   pen: (
     <>
       <path d="M8 2.5 12 9l-2.5 4.5h-3L4 9Z" />

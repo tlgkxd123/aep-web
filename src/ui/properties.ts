@@ -27,6 +27,22 @@ export type OutlineMode = "timeline" | "effect-controls";
 
 export const findNode = (nodes: PropertyNode[], matchName: string) => nodes.find((n) => n.matchName === matchName);
 
+/** The popups of shape properties, numbered from 1 as the file and the renderer number them. */
+const LAYER_POPUPS: Record<string, readonly string[]> = {
+  "ADBE Vector Shape Direction": ["Default", "Normal", "Reversed"],
+  "ADBE Vector Star Type": ["Star", "Polygon"],
+  "ADBE Vector Composite Order": ["Below Previous in Same Group", "Above Previous in Same Group"],
+  "ADBE Vector Fill Rule": ["Non-Zero Winding", "Even-Odd"],
+  "ADBE Vector Stroke Line Cap": ["Butt Cap", "Round Cap", "Projecting Cap"],
+  "ADBE Vector Stroke Line Join": ["Miter Join", "Round Join", "Bevel Join"],
+  "ADBE Vector Grad Type": ["Linear", "Radial"],
+  "ADBE Vector Trim Type": ["Simultaneously", "Individually"],
+  "ADBE Vector Repeater Order": ["Below", "Above"],
+};
+
+/** A popup property's choices: an effect parameter's own, or a shape property's. */
+export const propertyOptions = (prop: Property): readonly string[] | undefined => prop.options ?? LAYER_POPUPS[prop.matchName];
+
 export function findProperty(nodes: PropertyNode[], matchName: string): Property | undefined {
   const node = findNode(nodes, matchName);
   return node?.kind === "property" ? node : undefined;

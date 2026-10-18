@@ -10,6 +10,7 @@ import type { CommandOptions, Editor } from "./editor.ts";
 import { fixedUtf8, setExpressionFlags, stampTimeBase } from "./encode.ts";
 import { layerTimebase } from "./layer-templates.ts";
 import { editable, isTransformValue } from "./transform-ops.ts";
+import { canMaterializeVector, findInGroup, materializeVectorProp } from "./vectorProps.ts";
 
 const EFFECT_PARADE = "ADBE Effect Parade";
 
@@ -55,6 +56,7 @@ export function canStore(editor: Editor | undefined, layer: Layer, prop: Propert
   if (!prop.synthesized) return !!prop.chunk;
   if (!editor) return false;
   if (isTransformValue(prop.matchName)) return true;
+  if (canMaterializeVector(layer, prop)) return true;
   return !!effectOf(layer, prop) && !!donorFor(editor, prop);
 }
 
@@ -91,6 +93,17 @@ export function storedProperty(editor: Editor, comp: CompItem, layer: Layer, pro
     const found = editable(editor, comp, layer.id, prop.matchName);
     if (!found) throw new Error(`"${prop.name}" cannot be edited`);
     return found;
+  }
+  if (canMaterializeVector(layer, prop)) {
+    const value: PropertyValue = prop.value;
+    let tdgp: Chunk | undefined;
+    editor.perform("", [comp], (tx) => (tdgp = materializeVectorProp(tx, comp, layer, prop)));
+    const next = comp.layers.find((l) => l.id === layer.id);
+    const stored = next && tdgp && findInGroup(next, tdgp, prop.matchName);
+    if (!next || !stored || stored.synthesized) throw new Error(`"${prop.name}" could not be written to the project`);
+    // The copied chunks hold the donor's value; the property keeps the default it showed.
+    if (value !== null) editor.setValue(comp, next, stored, value, 0);
+    return { layer: next, prop: stored };
   }
   const owner = effectOf(layer, prop);
   const donor = donorFor(editor, prop);

@@ -7,6 +7,7 @@ import type { MenuEntries, MenuEntry } from "./ContextMenu.tsx";
 import { blendingModeName, LABEL_NAMES } from "./format.ts";
 import type { LayerCommand } from "./layerCommands.ts";
 import type { TransformDialogKind } from "./MenuBar.tsx";
+import { propertyReveals, REVEALS } from "./propertyReveal.ts";
 
 /** What the app can do from a context menu. */
 export interface AppActions {
@@ -44,6 +45,8 @@ export interface AppActions {
   removeUnusedFootage?: () => void;
   /** Saves the project as a .zip with its footage. */
   collectFiles?: () => void;
+  /** Layer > Mask for a layer, when the project is editable. */
+  maskEntries?: (comp: CompItem, layer: Layer) => MenuEntries;
 }
 
 export type ProjectItemCommand = "rename" | "duplicate" | "delete" | "replace-footage" | "new-folder" | "new-comp" | "import";
@@ -273,6 +276,17 @@ export function layerSwitchEntries(comp: CompItem, layer: Layer, a: AppActions):
   ];
 }
 
+/** The Timeline's reveal shortcuts (P, S, U...) for one layer, for screens without a keyboard. */
+function revealEntries(comp: CompItem, layer: Layer): MenuEntries {
+  const shown = propertyReveals.get().get(comp.id)?.get(layer.id)?.kinds;
+  return REVEALS.map((r) => ({
+    label: r.label,
+    shortcut: r.keys,
+    checked: !!shown?.includes(r.kind),
+    onSelect: () => propertyReveals.request(comp, [layer], r.kind),
+  }));
+}
+
 /** `rename` makes the layer's name editable where the panel can (the Timeline). */
 export function layerMenu(project: Project, comp: CompItem, layer: Layer, a: AppActions, rename?: () => void): MenuEntries {
   const source = project.items.get(layer.sourceId);
@@ -281,7 +295,8 @@ export function layerMenu(project: Project, comp: CompItem, layer: Layer, a: App
     item("Open Layer Source", source?.kind === "comp" ? () => a.openComp(source.id) : source ? () => a.revealInProject(source.id) : undefined),
     item("Effect Controls", a.showEffectControls ? () => a.showEffectControls!(comp.id, layer.id) : undefined, "F3"),
     "-",
-    sub("Mask", [item("New Mask"), item("Mask Shape...", undefined, "Ctrl+Shift+M"), item("Mask Feather...", undefined, "Ctrl+Shift+F"), item("Mask Opacity...")]),
+    sub("Show Properties", revealEntries(comp, layer)),
+    sub("Mask", a.maskEntries?.(comp, layer) ?? [item("New Mask"), item("Mask Shape...", undefined, "Ctrl+Shift+M"), item("Mask Feather...", undefined, "Ctrl+Shift+F"), item("Mask Opacity...")]),
     sub("Transform", [
       command(a, "Reset", "reset-transform", comp, layer),
       "-",

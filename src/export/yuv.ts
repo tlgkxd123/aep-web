@@ -10,7 +10,8 @@ export interface I420 {
   layout: { offset: number; stride: number }[];
 }
 
-function planes(width: number, height: number): { size: number; layout: I420["layout"] } {
+/** The byte size of a contiguous I420 picture and where its Y, U and V planes start. */
+export function i420Planes(width: number, height: number): { size: number; layout: I420["layout"] } {
   const cw = (width + 1) >> 1;
   const ch = (height + 1) >> 1;
   const y = width * height;
@@ -29,9 +30,12 @@ const VG = Math.round(((224 / 255) * -0.7152 / 1.5748) * S);
 const VB = Math.round(((224 / 255) * -0.0722 / 1.5748) * S);
 const HALF = S >> 1;
 
+/** The conversion's coefficients for R, G and B in 16.16 fixed point: Y, U and V. */
+export const I420_COEFFICIENTS = { y: [YR, YG, YB], u: [UR, UG, UB], v: [VR, VG, VB] } as const;
+
 /** Opaque RGB (alpha ignored) to BT.709 limited-range I420; chroma is the mean of each 2x2 block. */
 export function rgbToI420(rgba: Uint8Array, width: number, height: number): I420 {
-  const { size, layout } = planes(width, height);
+  const { size, layout } = i420Planes(width, height);
   const data = new Uint8Array(size);
   for (let i = 0, p = 0; i < width * height; i++, p += 4) {
     data[i] = (16 * S + YR * rgba[p] + YG * rgba[p + 1] + YB * rgba[p + 2] + HALF) >> 16;
@@ -63,7 +67,7 @@ export function rgbToI420(rgba: Uint8Array, width: number, height: number): I420
 
 /** The alpha channel as an I420 picture whose luma is alpha and whose chroma is neutral, as WebM alpha streams carry it. */
 export function alphaToI420(rgba: Uint8Array, width: number, height: number): I420 {
-  const { size, layout } = planes(width, height);
+  const { size, layout } = i420Planes(width, height);
   const data = new Uint8Array(size).fill(128, layout[1].offset);
   for (let i = 0, p = 3; i < width * height; i++, p += 4) data[i] = rgba[p];
   return { data, width, height, layout };

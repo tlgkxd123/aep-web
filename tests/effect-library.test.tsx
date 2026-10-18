@@ -116,6 +116,22 @@ function savedEffects(bytes: Uint8Array, name: string): PropertyGroup[] {
   return parade.children.filter((c): c is PropertyGroup => c.kind === "group");
 }
 
+test("Portal Cards applies from search with editable controls and survives save/reopen", async () => {
+  await openComp(readFileSync(FIXTURE), "roundtrip.base.aep");
+  fireEvent.change(search(), { target: { value: "portal" } });
+  const cards = await libraryEffect("AEP Web", "Portal Cards");
+  fireEvent.doubleClick(cards);
+  await waitFor(() => expect(effectNames()).toEqual(["Portal Cards"]));
+  const controls = screen.getByRole("tree", { name: "Effect Controls" });
+  expect(within(controls).getByText("Depth Spacing")).toBeTruthy();
+  expect(within(controls).getByText("Pulse")).toBeTruthy();
+  const saved = savedEffects(await save(), COMP);
+  expect(saved[0].matchName).toBe("AEPW Portal Cards");
+  expect(saved[0].children.filter((p) => p.kind === "property")).toHaveLength(15);
+  key("z", { ctrlKey: true });
+  expect(effectNames()).toEqual([]);
+});
+
 test("library effects apply to the selected layer from the panel, the Effect menu and drops, and survive save and reopen", async () => {
   await openComp(readFileSync(FIXTURE), "roundtrip.base.aep");
 

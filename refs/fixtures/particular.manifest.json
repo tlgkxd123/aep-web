@@ -1,0 +1,103 @@
+{
+ "project": "particular.aep",
+ "comps": [
+  {
+   "comp": "particular_glow_size",
+   "frames": [
+    156
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "particular_glow_opacity",
+   "frames": [
+    156
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "particular_glow_feather",
+   "frames": [
+    156
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "particular_glow_psize",
+   "frames": [
+    156
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "particular_glow_pfeather",
+   "frames": [
+    156
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "particular_glow_popacity",
+   "frames": [
+    156
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "particular_glow_color",
+   "frames": [
+    156
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "particular_glow_blend",
+   "frames": [
+    156
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "particular_glow_blend2",
+   "frames": [
+    156
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "particular_types",
+   "frames": [
+    156
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "particular_fit_sphere_feather",
+   "frames": [
+    156
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "particular_fit_sphere_size",
+   "frames": [
+    156
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "particular_fit_glow",
+   "frames": [
+    156
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "particular_fit_glow2",
+   "frames": [
+    156
+   ],
+   "fps": 24.0
+  }
+ ]
+}

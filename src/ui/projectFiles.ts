@@ -145,12 +145,12 @@ export async function saveFileBytes(bytes: Uint8Array | Blob, name: string, desc
 }
 
 /** The browser's file dialog for footage. Resolves to [] when cancelled. */
-export function pickMediaFiles(multiple: boolean): Promise<File[]> {
+export function pickMediaFiles(multiple: boolean, projects = false): Promise<File[]> {
   return new Promise((resolve) => {
     const input = document.createElement("input");
     input.type = "file";
     input.multiple = multiple;
-    input.accept = IMPORTABLE_EXTENSIONS.map((e) => `.${e}`).join(",");
+    input.accept = [...IMPORTABLE_EXTENSIONS, ...(projects ? ["aep"] : [])].map((e) => `.${e}`).join(",");
     input.addEventListener("change", () => resolve(Array.from(input.files ?? [])));
     input.addEventListener("cancel", () => resolve([]));
     input.click();

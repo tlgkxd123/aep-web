@@ -9,6 +9,7 @@ import type { Editor } from "./editor.ts";
 import { addEffects, newInstance, type EffectTemplate } from "./effects.ts";
 import { definitionName, freshInstance, nameAsDefined, projectDefinitions, streamPool } from "./effectTemplates.ts";
 import { chunksFromBytes } from "./layer-templates.ts";
+import { portalCardsTemplate } from "./portalCards.ts";
 
 /** An effect the editor can apply. */
 export interface ApplicableEffect {
@@ -44,11 +45,16 @@ export function effectLibrary(): Promise<LibraryEffect[]> {
       if (!only) throw new Error("an effect template is damaged");
       return only;
     };
-    loaded = Object.entries(data.effects).map(([matchName, entry]) => {
+    const effects = Object.entries(data.effects).map(([matchName, entry]) => {
       const instance = chunk(entry.instance);
       nameAsDefined(instance);
       return { matchName, name: entry.name, category: entry.category, template: { matchName, definition: chunk(entry.definition), instance } };
     });
+    const slider = effects.find((e) => e.matchName === "ADBE Slider Control");
+    if (!slider) throw new Error("the effect library is missing Slider Control");
+    const template = portalCardsTemplate(slider.template);
+    effects.push({ matchName: template.matchName, name: "Portal Cards", category: "AEP Web", template });
+    loaded = effects.sort((a, b) => a.category.localeCompare(b.category) || a.name.localeCompare(b.name));
     return loaded;
   })();
   return loading;

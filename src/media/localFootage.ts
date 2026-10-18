@@ -153,5 +153,6 @@ export async function readLocal(path: string): Promise<File> {
   const response = await fetch(`/__aep/footage/file?token=${encodeURIComponent(key ?? "")}&file=${encodeURIComponent(path)}`);
   if (!response.ok) throw new Error(`Could not read ${path}`);
   const blob = await response.blob();
-  return new File([blob], baseName(path), { type: blob.type });
+  const modified = Date.parse(response.headers.get("Last-Modified") ?? "");
+  return new File([blob], baseName(path), { type: blob.type, ...(Number.isFinite(modified) && { lastModified: modified }) });
 }

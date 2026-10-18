@@ -1,0 +1,103 @@
+{
+ "project": "stylize2.aep",
+ "comps": [
+  {
+   "comp": "stylize2_repetile_cells",
+   "frames": [
+    0
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "stylize2_burn_film",
+   "frames": [
+    0,
+    1,
+    2
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "stylize2_ccglass",
+   "frames": [
+    0,
+    1,
+    2
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "stylize2_ccplastic",
+   "frames": [
+    0,
+    1,
+    2
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "stylize2_ccplastic_point",
+   "frames": [
+    0,
+    1,
+    2
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "stylize2_cartoon",
+   "frames": [
+    0,
+    1,
+    2
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "stylize2_smoothie",
+   "frames": [
+    0,
+    1
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "stylize2_roughen",
+   "frames": [
+    0,
+    1,
+    2
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "stylize2_scatter",
+   "frames": [
+    0,
+    1,
+    2
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "stylize2_brush_strokes",
+   "frames": [
+    0,
+    1
+   ],
+   "fps": 24.0
+  }
+ ],
+ "reasons": {
+  "stylize2_roughen": "Roughen Edges' fractal edge comes from After Effects' own noise and random generator; ours is a look-alike",
+  "stylize2_scatter": "Scatter moves pixels by After Effects' own random generator; ours scatters by a seeded hash",
+  "stylize2_brush_strokes": "Brush Strokes places strokes by After Effects' own random generator; ours is a look-alike",
+  "stylize2_burn_film": "CC Burn Film burns along After Effects' own noise; ours is a look-alike",
+  "stylize2_ccglass": "CC Glass has no renderer yet (bump-mapped lighting not reproduced); reference kept for that work",
+  "stylize2_ccplastic": "CC Plastic has no renderer yet (bump-mapped lighting not reproduced); reference kept for that work",
+  "stylize2_ccplastic_point": "CC Plastic has no renderer yet (bump-mapped lighting not reproduced); reference kept for that work",
+  "stylize2_cartoon": "Cartoonify has no renderer yet; reference kept for that work",
+  "stylize2_smoothie": "CC Mr. Smoothie has no renderer yet; reference kept for that work",
+  "stylize2_repetile_cells": "CC RepeTile's Random tiling turns and flips tiles by After Effects' own random generator; ours by a seeded hash (the Twist layer beside it matches)"
+ }
+}

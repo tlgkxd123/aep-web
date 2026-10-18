@@ -1,0 +1,449 @@
+{
+ "project": "channel.aep",
+ "comps": [
+  {
+   "comp": "channel_cards",
+   "frames": [
+    0
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "channel_set_channels_self",
+   "frames": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "channel_set_channels_layers",
+   "frames": [
+    0,
+    1
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "channel_combiner_from",
+   "frames": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    12,
+    13,
+    14,
+    15
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "channel_combiner_to",
+   "frames": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    12,
+    13
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "channel_combiner_options",
+   "frames": [
+    0,
+    1,
+    2,
+    3
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "channel_combiner_invert",
+   "frames": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "channel_combiner_layer",
+   "frames": [
+    0,
+    1
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "channel_arithmetic",
+   "frames": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    12
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "channel_arithmetic_wrap",
+   "frames": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    12
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "channel_compound",
+   "frames": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    12,
+    13,
+    14
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "channel_compound_argb",
+   "frames": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    12,
+    13,
+    14
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "channel_compound_scale",
+   "frames": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    12,
+    13,
+    14
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "channel_compound_alpha",
+   "frames": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "channel_blend",
+   "frames": [
+    0,
+    1,
+    2,
+    3,
+    4
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "channel_blend_stretch",
+   "frames": [
+    0,
+    1,
+    2,
+    3,
+    4
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "channel_calculations",
+   "frames": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    12,
+    13,
+    14,
+    15,
+    16,
+    17,
+    18,
+    19,
+    20,
+    21,
+    22,
+    23,
+    24,
+    25,
+    26,
+    27,
+    28,
+    29
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "channel_calculations_preserve",
+   "frames": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    12,
+    13,
+    14,
+    15,
+    16,
+    17,
+    18,
+    19,
+    20,
+    21,
+    22,
+    23,
+    24,
+    25,
+    26,
+    27,
+    28,
+    29
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "channel_calculations_channels",
+   "frames": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "channel_solid_composite",
+   "frames": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    12,
+    13,
+    14,
+    15,
+    16
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "channel_solid_composite_normal",
+   "frames": [
+    0,
+    1,
+    2
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "channel_cc_composite_1",
+   "frames": [
+    0
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "channel_cc_composite_alpha_1",
+   "frames": [
+    0
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "channel_cc_composite_2",
+   "frames": [
+    0
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "channel_cc_composite_alpha_2",
+   "frames": [
+    0
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "channel_grow_bounds",
+   "frames": [
+    0,
+    1
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "channel_cineon",
+   "frames": [
+    0,
+    1,
+    2
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "channel_cineon_custom",
+   "frames": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "channel_overbrights",
+   "frames": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "channel_compander",
+   "frames": [
+    0,
+    1,
+    2,
+    3
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "channel_hdr_tonemap",
+   "frames": [
+    0,
+    1
+   ],
+   "fps": 24.0
+  }
+ ],
+ "known": {
+  "channel_combiner_to@11": "one cell's luminance is 174.501, which After Effects rounds down (it rounds 82.501 up, and every other cell to nearest); Hue Only turns that level into 6 levels of red"
+ }
+}

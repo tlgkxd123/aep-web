@@ -378,7 +378,7 @@ export function scaleByHandle(
   from: Vec2,
   to: Vec2,
   time: number,
-  options: DragOptions & { proportional?: boolean } = {},
+  options: DragOptions & { proportional?: boolean; box?: readonly [number, number, number, number] } = {},
 ): void {
   const id = layer.id;
   editor.perform(
@@ -393,7 +393,9 @@ export function scaleByHandle(
       const rotation = transformValueAt(target, "ADBE Rotate Z", time)[0] ?? 0;
       const toLayerFrame = invertLin(mulLin(parentLin(comp, target, time), rotLin(rotation)));
       const move = applyLin(toLayerFrame, [to[0] - from[0], to[1] - from[1]]);
-      const grab: Vec2 = [((handle[0] + 1) / 2) * target.width - anchor[0], ((handle[1] + 1) / 2) * target.height - anchor[1]];
+      // The handles sit on the layer's box: its source, or what a shape or text layer draws.
+      const [x0, y0, x1, y1] = options.box ?? [0, 0, target.width, target.height];
+      const grab: Vec2 = [x0 + ((handle[0] + 1) / 2) * (x1 - x0) - anchor[0], y0 + ((handle[1] + 1) / 2) * (y1 - y0) - anchor[1]];
       const start: Vec2 = [grab[0] * k * (scale[0] / 100), grab[1] * (scale[1] / 100)];
       const end: Vec2 = [start[0] + move[0], start[1] + move[1]];
       const next = [scale[0], scale[1]];

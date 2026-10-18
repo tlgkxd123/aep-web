@@ -146,8 +146,8 @@ class Planner {
       if (layer.adjustmentLayer && enabledEffects(layer).length) this.unsupported.add(`adjustment layer effects ("${layer.name}")`);
       placed.blendMode = layer.blendingMode;
       placed.opacity = localTransform(layer, time).opacity / 100;
-      if (layer.trackMatteType !== NO_MATTE) {
-        const matteLayer = matteLayerOf(layer, comp);
+      const matteLayer = layer.trackMatteType !== NO_MATTE ? matteLayerOf(layer, comp) : undefined;
+      if (matteLayer) {
         const mode = MATTE_MODES[layer.trackMatteType] ?? MatteMode.NONE;
         // A matte is used even when its own video is switched off, but only while it is in its time span.
         const matte = matteLayer && isActive(matteLayer, time) ? this.placed(matteLayer, comp, time, camera, depth, scale, false) : null;

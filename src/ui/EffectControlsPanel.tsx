@@ -237,7 +237,10 @@ function ParamRow({ node, depth, effect, ctx, time, expanded, toggle, path }: Ro
   );
 }
 
-/** Sound Keys' Commands row: Apply analyses the Audio Layer over the work area into Output keyframes. */
+/**
+ * Sound Keys' Commands row: Apply bakes the Outputs, which follow the audio live while they have no keyframes, into
+ * keyframes over the whole Audio Layer (as After Effects needs them).
+ */
 function SoundKeysCommands({ effect, ctx, indent, depth }: { effect: PropertyGroup; ctx: RowProps["ctx"]; indent: CSSProperties; depth: number }) {
   const editing = useEditing();
   const { editor } = editing;
@@ -267,7 +270,11 @@ function SoundKeysCommands({ effect, ctx, indent, depth }: { effect: PropertyGro
             type="button"
             className="ae-button"
             disabled={!editor || status.busy}
-            title={editor ? "Generate the Output keyframes from the whole Audio Layer" : "Open the project for editing to apply"}
+            title={
+              editor
+                ? "The Outputs follow the audio live while they have no keyframes. Apply bakes them into keyframes from the whole Audio Layer, which After Effects needs"
+                : "Open the project for editing to apply"
+            }
             onClick={apply}
           >
             Apply

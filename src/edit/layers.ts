@@ -364,7 +364,8 @@ export function deleteLayers(editor: Editor, comp: CompItem, layers: Layer[], ti
       if (layer) setParentKeepingTransform(editor, comp, layer, 0, time);
     }
     for (const layer of live()) {
-      if (!ids.has(layer.trackMatteLayerId)) continue;
+      // Files before AE 23 name no matte layer: the layer above takes the place of a deleted one.
+      if (!ids.has(layer.trackMatteLayerId) || ldtaOf(layer).data.length < LDTA.matteLayerId + 4) continue;
       tx.patch(ldtaOf(layer), (view, bytes) => {
         view.setUint32(LDTA.matteLayerId, 0);
         bytes[LDTA.trackMatteType] = 0;

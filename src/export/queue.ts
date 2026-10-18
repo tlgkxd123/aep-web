@@ -7,7 +7,7 @@ import { appRenderOptions } from "../playback/renderOptions.ts";
 import { Renderer } from "../render/renderer.ts";
 import { EXPORT_CHANNELS, EXPORT_SAMPLE_RATE, mixCompAudio, type MixedAudio } from "./audio.ts";
 import { downloadSink, fileSink } from "./output.ts";
-import { newStats, rendererFrames, rendererSource, renderToSink, statsSummary, type Sink } from "./pipeline.ts";
+import { newStats, rendererFrames, rendererPictures, rendererSource, renderToSink, statsSummary, type Sink } from "./pipeline.ts";
 import type { SavedFile } from "./saveFile.ts";
 import {
   defaultFileName,
@@ -255,13 +255,14 @@ export class RenderQueue {
         comp,
         item.settings,
         item.output,
-        rendererSource(renderer, project, comp, plan, warnings),
+        rendererSource(renderer, project, comp, plan, warnings, stats),
         sink,
         item.fileName,
         {
           signal,
           resume: () => this.waitWhilePaused(),
           gpuFrames: rendererFrames(renderer, project, comp, plan, warnings, stats),
+          pictures: rendererPictures(renderer, project, comp, plan, warnings, stats),
           stats,
           onFrame: (frame, frames) => {
             const ms = elapsed();
@@ -272,7 +273,7 @@ export class RenderQueue {
         audio,
       );
       const f = footageStore.stats;
-      const perf = `audio mix ${(audioMs / 1000).toFixed(1)} s; ${statsSummary(stats)}; footage: ${f.imageDecodes} image decodes (${(f.imageMs / 1000).toFixed(1)} s), ${f.videoRuns} video decode runs (${(f.videoMs / 1000).toFixed(1)} s), ${f.evictions} cache evictions`;
+      const perf = `${summary.encoder ? `video: ${summary.encoder}; ` : ""}audio mix ${(audioMs / 1000).toFixed(1)} s; ${statsSummary(stats)}; footage: ${f.imageDecodes} image decodes (${(f.imageMs / 1000).toFixed(1)} s), ${f.videoRuns} video decode runs (${(f.videoMs / 1000).toFixed(1)} s), ${f.evictions} cache evictions`;
       this.patch(item.id, { status: "Done", renderMs: elapsed(), bytes: summary.bytes, audioCodec: summary.audioCodec, perf, log: [...warnings] });
     } catch (e) {
       await sink?.abort().catch(() => undefined);

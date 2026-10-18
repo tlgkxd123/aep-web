@@ -1,0 +1,232 @@
+{
+ "project": "blurnoise.aep",
+ "comps": [
+  {
+   "comp": "blurnoise_scene",
+   "frames": [
+    0
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "blurnoise_plain",
+   "frames": [
+    0
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "blurnoise_channel",
+   "frames": [
+    0,
+    1,
+    2,
+    3,
+    4
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "blurnoise_channel_repeat",
+   "frames": [
+    0,
+    1,
+    2
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "blurnoise_channel_alpha",
+   "frames": [
+    0,
+    1,
+    2
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "blurnoise_channel_dot",
+   "frames": [
+    0,
+    1
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "blurnoise_channel_kernel",
+   "frames": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "blurnoise_channel_kernel_repeat",
+   "frames": [
+    0,
+    1
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "blurnoise_cccross",
+   "frames": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "blurnoise_cccross_repeat",
+   "frames": [
+    0,
+    1
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "blurnoise_cccross_alpha",
+   "frames": [
+    0,
+    1
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "blurnoise_cccross_dot",
+   "frames": [
+    0,
+    1
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "blurnoise_cccross_kernel",
+   "frames": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "blurnoise_cccross_kernel_fine",
+   "frames": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "blurnoise_cccross_kernel_y",
+   "frames": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "blurnoise_median",
+   "frames": [
+    0,
+    1,
+    2
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "blurnoise_median_alpha",
+   "frames": [
+    0,
+    1
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "blurnoise_dust",
+   "frames": [
+    0,
+    1,
+    2,
+    3
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "blurnoise_dust_alpha",
+   "frames": [
+    0,
+    1
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "blurnoise_lens",
+   "frames": [
+    0,
+    1,
+    2,
+    3
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "blurnoise_lens_card",
+   "frames": [
+    0,
+    1,
+    2
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "blurnoise_lens_dot",
+   "frames": [
+    0,
+    1,
+    2
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "blurnoise_lens_kernel",
+   "frames": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11
+   ],
+   "fps": 24.0
+  }
+ ]
+}

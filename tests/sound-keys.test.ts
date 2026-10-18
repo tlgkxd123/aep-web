@@ -2,10 +2,11 @@
 // the generated keyframes replace only the applied span (saved, undoable).
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import type { CompItem, Property, PropertyGroup } from "../src/aep/model.ts";
+import type { CompItem, Layer, Property, PropertyGroup } from "../src/aep/model.ts";
 import { parseProject } from "../src/aep/parse.ts";
 import { Editor } from "../src/edit/editor.ts";
-import { computeSoundKeys, FALLOFF, RANGE_TYPE, type SoundKeysRange, type SoundKeysSettings } from "../src/media/soundKeys.ts";
+import { computeSoundKeys, FALLOFF, keyGrid, RANGE_TYPE, type SoundKeysRange, type SoundKeysSettings } from "../src/media/soundKeys.ts";
+import { createAnalysis, outputsOf } from "../src/media/soundKeysLive.ts";
 
 const RATE = 44100;
 const W = 1920;
@@ -65,6 +66,26 @@ describe("Sound Keys analysis", () => {
     // After the tone stops the instant output drops to its minimum; the linear one is still falling.
     expect(instant[end]).toBe(-180);
     expect(outputs[1][end]).toBeGreaterThan(0);
+  });
+});
+
+describe("Sound Keys live outputs", () => {
+  it("read Apply's keys at their times and the line between them in between", () => {
+    const box = { x0: columnOf(50), x1: columnOf(72) };
+    const s = settings([
+      { ...box, falloff: FALLOFF.INTEGRATE, min: 0, max: 1 },
+      { ...box, falloff: FALLOFF.LINEAR, falloffTime: 0.5 },
+      { ...box, falloff: FALLOFF.EXPONENTIAL, falloffTime: 0.3, min: -1, max: 1 },
+    ]);
+    const { times, outputs } = computeSoundKeys(s, RATE, tone, 0, 2);
+    const live = createAnalysis(s, keyGrid({ inPoint: 0, outPoint: 2 } as Layer, 2, s.keysPerSecond), RATE, tone);
+    // Read from the end first: the outputs must not depend on what was read before.
+    for (const k of [60, 45, 31, 30, 29, 10, 0]) {
+      outputsOf(live, s, times[k]).forEach((v, r) => expect(v).toBeCloseTo(outputs[r][k], 3));
+    }
+    const mid = outputsOf(live, s, (times[30] + times[31]) / 2);
+    mid.forEach((v, r) => expect(v).toBeCloseTo((outputs[r][30] + outputs[r][31]) / 2, 3));
+    outputsOf(live, s, 5).forEach((v, r) => expect(v).toBeCloseTo(outputs[r][60], 3));
   });
 });
 

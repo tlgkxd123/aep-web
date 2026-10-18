@@ -110,7 +110,7 @@ export class LayerKeys {
           const matteImage = this.image(matte, time);
           if (matteImage === null) return null;
           part += `~${matteImage}@${this.placement(matte, comp, time)}`;
-        }
+        } else if (matte) part += "~empty";
       }
       return part;
     });

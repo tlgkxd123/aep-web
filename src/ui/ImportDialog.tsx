@@ -23,6 +23,7 @@ export function ImportDialog({
   title,
   action,
   multiple,
+  projects = false,
   onChoose,
   onSystemDialog,
   onCancel,
@@ -31,6 +32,8 @@ export function ImportDialog({
   /** The confirm button, "Import" or "Replace". */
   action: string;
   multiple: boolean;
+  /** Native projects import as folders of editable items; Replace Footage stays media-only. */
+  projects?: boolean;
   onChoose: (paths: string[]) => void;
   /** Falls back to the browser's own file dialog (the file then has no known path). */
   onSystemDialog: () => void;
@@ -59,7 +62,7 @@ export function ImportDialog({
   useEffect(() => go(lastFolder(), true), []);
 
   const entries = [...(listing?.entries ?? [])]
-    .filter((e) => e.folder || isImportable(e.name))
+    .filter((e) => e.folder || isImportable(e.name) || (projects && /\.aep$/i.test(e.name)))
     .sort((a, b) => Number(b.folder) - Number(a.folder) || a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: "base" }));
 
   const click = (entry: LocalEntry, add: boolean) => {
@@ -102,7 +105,7 @@ export function ImportDialog({
             onKeyDown={(e) => e.key === "Enter" && open(entry)}
             tabIndex={0}
           >
-            <Icon name={entry.folder ? "folder" : /\.(mp4|m4v|mov)$/i.test(entry.name) ? "footage" : "still"} size={14} />
+            <Icon name={entry.folder ? "folder" : /\.aep$/i.test(entry.name) ? "comp" : /\.(mp4|m4v|mov)$/i.test(entry.name) ? "footage" : "still"} size={14} />
             <span className="imp-name">{entry.name}</span>
             <span className="imp-size dim">{entry.size !== undefined ? bytesLabel(entry.size) : ""}</span>
           </div>
@@ -117,7 +120,7 @@ export function ImportDialog({
       </div>
       <div className="imp-foot">
         <span className="dim">Import As:</span>
-        <span>Footage</span>
+        <span>{selected.some((p) => /\.aep$/i.test(p)) ? "Project" : "Footage"}</span>
       </div>
       <div className="dialog-actions">
         <button type="button" className="ae-link" onClick={onSystemDialog}>

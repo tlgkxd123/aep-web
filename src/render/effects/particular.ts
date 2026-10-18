@@ -16,6 +16,7 @@ import { effectNumber, effectProperty, effectVector } from "../effectParams.ts";
 import { compile, type GL } from "../gl.ts";
 import { registerEffect } from "../registry.ts";
 import { OPACITY_OVER_LIFE, overLifeCurve, sampleCurve, SIZE_OVER_LIFE } from "./particularCurves.ts";
+import { drawSprites, SPRITE_MODE, spriteFrames } from "./particularSprites.ts";
 
 /** Deterministic uniform random numbers in [0, 1). */
 function random(seed: number): () => number {
@@ -29,8 +30,8 @@ function random(seed: number): () => number {
   };
 }
 
-// Each dot is an instanced quad over its reach; its soft disc (full inside
-// `inner`, linear to zero at `r`) is laid over what is below: a + b (1 - a).
+// Each dot is an instanced quad over its reach; its soft disc (full inside `inner`, falling to zero at `r` as
+// 1 - smoothstep, as After Effects draws spheres and glows) is laid over what is below: a + b (1 - a).
 const SPLAT_VS = `#version 300 es
 layout(location = 0) in vec2 a_corner;
 layout(location = 1) in vec4 a_splat;
@@ -59,7 +60,7 @@ void main() {
   float d = distance(pixel, v_splat.xy);
   float r = v_splat.z;
   float inner = v_splat.w;
-  float cover = d <= inner ? 1.0 : d >= r ? 0.0 : 1.0 - (d - inner) / max(1e-6, r - inner);
+  float cover = inner >= r ? (d < r ? 1.0 : 0.0) : 1.0 - smoothstep(inner, r, d);
   float a = v_opacity * cover;
   outColor = vec4(u_color * a, a);
 }`;
@@ -224,6 +225,16 @@ const SIZE_LINKED = 1;
 const DOF_OFF = 1;
 /** Particle Type "Sphere": the dot without the glow halo the other types are drawn with here. */
 const TYPE_SPHERE = 1;
+const TYPE_GLOW_SPHERE = 2;
+const TYPE_STAR = 3;
+const TYPE_SPRITE = 6;
+const TYPE_SPRITE_COLORIZE = 7;
+const TYPE_SPRITE_FILL = 8;
+const TYPE_POLYGON = 9;
+const TYPE_POLYGON_COLORIZE = 10;
+const TYPE_POLYGON_FILL = 11;
+const TYPE_CIRCLE = 13;
+const SPRITE_TYPES = new Set([TYPE_SPRITE, TYPE_SPRITE_COLORIZE, TYPE_SPRITE_FILL, TYPE_POLYGON, TYPE_POLYGON_COLORIZE, TYPE_POLYGON_FILL]);
 /** Circle of confusion (comp pixels) of a particle twice the focal distance away: fitted, not Particular's own. */
 const DOF_APERTURE = 15;
 
@@ -253,16 +264,39 @@ registerEffect("tc Particular", (input, effect, layer, time, ctx) => {
   const opacity = num(33, 100) / 100;
   const opacityRandom = Math.min(1, num(75, 0) / 100);
   const feather = num(29, 50) / 100;
-  const glows = num(26, TYPE_SPHERE) !== TYPE_SPHERE;
+  const particleType = num(26, TYPE_SPHERE);
+  const textured = SPRITE_TYPES.has(particleType);
+  const polygon = particleType >= TYPE_POLYGON && particleType <= TYPE_POLYGON_FILL;
+  const spriteMode =
+    particleType === TYPE_SPRITE_COLORIZE || particleType === TYPE_POLYGON_COLORIZE
+      ? SPRITE_MODE.COLORIZE
+      : particleType === TYPE_SPRITE_FILL || particleType === TYPE_POLYGON_FILL
+        ? SPRITE_MODE.FILL
+        : SPRITE_MODE.TEXTURE;
+  const textureIndex = Math.round(num(66, 0));
+  const timeSampling = num(67, TIME_CURRENT);
+  const textureSeed = num(305, 1);
+  const clips = num(108, 2);
+  const aspect = Math.max(1e-3, num(524, 1));
+  const baseRotation = [num(275, 0), num(276, 0), num(136, 0)];
+  const randomRotation = Math.max(0, num(137, 0)) / 100;
+  const rotationSpeed = [num(277, 0), num(278, 0), num(138, 0)];
+  const randomSpeed = Math.max(0, num(279, 0)) / 100;
+  const particleBlend = num(69, BLEND_NORMAL);
+  const glowBlend = num(218, BLEND_NORMAL);
+  const glows = !textured && particleType !== TYPE_SPHERE;
   const glowSize = num(215, 300) / 100;
   const glowOpacity = glows ? num(216, 25) / 100 : 0;
+  const glowFeather = Math.max(0, Math.min(100, num(217, 100))) / 100;
   const color = effectVector(effect, 70, layer, time, [1, 1, 1, 1]);
   const timeFactor = num(25, 1);
   const gravity = num(17, 0);
   const wind = [num(22, 0), num(23, 0), num(24, 0)];
   const seed = num(230, 100000);
   const preRun = Math.max(0, num(227, 0)) / 100;
-  const aperture = num(319, DOF_OFF) === DOF_OFF ? 0 : DOF_APERTURE;
+  // Glow Sphere, Star and Circle are the "No DOF" particle types, regardless of the rendering setting.
+  const noDof = particleType === TYPE_GLOW_SPHERE || particleType === TYPE_STAR || particleType === TYPE_CIRCLE;
+  const aperture = noDof || num(319, DOF_OFF) === DOF_OFF ? 0 : DOF_APERTURE;
   const farVanish = num(100, 20000);
   const farFade = num(102, 19000);
   const nearFade = num(103, 10);
@@ -359,7 +393,7 @@ registerEffect("tc Particular", (input, effect, layer, time, ctx) => {
     first = Math.max(0, Math.floor(emitted(time - life / simFactor)) - 1);
     last = Math.floor(emitted(time) + 1e-6);
   }
-  const splats: number[] = [];
+  const particles: Particle[] = [];
   for (let i = first; i <= last && (rate > 0 || animatedRate); i++) {
     const [birthReal, birthSim] = birthOf(i);
     if (!Number.isFinite(birthSim)) break;
@@ -402,39 +436,199 @@ registerEffect("tc Particular", (input, effect, layer, time, ctx) => {
     const scale = camera.zoom / view[2];
     const sx = cx + view[0] * scale + shiftX;
     const sy = cy + view[1] * scale + shiftY;
-    // Size is the diameter; Particle Feather fades outward beyond it (to 1.9 r at 50%, as After Effects draws it).
-    // The glow halo scales from that feathered edge.
-    const r = (pSize * scale) / 2;
-    const edge = r * (1 + 1.8 * feather);
     // Out of the focal plane a particle spreads over its circle of confusion, keeping its light.
     const blur = (aperture * Math.abs(view[2] - camera.zoom)) / view[2] / 2;
-    const reach = edge * (glows ? Math.max(glowSize, 1) : 1) + blur;
+    // Size is the radius (of a sphere, and half a sprite's width).
+    const r = pSize * scale;
+    const reach = (textured ? r * Math.SQRT2 * Math.max(aspect, 1 / aspect, 1) * 2 : r * (glows ? Math.max(glowSize, 1) : 1) + 1) + blur;
     if (seen <= 0 || sx + reach < 0 || sy + reach < 0 || sx - reach > width || sy - reach > height) continue;
-    if (glows) defocused(splats, sx, sy, 0, edge * glowSize, seen * glowOpacity, blur);
-    defocused(splats, sx, sy, r, edge, seen, blur);
+    const spin = rotationSpeed.map((s) => s * 360 * age * (1 + randomSpeed * (rand() * 2 - 1)));
+    const randomTurn = [rand(), rand(), rand()].map((u) => (u * 2 - 1) * 180 * randomRotation);
+    particles.push({
+      z: view[2],
+      sx,
+      sy,
+      r,
+      blur,
+      seen,
+      age,
+      lifeSpan,
+      birth: birthReal,
+      rand,
+      angles: [0, 1, 2].map((k) => baseRotation[k] + randomTurn[k] + spin[k]),
+      view,
+      scale,
+    });
   }
+  // Normal particles are laid over each other far to near.
+  particles.sort((a, b) => b.z - a.z);
   const pad = ctx.pad;
   // `acquire` leaves the cleared target bound with its viewport set.
   const out = ctx.pool.acquire(width + 2 * pad, height + 2 * pad);
   ctx.pool.release(input.target);
-  if (splats.length) {
-    const gl = ctx.gl;
+  const gl = ctx.gl;
+  if (textured) {
+    const textureLayer = textureIndex > 0 ? comp?.layers.find((l) => l.index === textureIndex && l !== layer) : undefined;
+    const fpsTexture = fps;
+    const sampleTime = (p: Particle) => textureTime(timeSampling, p, time, textureLayer, clips, textureSeed, 1 / fpsTexture);
+    const shown = particles.filter((p) => Number.isFinite(sampleTime(p)));
+    const frames = textureLayer && shown.length ? spriteFrames(ctx, textureLayer, shown.map(sampleTime), fpsTexture) : null;
+    if (frames) {
+      const instances: number[] = [];
+      for (const p of shown) {
+        // A sprite is twice its Size wide, whatever its texture's shape, and as tall as the texture's proportions
+        // make it; Aspect Ratio widens it alone.
+        const w = p.r * aspect;
+        const h = (p.r * frames.height) / frames.width;
+        const corners: [number, number][] = [
+          [-w, -h],
+          [w, -h],
+          [-w, h],
+          [w, h],
+        ];
+        if (polygon) {
+          const turn = rotation(p.angles[0], p.angles[1], p.angles[2]);
+          for (const [x, y] of corners) {
+            const v = turn.transformVector([x / p.scale, y / p.scale, 0]);
+            const z = p.view[2] + v[2];
+            const k = camera.zoom / Math.max(1, z);
+            instances.push(cx + (p.view[0] + v[0]) * k + shiftX, cy + (p.view[1] + v[1]) * k + shiftY, z / p.view[2]);
+          }
+        } else {
+          const a = (p.angles[2] * Math.PI) / 180;
+          const c = Math.cos(a);
+          const s = Math.sin(a);
+          for (const [x, y] of corners) instances.push(p.sx + x * c - y * s, p.sy + x * s + y * c, 1);
+        }
+        instances.push(frames.slot(sampleTime(p)), p.seen);
+      }
+      withBlend(gl, out, pad, width, height, particleBlend, () => drawSprites(gl, out, pad, instances, spriteMode, color));
+    }
+  } else {
+    const glowSplats: number[] = [];
+    const coreSplats: number[] = [];
+    for (const p of particles) {
+      // A disc of radius R and feather f is full out to (R + 0.5)(1 - f) - 3 px and gone at R + 0.5 (fitted to
+      // After Effects renders over sizes 4-40 and feathers 0-100: scripts/particular-fit.ts); the glow is such a
+      // disc Glow Size times larger, with Glow Feather, under the particle.
+      const disc = (radius: number, f: number): [number, number] => [Math.max(0, (radius + 0.5) * (1 - f) - 3), radius + 0.5];
+      if (glows) defocused(glowSplats, p.sx, p.sy, ...disc(p.r * glowSize, glowFeather), p.seen * glowOpacity, p.blur);
+      defocused(coreSplats, p.sx, p.sy, ...disc(p.r, feather), p.seen, p.blur);
+    }
     const gpu = splatter(gl);
-    gl.useProgram(gpu.program);
-    gl.uniform2f(gpu.size, out.width, out.height);
-    gl.uniform1f(gpu.pad, pad);
-    gl.uniform3f(gpu.color, color[0] ?? 1, color[1] ?? 1, color[2] ?? 1);
-    gl.bindBuffer(gl.ARRAY_BUFFER, gpu.instances);
-    gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(splats), gl.STREAM_DRAW);
-    gl.enable(gl.SCISSOR_TEST);
-    gl.scissor(pad, pad, width, height);
-    gl.enable(gl.BLEND);
-    gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
-    gl.bindVertexArray(gpu.vao);
-    gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, splats.length / SPLAT_FLOATS);
-    gl.bindVertexArray(null);
-    gl.disable(gl.BLEND);
-    gl.disable(gl.SCISSOR_TEST);
+    const draw = (splats: number[]) => {
+      if (!splats.length) return;
+      gl.useProgram(gpu.program);
+      gl.uniform2f(gpu.size, out.width, out.height);
+      gl.uniform1f(gpu.pad, pad);
+      gl.uniform3f(gpu.color, color[0] ?? 1, color[1] ?? 1, color[2] ?? 1);
+      gl.bindBuffer(gl.ARRAY_BUFFER, gpu.instances);
+      gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(splats), gl.STREAM_DRAW);
+      gl.bindVertexArray(gpu.vao);
+      gl.drawArraysInstanced(gl.TRIANGLE_STRIP, 0, 4, splats.length / SPLAT_FLOATS);
+      gl.bindVertexArray(null);
+    };
+    withBlend(gl, out, pad, width, height, glowBlend, () => draw(glowSplats));
+    withBlend(gl, out, pad, width, height, particleBlend, () => draw(coreSplats));
   }
   return { ...input, target: out };
 });
+
+/** A particle as it is drawn: where, how large and how visible, and what its texture and rotation follow. */
+interface Particle {
+  /** Camera depth. */
+  z: number;
+  sx: number;
+  sy: number;
+  /** Half the size, in layer pixels. */
+  r: number;
+  blur: number;
+  seen: number;
+  age: number;
+  lifeSpan: number;
+  /** Real birth time (comp seconds). */
+  birth: number;
+  /** The particle's own random numbers, continuing after the ones its motion used. */
+  rand: () => number;
+  /** Rotation about X, Y and Z, degrees. */
+  angles: number[];
+  /** Position relative to the camera. */
+  view: number[];
+  /** Layer pixels per particle-space unit at the particle's depth. */
+  scale: number;
+}
+
+const BLEND_NORMAL = 1;
+const BLEND_ADD = 2;
+const BLEND_SCREEN = 3;
+const BLEND_LIGHTEN = 4;
+
+/** Runs `draw` into `out`'s content (scissored to it) with Particular's blend mode `mode` between particles. */
+function withBlend(gl: GL, out: { framebuffer: WebGLFramebuffer; width: number; height: number }, pad: number, width: number, height: number, mode: number, draw: () => void) {
+  gl.bindFramebuffer(gl.FRAMEBUFFER, out.framebuffer);
+  gl.viewport(0, 0, out.width, out.height);
+  gl.enable(gl.SCISSOR_TEST);
+  gl.scissor(pad, pad, width, height);
+  gl.enable(gl.BLEND);
+  if (mode === BLEND_ADD) gl.blendFunc(gl.ONE, gl.ONE);
+  else if (mode === BLEND_SCREEN) gl.blendFuncSeparate(gl.ONE, gl.ONE_MINUS_SRC_COLOR, gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+  else if (mode === BLEND_LIGHTEN) gl.blendEquation(gl.MAX);
+  else gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+  draw();
+  gl.blendEquation(gl.FUNC_ADD);
+  gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+  gl.disable(gl.BLEND);
+  gl.disable(gl.SCISSOR_TEST);
+}
+
+const TIME_CURRENT = 1;
+const TIME_BIRTH_ONCE = 2;
+const TIME_BIRTH_LOOP = 3;
+const TIME_BIRTH_STRETCH = 4;
+const TIME_RANDOM_STILL = 5;
+const TIME_RANDOM_ONCE = 6;
+const TIME_RANDOM_LOOP = 7;
+const TIME_SPLIT_ONCE = 8;
+const TIME_SPLIT_LOOP = 9;
+const TIME_SPLIT_STRETCH = 10;
+
+/**
+ * The time of the texture layer (its own seconds) a particle shows, by Texture > Time Sampling; NaN once a clip
+ * played once has ended (the particle then draws nothing). A texture's clock starts a frame after the birth.
+ */
+function textureTime(mode: number, p: Particle, time: number, layer: Layer | undefined, clips: number, seed: number, frame: number): number {
+  const duration = layer ? Math.max(1e-6, Math.abs(layer.outPoint - layer.inPoint)) : 1;
+  const start = layer ? Math.min(layer.inPoint, layer.outPoint) - layer.startTime : 0;
+  const age = Math.max(0, p.age - frame);
+  const share = p.lifeSpan > 0 ? age / p.lifeSpan : 0;
+  const pick = random(Math.imul(seed | 0, 0x85ebca6b) ^ Math.imul(Math.round(p.birth * 1e4) + 1, 0xc2b2ae35));
+  const within = (t: number, span: number, loop: boolean) => (loop ? ((t % span) + span) % span : t < span ? Math.max(0, t) : Number.NaN);
+  switch (mode) {
+    case TIME_CURRENT:
+      return layer ? time - layer.startTime : time;
+    case TIME_BIRTH_ONCE:
+      return start + within(age, duration, false);
+    case TIME_BIRTH_LOOP:
+      return start + within(age, duration, true);
+    case TIME_BIRTH_STRETCH:
+      return start + Math.min(share, 1 - 1e-6) * duration;
+    case TIME_RANDOM_STILL:
+      return start + pick() * duration;
+    case TIME_RANDOM_ONCE:
+      return start + within(pick() * duration + age, duration, false);
+    case TIME_RANDOM_LOOP:
+      return start + within(pick() * duration + age, duration, true);
+    case TIME_SPLIT_ONCE:
+    case TIME_SPLIT_LOOP:
+    case TIME_SPLIT_STRETCH: {
+      const n = Math.max(1, Math.round(clips));
+      const span = duration / n;
+      const clip = Math.min(n - 1, Math.floor(pick() * n));
+      const t = mode === TIME_SPLIT_STRETCH ? Math.min(share, 1 - 1e-6) * span : age;
+      return start + clip * span + within(t, span, mode === TIME_SPLIT_LOOP);
+    }
+    default:
+      // Current Frame - Freeze: the frame shown when the particle was born.
+      return layer ? p.birth - layer.startTime : p.birth;
+  }
+}

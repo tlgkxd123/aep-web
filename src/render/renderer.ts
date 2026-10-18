@@ -197,7 +197,14 @@ export class Renderer {
     this.project = project;
     const warnings = (this.warnings = new Set());
     this.complete = true;
-    setExpressionScope({ project, warn: (message) => warnings.add(message) });
+    setExpressionScope({
+      project,
+      warn: (message) => warnings.add(message),
+      loading: (message) => {
+        warnings.add(message);
+        this.complete = false;
+      },
+    });
     this.keys.newFrame();
     const result = this.renderComp(comp, time, 0, options.scale ?? 1);
     this.pool.trim(Math.max(this.budgets.targets, 8 * result.width * result.height * 4));
@@ -396,12 +403,12 @@ export class Renderer {
       let matte: Target | null = null;
       let matteMode: number = MatteMode.NONE;
       let matteOpacity = 1;
-      if (layer.trackMatteType !== NO_MATTE) {
-        const matteLayer = this.matteLayerOf(layer, comp);
+      const matteLayer = layer.trackMatteType !== NO_MATTE ? this.matteLayerOf(layer, comp) : undefined;
+      if (matteLayer) {
         matteMode = MATTE_MODES[layer.trackMatteType] ?? MatteMode.NONE;
-        matte = matteLayer ? this.placeLayer(matteLayer, comp, time, camera, depth, scale, true) : null;
-        if (matteLayer && matte) matteOpacity = localTransform(matteLayer, time).opacity / 100;
-        if (!matte) matte = this.pool.acquire(width, height);
+        matte = this.placeLayer(matteLayer, comp, time, camera, depth, scale, true);
+        if (matte) matteOpacity = localTransform(matteLayer, time).opacity / 100;
+        else matte = this.pool.acquire(width, height);
       }
       const opacity = localTransform(layer, time).opacity / 100;
       const next = this.pool.acquire(width, height, false);

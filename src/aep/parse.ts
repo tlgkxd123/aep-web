@@ -391,12 +391,13 @@ class Parser {
     return item;
   }
 
-  parseEffectDefinitions(root: Chunk): void {
+  parseEffectDefinitions(root: Chunk, missingOnly = false): void {
     for (const efdf of filterLists(findList(root, "EfdG"), "EfDf")) {
       const tdmn = findChild(efdf, "tdmn");
       const sspc = findList(efdf, "sspc");
       if (!tdmn || !sspc) continue;
       const matchName = matchNameOf(tdmn);
+      if (missingOnly && this.effectDefs.has(matchName)) continue;
       const defs = this.paramDefs(sspc);
       if (defs.length) this.effectDefs.set(matchName, defs);
       const display = containerText(findChild(sspc, "fnam"));
@@ -445,6 +446,11 @@ class Parser {
       comp.layers = layerLists.map((layerList, i) =>
         this.parseLayer(layerList, ldtas[i], i + 1, comp, internalTimebase, layerIndexById),
       );
+      // Files before AE 23 store no matte layer: it is always the layer above. Later files name it, and a matte
+      // naming no layer (0 included) leaves the layer unmatted.
+      comp.layers.forEach((layer, i) => {
+        if (ldtas[i].matteLayerId === undefined && layer.trackMatteType !== 5012) layer.trackMatteLayerId = comp.layers[i - 1]?.id ?? 0;
+      });
     }
   }
 
@@ -1071,6 +1077,7 @@ const sourceKey = (item: Item) => (item.kind === "footage" ? JSON.stringify(item
  */
 export function refreshProject(project: Project): void {
   const parser = parserFor(project);
+  parser.parseEffectDefinitions(project.file.root, true);
   const rootList = findList(project.file.root, "Fold");
   if (!rootList) throw new Error("project has no root folder (LIST:Fold)");
   for (const item of project.items.values()) if (item.chunk && !itemsByChunk.has(item.chunk)) itemsByChunk.set(item.chunk, item);

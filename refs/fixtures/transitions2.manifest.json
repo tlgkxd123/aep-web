@@ -1,0 +1,504 @@
+{
+ "project": "transitions2.aep",
+ "comps": [
+  {
+   "comp": "transitions2_iris_points",
+   "frames": [
+    0,
+    1,
+    2,
+    3
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "transitions2_iris_inner",
+   "frames": [
+    0,
+    1,
+    2
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "transitions2_iris_feather",
+   "frames": [
+    0,
+    1,
+    2
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "transitions2_iris_feather_edge",
+   "frames": [
+    0,
+    1,
+    2,
+    3,
+    4
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "transitions2_iris_card",
+   "frames": [
+    0,
+    1,
+    2
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "transitions2_gradient_hard",
+   "frames": [
+    0,
+    1,
+    2,
+    3
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "transitions2_gradient_soft",
+   "frames": [
+    0,
+    1,
+    2
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "transitions2_gradient_invert",
+   "frames": [
+    0,
+    1
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "transitions2_gradient_tile",
+   "frames": [
+    0,
+    1
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "transitions2_gradient_center",
+   "frames": [
+    0,
+    1
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "transitions2_gradient_stretch_white",
+   "frames": [
+    0
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "transitions2_gradient_stretch",
+   "frames": [
+    0,
+    1
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "transitions2_gridwipe_doors",
+   "frames": [
+    0,
+    1,
+    2,
+    3
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "transitions2_gridwipe_radial",
+   "frames": [
+    0,
+    1,
+    2,
+    3
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "transitions2_gridwipe_rect",
+   "frames": [
+    0,
+    1,
+    2,
+    3
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "transitions2_gridwipe_rotated",
+   "frames": [
+    0,
+    1,
+    2
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "transitions2_gridwipe_reverse",
+   "frames": [
+    0,
+    1
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "transitions2_radialscale",
+   "frames": [
+    0,
+    1,
+    2
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "transitions2_radialscale_ramp",
+   "frames": [
+    0,
+    1,
+    2
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "transitions2_radialscale_ramp2",
+   "frames": [
+    0,
+    1,
+    2
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "transitions2_radialscale_ramp_reverse",
+   "frames": [
+    0,
+    1
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "transitions2_radialscale_reverse",
+   "frames": [
+    0,
+    1
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "transitions2_scalewipe",
+   "frames": [
+    0,
+    1,
+    2,
+    3
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "transitions2_scalewipe_dir",
+   "frames": [
+    0,
+    1,
+    2,
+    3
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "transitions2_jaws_spikes",
+   "frames": [
+    0,
+    1,
+    2
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "transitions2_jaws_robojaw",
+   "frames": [
+    0,
+    1,
+    2
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "transitions2_jaws_block",
+   "frames": [
+    0,
+    1,
+    2
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "transitions2_jaws_waves",
+   "frames": [
+    0,
+    1,
+    2
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "transitions2_jaws_rot",
+   "frames": [
+    0,
+    1,
+    2,
+    3
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "transitions2_jaws_size",
+   "frames": [
+    0,
+    1,
+    2,
+    3
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "transitions2_jaws_shapes_rot",
+   "frames": [
+    0,
+    1,
+    2
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "transitions2_jaws_dir",
+   "frames": [
+    0,
+    1,
+    2
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "transitions2_linesweep",
+   "frames": [
+    0,
+    1,
+    2,
+    3
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "transitions2_linesweep_a",
+   "frames": [
+    0,
+    1
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "transitions2_linesweep_b",
+   "frames": [
+    0,
+    1
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "transitions2_linesweep_c",
+   "frames": [
+    0,
+    1
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "transitions2_linesweep_d",
+   "frames": [
+    0,
+    1
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "transitions2_linesweep_e",
+   "frames": [
+    0,
+    1
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "transitions2_linesweep_anchor90",
+   "frames": [
+    0,
+    1,
+    2
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "transitions2_linesweep_anchor180",
+   "frames": [
+    0,
+    1,
+    2
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "transitions2_linesweep_anchor45",
+   "frames": [
+    0,
+    1,
+    2
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "transitions2_linesweep_flip",
+   "frames": [
+    0,
+    1
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "transitions2_lightwipe_doors",
+   "frames": [
+    0,
+    1,
+    2
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "transitions2_lightwipe_round",
+   "frames": [
+    0,
+    1,
+    2
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "transitions2_lightwipe_square",
+   "frames": [
+    0,
+    1,
+    2
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "transitions2_lightwipe_params",
+   "frames": [
+    0,
+    1,
+    2
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "transitions2_lightwipe_white",
+   "frames": [
+    0,
+    1
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "transitions2_imagewipe",
+   "frames": [
+    0,
+    1,
+    2,
+    3
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "transitions2_imagewipe_soft",
+   "frames": [
+    0,
+    1,
+    2
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "transitions2_imagewipe_card",
+   "frames": [
+    0
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "transitions2_imagewipe_card3",
+   "frames": [
+    0,
+    1
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "transitions2_imagewipe_card2",
+   "frames": [
+    0,
+    1
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "transitions2_glasswipe",
+   "frames": [
+    0,
+    1,
+    2
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "transitions2_glasswipe_card",
+   "frames": [
+    0,
+    1,
+    2
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "transitions2_twister",
+   "frames": [
+    0,
+    1,
+    2,
+    3
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "transitions2_twister_shaded",
+   "frames": [
+    0,
+    1,
+    2
+   ],
+   "fps": 24.0
+  }
+ ],
+ "known": {}
+}

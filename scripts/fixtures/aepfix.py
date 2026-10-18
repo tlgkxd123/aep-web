@@ -28,7 +28,7 @@ from pathlib import Path
 PY_AEP = Path(os.environ.get("PY_AEP", "C:/Users/schxm/projects/_ref/py-aep"))
 sys.path.insert(0, str(PY_AEP / "src"))
 import py_aep  # noqa: E402
-from py_aep.binary.chunk import read_chunks, write_chunk  # noqa: E402
+from py_aep.binary.chunk import read_chunks, write_aep, write_chunk  # noqa: E402
 from py_aep.binary.mutations import clone_chunk_tree  # noqa: E402
 from py_aep.binary.utils import filter_by_list_type, find_by_list_type  # noqa: E402
 from py_aep.enums import BlendingMode, MaskMode, TrackMatteType  # noqa: E402,F401
@@ -70,8 +70,11 @@ class Suite:
 
     def save(self) -> None:
         REFS.mkdir(parents=True, exist_ok=True)
-        (REFS / self.project_file).unlink(missing_ok=True)
-        self.project.save(REFS / self.project_file)
+        # py-aep backpatches every chunk length with a seek, which on a file flushes its buffer each time;
+        # in memory the same write takes seconds instead of minutes for projects with large effects.
+        buf = BytesIO()
+        write_aep(buf, self.project._rifx, self.project._xmp)
+        (REFS / self.project_file).write_bytes(buf.getvalue())
         (REFS / self.manifest_file).write_text(
             json.dumps({"project": self.project_file, "comps": self.manifest}, indent=1) + "\n", encoding="utf-8"
         )
@@ -90,6 +93,8 @@ def tr(layer, match_name):
 #: The py-aep corpus is searched after these.
 EFFECT_DONORS = [
     os.environ.get("AEP_EFFECT_DONOR"),
+    # Every effect After Effects 2025 lists, applied at its factory defaults (node scripts/ae-donors.ts).
+    str(REFS / "donors" / "ae2025-effects.aep"),
     str(PY_AEP / "samples" / "versions" / "ae2025" / "complete.aep"),
     "C:/Users/schxm/projects/_user/bass-supreme.aep",
     "C:/Users/schxm/Downloads/TN 2020 2.aep",

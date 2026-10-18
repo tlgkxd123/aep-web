@@ -1,7 +1,11 @@
 {
  "project": "ae2025-effects.aep",
  "skipped": [
-  "ADBE Apply Color LUT2"
+  "ADBE Apply Color LUT2",
+  "ADBE Numbers2",
+  "ADBE Apply Color LUT",
+  "ADBE Basic Text2",
+  "ADBE Path Text"
  ],
  "effects": [
   {
@@ -954,9 +958,9 @@
    "name": "Aplicar tabla de búsq. de color",
    "category": "_Obsolete",
    "version": "25.0",
-   "added": true,
-   "params": 3,
-   "defined": true
+   "added": false,
+   "error": "skipped: applying it does not return without the UI",
+   "defined": false
   },
   {
    "matchName": "ADBE Arithmetic",
@@ -972,18 +976,18 @@
    "name": "Espectro de audio",
    "category": "Generar",
    "version": "25.0",
-   "added": false,
-   "error": "audio effect",
-   "defined": false
+   "added": true,
+   "params": 24,
+   "defined": true
   },
   {
    "matchName": "ADBE AudWave",
    "name": "Forma de onda de audio",
    "category": "Generar",
    "version": "25.0",
-   "added": false,
-   "error": "audio effect",
-   "defined": false
+   "added": true,
+   "params": 17,
+   "defined": true
   },
   {
    "matchName": "ADBE Aud BT",
@@ -1134,9 +1138,9 @@
    "name": "Texto básico",
    "category": "Obsoleto",
    "version": "25.0",
-   "added": true,
-   "params": 12,
-   "defined": true
+   "added": false,
+   "error": "skipped: applying it does not return without the UI",
+   "defined": false
   },
   {
    "matchName": "ADBE Laser",
@@ -2215,7 +2219,7 @@
    "category": "Texto",
    "version": "25.0",
    "added": false,
-   "error": "TypeError: null no es un objeto",
+   "error": "skipped: applying it does not return without the UI",
    "defined": false
   },
   {
@@ -2305,7 +2309,7 @@
    "category": "Obsoleto",
    "version": "25.0",
    "added": false,
-   "error": "TypeError: null no es un objeto",
+   "error": "skipped: applying it does not return without the UI",
    "defined": false
   },
   {

@@ -20,6 +20,7 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import type { Plugin } from "vite";
 
 const MEDIA_TYPES: Record<string, string> = {
+  aep: "application/octet-stream",
   png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", gif: "image/gif", webp: "image/webp", bmp: "image/bmp",
   tif: "image/tiff", tiff: "image/tiff", psd: "image/vnd.adobe.photoshop", tga: "image/x-tga", exr: "image/x-exr",
   mp4: "video/mp4", m4v: "video/mp4", mov: "video/quicktime", webm: "video/webm", mkv: "video/x-matroska", avi: "video/x-msvideo", mxf: "application/mxf",
@@ -415,6 +416,7 @@ export function localFootage(): Plugin {
             res.statusCode = 200;
             res.setHeader("Content-Type", mediaType(file) ?? "application/octet-stream");
             res.setHeader("Content-Length", String(statSync(file).size));
+            res.setHeader("Last-Modified", statSync(file).mtime.toUTCString());
             res.setHeader("Content-Disposition", `inline; filename="${encodeURIComponent(basename(file))}"`);
             createReadStream(file).pipe(res);
             return;

@@ -4,8 +4,9 @@
 // history stores chunk states, so undo and redo are exact.
 import { LdatKind, decodeCdta, decodeLdta, decodeLhd3, decodeTdb4 } from "../aep/decode.ts";
 import { valueAtTime } from "../aep/evaluate.ts";
+import { matteChainReaches } from "../aep/transform.ts";
 import type { CompItem, Layer, Project, Property, PropertyGroup, PropertyValue } from "../aep/model.ts";
-import { PropertyValueType } from "../aep/model.ts";
+import { isShapeValue, PropertyValueType } from "../aep/model.ts";
 import {
   BLENDING_MODES,
   DANCING_DISSOLVE,
@@ -19,6 +20,7 @@ import { findChild, findList, readRifx, type Chunk, type RifxFile } from "../aep
 import { writeRifx } from "../aep/write.ts";
 import { applyStates, chunkPath, readDoubles, Transaction, utf8Chunk, type ChunkChange } from "./chunks.ts";
 import { syncItems } from "./layer-items.ts";
+import { pathUnits, shapChunk, shapsOf } from "./paths.ts";
 import {
   CDTA,
   DEFAULT_INFLUENCE,
@@ -112,6 +114,9 @@ interface Target {
   cls: PropertyClass;
   /** Orientation value container (one otda per keyframe, or the static value). */
   otky?: Chunk;
+  /** Path value container (one shap per keyframe, or the static value), and what a stored path unit is in pixels. */
+  omks?: Chunk;
+  pathUnits: [number, number];
   layer: Layer;
   comp: CompItem;
 }
@@ -351,7 +356,40 @@ export class Editor {
     const wrapper = path?.at(-2);
     const parallel = wrapper?.listType === "otst";
     const cls = propertyClass(decodeTdb4(tdb4), { parallel, controlType: prop.controlType });
-    return { prop, codec, tdbs, tdb4, cls, otky: parallel ? findList(wrapper, "otky") : undefined, layer, comp };
+    const omks = wrapper?.listType === "om-s" ? findList(wrapper, "omks") : undefined;
+    if (omks) cls.noValue = true;
+    return {
+      prop,
+      codec,
+      tdbs,
+      tdb4,
+      cls,
+      otky: parallel ? findList(wrapper, "otky") : undefined,
+      omks,
+      pathUnits: pathUnits(this.project, layer, prop),
+      layer,
+      comp,
+    };
+  }
+
+  /** Writes path `value` as the `index`th shap of the path container, or inserts it there. */
+  private writePath(tx: Transaction, t: Target, index: number, value: PropertyValue, insert = false): void {
+    if (!t.omks || !isShapeValue(value)) throw new Error(`"${t.prop.name}" takes a path`);
+    const shaps = shapsOf(t.omks);
+    const like = shaps[Math.min(index, shaps.length - 1)];
+    if (!like) throw new Error(`"${t.prop.name}" has no stored path`);
+    const next = shapChunk(like, value, t.pathUnits);
+    const children = t.omks.children ?? [];
+    const at = shaps[index] ? children.indexOf(shaps[index]) : children.indexOf(shaps[shaps.length - 1]) + 1;
+    tx.setChildren(t.omks, [...children.slice(0, at), next, ...children.slice(insert ? at : at + 1)]);
+  }
+
+  /** Keeps the shaps at `kept` positions, in that order. */
+  private keepPaths(tx: Transaction, t: Target, kept: number[]): void {
+    if (!t.omks) return;
+    const shaps = shapsOf(t.omks);
+    const others = (t.omks.children ?? []).filter((c) => c.listType !== "shap");
+    tx.setChildren(t.omks, [...others, ...kept.map((i) => shaps[i]).filter((c): c is Chunk => !!c)]);
   }
 
   private layout(t: Target): ItemLayout {
@@ -388,6 +426,7 @@ export class Editor {
   }
 
   private writeStatic(tx: Transaction, t: Target, value: PropertyValue): void {
+    if (t.omks) return this.writePath(tx, t, 0, value);
     const cdat = findChild(t.tdbs, "cdat");
     if (!cdat) throw new Error(`"${t.prop.name}" has no stored value`);
     const template = readDoubles(cdat.data, t.cls.parallel);
@@ -397,6 +436,7 @@ export class Editor {
   }
 
   private writeKeyValue(tx: Transaction, t: Target, item: KeyItem, index: number, value: PropertyValue): void {
+    if (t.omks) return this.writePath(tx, t, index, value);
     if (t.cls.parallel) {
       const otda = this.otdas(t)[index];
       const raw = this.rawValue(t, value, otda ? readDoubles(otda.data) : [0, 0, 0]);
@@ -413,19 +453,29 @@ export class Editor {
    */
   setValue(comp: CompItem, layer: Layer, prop: Property, value: PropertyValue, time: number, options: CommandOptions = {}): void {
     assertNotSeparated(prop);
-    this.run(`Change ${prop.name}`, [comp], options, (tx) => {
-      const t = this.target(comp, layer, prop);
-      const keys = this.keyItems(t);
-      if (!keys) return this.writeStatic(tx, t, value);
-      const units = this.unitsAt(t, time);
-      const index = keys.items.findIndex((item) => item.timeUnits === units);
-      if (index >= 0) {
-        this.writeKeyValue(tx, t, keys.items[index], index, value);
-        this.writeItems(tx, keys);
-        return;
-      }
-      this.insertKey(tx, t, keys, units, value, false);
+    this.run(`Change ${prop.name}`, [comp], options, (tx) => this.writeValue(tx, comp, layer, prop, value, time));
+  }
+
+  /** `setValue` for several properties of one layer as one command. */
+  setValues(comp: CompItem, layer: Layer, entries: { prop: Property; value: PropertyValue }[], time: number, label = "Change values", options: CommandOptions = {}): void {
+    entries.forEach((e) => assertNotSeparated(e.prop));
+    this.run(label, [comp], options, (tx) => {
+      for (const { prop, value } of entries) this.writeValue(tx, comp, layer, prop, value, time);
     });
+  }
+
+  private writeValue(tx: Transaction, comp: CompItem, layer: Layer, prop: Property, value: PropertyValue, time: number): void {
+    const t = this.target(comp, layer, prop);
+    const keys = this.keyItems(t);
+    if (!keys) return this.writeStatic(tx, t, value);
+    const units = this.unitsAt(t, time);
+    const index = keys.items.findIndex((item) => item.timeUnits === units);
+    if (index >= 0) {
+      this.writeKeyValue(tx, t, keys.items[index], index, value);
+      this.writeItems(tx, keys);
+      return;
+    }
+    this.insertKey(tx, t, keys, units, value, false);
   }
 
   /** Adds a keyframe at `time` holding the current value (the keyframe navigator / stopwatch). */
@@ -458,6 +508,16 @@ export class Editor {
     const layout = new ItemLayout(kind);
     if (!layout.size) throw new Error(`"${t.prop.name}" cannot be animated by the editor`);
     const item = KeyItem.create(layout, units);
+    if (t.omks) {
+      this.writePath(tx, t, 0, value);
+      this.keepPaths(tx, t, [0]);
+      const list = keyframeList(kind, [item]);
+      if (cdat) replaceChild(tx, t.tdbs, cdat, [list]);
+      else insertAfter(tx, t.tdbs, t.tdb4, list);
+      // A path keeps its value hints: only its static, animated and spatial-marker fields change.
+      tx.patch(t.tdb4, (_, bytes) => animateTdb4(bytes, { ...t.cls, parallel: true }, t.codec.timeBase, t.comp.pixelAspect));
+      return;
+    }
     const template = cdat ? readDoubles(cdat.data, t.cls.parallel).slice(0, layout.dims || 3) : [];
     const raw = this.rawValue(t, value, template);
     if (t.cls.parallel) {
@@ -474,7 +534,7 @@ export class Editor {
   /** Animated to static: the keyframe list becomes a cdat holding `raw`. */
   private deanimate(tx: Transaction, t: Target, list: Chunk, raw: number[]): void {
     replaceChild(tx, t.tdbs, list, [staticCdat(raw, t.cls)]);
-    tx.patch(t.tdb4, (_, bytes) => staticTdb4(bytes, t.cls));
+    tx.patch(t.tdb4, (_, bytes) => staticTdb4(bytes, t.omks ? { ...t.cls, parallel: true } : t.cls));
   }
 
   private insertKey(
@@ -490,7 +550,8 @@ export class Editor {
     let index = keys.items.findIndex((other) => other.timeUnits > units);
     if (index < 0) index = keys.items.length;
     const neighbour = keys.items[Math.min(index, keys.items.length - 1)];
-    if (t.cls.parallel) {
+    if (t.omks) this.writePath(tx, t, index, value, true);
+    else if (t.cls.parallel) {
       const otdas = this.otdas(t);
       const raw = this.rawValue(t, value, otdas[0] ? readDoubles(otdas[0].data) : [0, 0, 0]);
       item.orientation = raw;
@@ -564,12 +625,17 @@ export class Editor {
       const otdas = this.otdas(t);
       if (kept.length) {
         if (t.otky && otdas.length) tx.setChildren(t.otky, (t.otky.children ?? []).filter((c) => !drop.has(otdas.indexOf(c))));
+        this.keepPaths(tx, t, keys.items.map((_, i) => i).filter((i) => !drop.has(i)));
         keys.items = kept;
         this.writeItems(tx, keys);
         return;
       }
       let raw: number[];
-      if (t.cls.parallel) {
+      if (t.omks) {
+        this.keepPaths(tx, t, [first]);
+        if (staticValue !== undefined) this.writePath(tx, t, 0, staticValue);
+        raw = [];
+      } else if (t.cls.parallel) {
         const keep = otdas[first];
         raw = staticValue !== undefined ? this.rawValue(t, staticValue, [0, 0, 0]) : keep ? readDoubles(keep.data) : [0, 0, 0];
         if (t.otky) {
@@ -607,6 +673,7 @@ export class Editor {
 
   private replaceKeysOf(tx: Transaction, comp: CompItem, layer: Layer, prop: Property, keys: { time: number; value: PropertyValue }[], from: number, to: number): void {
     const t = this.target(comp, layer, prop);
+    if (t.omks) throw new Error(`"${prop.name}" holds a path, which cannot be replaced by numeric keyframes`);
     if (!this.keyItems(t)) this.animate(tx, t, this.unitsAt(t, keys[0].time), keys[0].value);
     const list = this.keyItems(t)!;
     const layout = this.layout(t);
@@ -646,13 +713,14 @@ export class Editor {
         if (!shift) continue;
         const moved = new Set(ref.indices);
         const otdas = this.otdas(t);
-        const entries = keys.items.map((item, i) => ({ item, otda: otdas[i], moved: moved.has(i) }));
+        const entries = keys.items.map((item, i) => ({ item, otda: otdas[i], index: i, moved: moved.has(i) }));
         for (const e of entries) if (e.moved) e.item.timeUnits += shift;
         const landed = new Set(entries.filter((e) => e.moved).map((e) => e.item.timeUnits));
         const kept = entries.filter((e) => e.moved || !landed.has(e.item.timeUnits));
         kept.sort((a, b) => a.item.timeUnits - b.item.timeUnits);
         keys.items = kept.map((e) => e.item);
         this.writeItems(tx, keys);
+        this.keepPaths(tx, t, kept.map((e) => e.index));
         if (t.otky && otdas.length) {
           const others = (t.otky.children ?? []).filter((c) => c.type !== "otda");
           tx.setChildren(t.otky, [...others, ...kept.map((e) => e.otda).filter((c): c is Chunk => !!c)]);
@@ -859,15 +927,24 @@ export class Editor {
     });
   }
 
+  /** Whether the file stores the matte layer by id (AE 23 and later), so it can be any layer of the comp. */
+  hasExplicitMatteLayers(layer: Layer): boolean {
+    return this.ldta(layer).data.length >= LDTA.matteLayerId + 4;
+  }
+
   /**
    * Sets the track matte. `matteLayerId` 0 removes it. Files from AE 23 and
-   * later name the matte layer explicitly and AE turns its video off; older
-   * files always use the layer above.
+   * later name the matte layer explicitly, so it can be any other layer of the
+   * comp, and AE turns its video off; older files always use the layer above.
    */
   setTrackMatte(comp: CompItem, layer: Layer, type: number, matteLayerId?: number): void {
     assertAVLayer(layer, "Track matte");
     const matte = comp.layers.find((l) => l.id === matteLayerId);
-    if (matte) assertAVLayer(matte, "A track matte layer");
+    if (matte) {
+      assertAVLayer(matte, "A track matte layer");
+      // A matte matted (through its own matte chain) by this layer would never finish rendering.
+      if (matteChainReaches(comp, matte, layer)) throw new Error("A layer cannot be its own track matte");
+    }
     this.run("Change track matte", [comp], {}, (tx) => {
       const ldta = this.ldta(layer);
       const explicit = ldta.data.length >= LDTA.matteLayerId + 4;

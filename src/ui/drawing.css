@@ -1,0 +1,150 @@
+/* Drawing in the Composition viewer: mask and shape paths with their vertices and handles, what a shape tool
+   or the Pen draws before it is released, and the drawing tools' options in the Tools panel. */
+
+.path-overlay {
+  pointer-events: none;
+}
+
+.path-overlay .path-line {
+  vector-effect: non-scaling-stroke;
+  stroke-width: 1px;
+}
+
+.path-overlay.active .path-hit {
+  fill: none;
+  stroke: transparent;
+  pointer-events: stroke;
+  cursor: pointer;
+}
+
+.path-vertex {
+  fill: #1a1a1a;
+  stroke: currentColor;
+  vector-effect: non-scaling-stroke;
+  stroke-width: 1px;
+  pointer-events: all;
+  cursor: move;
+}
+
+.path-vertex.selected {
+  fill: currentColor;
+}
+
+/* A finger's target around a vertex or handle, drawn nowhere. */
+.path-touch {
+  fill: transparent;
+  stroke: none;
+  pointer-events: all;
+}
+
+.path-handle line {
+  vector-effect: non-scaling-stroke;
+  stroke-width: 1px;
+}
+
+.path-handle circle {
+  fill: currentColor;
+  pointer-events: all;
+  cursor: move;
+}
+
+.comp-svg.tool-addVertex .path-hit,
+.comp-svg.tool-pen .path-hit {
+  cursor: copy;
+}
+
+.comp-svg.tool-deleteVertex .path-vertex {
+  cursor: not-allowed;
+}
+
+.comp-svg.tool-convertVertex .path-vertex {
+  cursor: alias;
+}
+
+.comp-svg.tool-rect,
+.comp-svg.tool-roundedRect,
+.comp-svg.tool-ellipse,
+.comp-svg.tool-polygon,
+.comp-svg.tool-star,
+.comp-svg.tool-pen,
+.comp-svg.tool-type,
+.comp-svg.tool-typeVertical {
+  cursor: crosshair;
+}
+
+.draw-draft {
+  pointer-events: none;
+  fill: none;
+  stroke: #f2d72d;
+}
+
+.draw-draft path {
+  vector-effect: non-scaling-stroke;
+  stroke-width: 1px;
+}
+
+.draw-draft .draw-handle {
+  stroke: #8fb7ff;
+}
+
+.draw-draft .draw-vertex {
+  fill: #f2d72d;
+  stroke: none;
+}
+
+.tool-flyout {
+  cursor: pointer;
+}
+
+.tool-options {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--text);
+}
+
+.tool-paint {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: 6px;
+}
+
+.tool-paint-toggle {
+  color: var(--text);
+  padding: 0 2px;
+}
+
+.tool-paint-toggle:not(.on) {
+  color: #7a7a7a;
+}
+
+.tool-swatch {
+  position: relative;
+  display: inline-block;
+  width: 18px;
+  height: 14px;
+  border: 1px solid #5a5a5a;
+  border-radius: 2px;
+  cursor: pointer;
+}
+
+.tool-swatch.stroke {
+  box-shadow: inset 0 0 0 3px #232323;
+}
+
+.tool-swatch.none {
+  background: linear-gradient(to top right, transparent 45%, #d33 45% 55%, transparent 55%), #e8e8e8;
+}
+
+.tool-swatch input {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.tool-stroke-width {
+  margin-left: 4px;
+  min-width: 40px;
+}

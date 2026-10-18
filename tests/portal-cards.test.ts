@@ -1,0 +1,57 @@
+import { describe, expect, it } from "vitest";
+import type { CompItem, Property, PropertyGroup } from "../src/aep/model.ts";
+import { currentValue } from "../src/aep/evaluate.ts";
+import { Editor } from "../src/edit/editor.ts";
+import { applyLibraryEffect, effectLibrary, projectEffect } from "../src/edit/effectLibrary.ts";
+import { addLayer } from "../src/edit/layers.ts";
+import { DEFAULT_COMP_SETTINGS, newComposition, newProject } from "../src/edit/project.ts";
+import { PORTAL_CARDS, PORTAL_CARD_PARAMS } from "../src/edit/portalCards.ts";
+import { effectIsCacheable, effectIsScalable, effectRenderer } from "../src/render/registry.ts";
+import "../src/render/effects/portalCards.ts";
+
+describe("Portal Cards", () => {
+  it("is offered with independent editable defaults, saves/reopens, and undoes as one step", async () => {
+    const library = await effectLibrary();
+    const effect = library.find((e) => e.matchName === PORTAL_CARDS)!;
+    expect(effect.name).toBe("Portal Cards");
+    expect(effect.category).toBe("AEP Web");
+    expect(effectRenderer(PORTAL_CARDS)).toBeTypeOf("function");
+    expect(effectIsCacheable(PORTAL_CARDS)).toBe(false);
+    expect(effectIsScalable(PORTAL_CARDS)).toBe(true);
+    const editor = newProject();
+    const comp = newComposition(editor, { ...DEFAULT_COMP_SETTINGS, width: 640, height: 360 });
+    const id = addLayer(editor, comp, { kind: "solid", name: "Background", width: 640, height: 360, color: [0.1, 0.2, 0.4], pixelAspect: 1 });
+    const get = (ed = editor) => {
+      const c = ed.project.items.get(comp.id) as CompItem;
+      const layer = c.layers.find((l) => l.id === id)!;
+      const parade = layer.properties.find((p) => p.matchName === "ADBE Effect Parade") as PropertyGroup | undefined;
+      const fx = parade?.children.find((p) => p.matchName === PORTAL_CARDS) as PropertyGroup | undefined;
+      return { c, layer, fx, controls: fx?.children.filter((p): p is Property => p.kind === "property") ?? [] };
+    };
+    const before = editor.save();
+    applyLibraryEffect(editor, get().c, [id], effect);
+    expect(get().controls.map((p) => [p.name, p.value, p.min, p.max])).toEqual(PORTAL_CARD_PARAMS.map((p) => [...p]));
+    expect(get().controls.every((p) => p.canVaryOverTime && p.chunk && !p.synthesized)).toBe(true);
+    editor.undo();
+    expect(editor.save()).toEqual(before);
+    editor.redo();
+    expect(get().fx?.enabled).toBe(true);
+    let state = get();
+    editor.setValue(state.c, state.layer, state.controls[4], 62, 0);
+    state = get();
+    editor.toggleStopwatch(state.c, state.layer, state.controls[14], 0);
+    state = get();
+    editor.setValue(state.c, state.layer, state.controls[14], 100, 1);
+    const reopened = Editor.fromBytes(editor.save());
+    const saved = get(reopened);
+    expect(saved.controls[4].value).toBe(62);
+    expect(saved.controls[14].keyframes).toHaveLength(2);
+    expect(currentValue(saved.controls[14], 0.5, saved.layer)).toBeCloseTo(50);
+    expect(projectEffect(reopened.file.root, PORTAL_CARDS)?.name).toBe("Portal Cards");
+    applyLibraryEffect(reopened, saved.c, [id], effect);
+    const effects = (get(reopened).layer.properties.find((p) => p.matchName === "ADBE Effect Parade") as PropertyGroup).children;
+    const fresh = effects[1] as PropertyGroup;
+    expect((fresh.children[4] as Property).value).toBe(38);
+    expect((fresh.children[14] as Property).keyframes).toHaveLength(0);
+  });
+});

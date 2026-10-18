@@ -28,7 +28,7 @@ const browser = await chromium.launch({ channel: "msedge", headless: true, args:
 const page = await browser.newPage();
 page.on("console", (m) => m.type() === "error" && console.log("console:", m.text()));
 await page.setContent("<!doctype html><html><body></body></html>");
-await page.addScriptTag({ path: resolve("dist-harness/harness.js") });
+await page.addScriptTag({ path: resolve(process.env.AEP_HARNESS_DIR ?? "dist-harness", "harness.js") });
 
 const bytes = readFileSync(path);
 await page.evaluate((b64) => (globalThis as any).aepHarness.load(b64), bytes.toString("base64"));

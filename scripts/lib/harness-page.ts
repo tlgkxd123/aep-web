@@ -12,13 +12,18 @@ export interface HarnessPage {
   page: Page;
 }
 
-/** `discrete` runs on the high-performance GPU of a dual-GPU machine; `build` rebuilds the harness first. */
-export async function openHarness(path: string, options: { discrete?: boolean; build?: boolean } = {}): Promise<HarnessPage> {
+/**
+ * `discrete` runs on the high-performance GPU of a dual-GPU machine, `swiftshader` on the CPU (a GPU far slower than
+ * a phone's, where the GPU's work shows); `build` rebuilds the harness first.
+ */
+export async function openHarness(path: string, options: { discrete?: boolean; swiftshader?: boolean; build?: boolean } = {}): Promise<HarnessPage> {
   if (options.build !== false) execSync("npx vite build -c vite.harness.config.ts --logLevel error", { stdio: "inherit" });
   const browser = await chromium.launch({
     channel: "msedge",
     headless: true,
-    args: ["--use-angle=d3d11", "--enable-gpu", "--ignore-gpu-blocklist", ...(options.discrete ? ["--force-high-performance-gpu"] : [])],
+    args: options.swiftshader
+      ? ["--use-angle=swiftshader", "--enable-unsafe-swiftshader"]
+      : ["--use-angle=d3d11", "--enable-gpu", "--ignore-gpu-blocklist", ...(options.discrete ? ["--force-high-performance-gpu"] : [])],
   });
   const page = await browser.newPage();
   page.on("console", (m) => m.type() === "error" && console.log("console:", m.text()));
@@ -26,7 +31,7 @@ export async function openHarness(path: string, options: { discrete?: boolean; b
   const origin = "https://aep-harness.test/";
   await page.route(`${origin}**`, (route) => route.fulfill({ contentType: "text/html", body: "<!doctype html><html><body></body></html>" }));
   await page.goto(origin);
-  await page.addScriptTag({ path: resolve("dist-harness/harness.js") });
+  await page.addScriptTag({ path: resolve(process.env.AEP_HARNESS_DIR ?? "dist-harness", "harness.js") });
   const bytes = readFileSync(path);
   await page.evaluate((b64) => (globalThis as any).aepHarness.load(b64), bytes.toString("base64"));
   const project = parseProject(new Uint8Array(bytes.buffer, bytes.byteOffset, bytes.byteLength));

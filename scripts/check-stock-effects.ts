@@ -145,7 +145,7 @@ const page = await browser.newPage();
 const consoleErrors: string[] = [];
 page.on("console", (m) => m.type() === "error" && consoleErrors.push(m.text()));
 await page.setContent("<!doctype html><html><body></body></html>");
-await page.addScriptTag({ path: resolve("dist-harness/harness.js") });
+await page.addScriptTag({ path: resolve(process.env.AEP_HARNESS_DIR ?? "dist-harness", "harness.js") });
 await page.evaluate((b64) => (globalThis as any).aepHarness.load(b64), readFileSync(PROJECT).toString("base64"));
 
 const render = async (name: string): Promise<{ pixels: Uint8Array; warnings: string[] }> => {

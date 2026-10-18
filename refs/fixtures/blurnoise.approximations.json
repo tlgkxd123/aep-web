@@ -1,0 +1,375 @@
+{
+ "project": "blurnoise.aep",
+ "comps": [
+  {
+   "comp": "blurnoise_ccrfb",
+   "frames": [
+    0,
+    1,
+    2
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "blurnoise_ccrfb_scene",
+   "frames": [
+    0,
+    1,
+    2
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "blurnoise_ccrfb_dot",
+   "frames": [
+    0,
+    1
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "blurnoise_ccrfb_probe",
+   "frames": [
+    0,
+    1,
+    2,
+    3,
+    4
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "blurnoise_ccrfb_probe_zoom",
+   "frames": [
+    0,
+    1
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "blurnoise_ccrb_types",
+   "frames": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "blurnoise_ccrb_amount",
+   "frames": [
+    0,
+    1,
+    2,
+    3
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "blurnoise_ccrb_zoom_probe",
+   "frames": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "blurnoise_ccrb_spin_probe",
+   "frames": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "blurnoise_ccvector_natural",
+   "frames": [
+    0,
+    1
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "blurnoise_ccvector_constant",
+   "frames": [
+    0,
+    1
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "blurnoise_ccvector_perpendicular",
+   "frames": [
+    0,
+    1
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "blurnoise_ccvector_center",
+   "frames": [
+    0,
+    1
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "blurnoise_ccvector_fading",
+   "frames": [
+    0,
+    1
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "blurnoise_ccvector_map",
+   "frames": [
+    0,
+    1,
+    2
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "blurnoise_compound",
+   "frames": [
+    0,
+    1,
+    2
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "blurnoise_compound_center",
+   "frames": [
+    0,
+    1
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "blurnoise_compound_self",
+   "frames": [
+    0
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "blurnoise_compound_kernel",
+   "frames": [
+    0,
+    1,
+    2,
+    3
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "blurnoise_compound_grey",
+   "frames": [
+    0,
+    1
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "blurnoise_bilateral",
+   "frames": [
+    0,
+    1,
+    2,
+    3
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "blurnoise_bilateral_dot",
+   "frames": [
+    0,
+    1
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "blurnoise_bilateral_patch",
+   "frames": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "blurnoise_bilateral_kernel",
+   "frames": [
+    0,
+    1
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "blurnoise_smart",
+   "frames": [
+    0,
+    1,
+    2,
+    3
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "blurnoise_smart_dot",
+   "frames": [
+    0,
+    1
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "blurnoise_smart_patch",
+   "frames": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "blurnoise_smart_ladder",
+   "frames": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "blurnoise_smart_ladder_normal",
+   "frames": [
+    0,
+    1,
+    2,
+    3
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "blurnoise_bilateral_ladder",
+   "frames": [
+    0,
+    1,
+    2,
+    3
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "blurnoise_noise_alpha",
+   "frames": [
+    0,
+    1
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "blurnoise_noise_hls",
+   "frames": [
+    0,
+    1
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "blurnoise_noise_hls_auto",
+   "frames": [
+    0,
+    1
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "blurnoise_turbulent",
+   "frames": [
+    0,
+    1,
+    2
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "blurnoise_grain",
+   "frames": [
+    0,
+    1
+   ],
+   "fps": 24.0
+  }
+ ],
+ "reasons": {
+  "blurnoise_noise_alpha": "Noise Alpha's values come from After Effects' own random generator; ours are a seeded look-alike",
+  "blurnoise_noise_hls": "Noise HLS's values come from After Effects' own random generator; ours are a seeded look-alike",
+  "blurnoise_noise_hls_auto": "Noise HLS Auto's values come from After Effects' own random generator; ours are a seeded look-alike",
+  "blurnoise_turbulent": "Turbulent Noise's lattice comes from After Effects' own random tables; ours is fractal.ts's hashed lattice",
+  "blurnoise_grain": "Add Grain's grain comes from its own random generator and film-stock models; ours is a seeded look-alike",
+  "blurnoise_ccrfb": "not matched: CC Radial Fast Blur decays along each ray (about 0.75 per pixel at Amount 10, toward a power of the distance at 100); ours is a fixed-length zoom",
+  "blurnoise_ccrfb_scene": "not matched: CC Radial Fast Blur decays along each ray (about 0.75 per pixel at Amount 10, toward a power of the distance at 100); ours is a fixed-length zoom",
+  "blurnoise_ccrfb_dot": "not matched: CC Radial Fast Blur decays along each ray (about 0.75 per pixel at Amount 10, toward a power of the distance at 100); ours is a fixed-length zoom",
+  "blurnoise_ccrfb_probe": "not matched: CC Radial Fast Blur decays along each ray (about 0.75 per pixel at Amount 10, toward a power of the distance at 100); ours is a fixed-length zoom",
+  "blurnoise_ccrfb_probe_zoom": "not matched: CC Radial Fast Blur decays along each ray (about 0.75 per pixel at Amount 10, toward a power of the distance at 100); ours is a fixed-length zoom",
+  "blurnoise_ccrb_types": "not matched: CC Radial Blur's sample spacing and weights per Type are not measured; ours is a uniform zoom or spin",
+  "blurnoise_ccrb_amount": "not matched: CC Radial Blur's sample spacing and weights per Type are not measured; ours is a uniform zoom or spin",
+  "blurnoise_ccrb_zoom_probe": "not matched: CC Radial Blur's sample spacing and weights per Type are not measured; ours is a uniform zoom or spin",
+  "blurnoise_ccrb_spin_probe": "not matched: CC Radial Blur's sample spacing and weights per Type are not measured; ours is a uniform zoom or spin",
+  "blurnoise_ccvector_natural": "not matched: CC Vector Blur's step along the map's gradient is not measured",
+  "blurnoise_ccvector_constant": "not matched: CC Vector Blur's step along the map's gradient is not measured",
+  "blurnoise_ccvector_perpendicular": "not matched: CC Vector Blur's step along the map's gradient is not measured",
+  "blurnoise_ccvector_center": "not matched: CC Vector Blur's step along the map's gradient is not measured",
+  "blurnoise_ccvector_fading": "not matched: CC Vector Blur's step along the map's gradient is not measured",
+  "blurnoise_ccvector_map": "not matched: CC Vector Blur's step along the map's gradient is not measured",
+  "blurnoise_compound": "not matched: Compound Blur's kernel at a given map value (wide and asymmetric, about sigma 2.7 at Maximum Blur 2 to 25 at 20) is not modelled; ours blends Gaussian levels",
+  "blurnoise_compound_center": "not matched: Compound Blur's kernel at a given map value (wide and asymmetric, about sigma 2.7 at Maximum Blur 2 to 25 at 20) is not modelled; ours blends Gaussian levels",
+  "blurnoise_compound_self": "not matched: Compound Blur's kernel at a given map value (wide and asymmetric, about sigma 2.7 at Maximum Blur 2 to 25 at 20) is not modelled; ours blends Gaussian levels",
+  "blurnoise_compound_kernel": "not matched: Compound Blur's kernel at a given map value (wide and asymmetric, about sigma 2.7 at Maximum Blur 2 to 25 at 20) is not modelled; ours blends Gaussian levels",
+  "blurnoise_compound_grey": "not matched: Compound Blur's kernel at a given map value (wide and asymmetric, about sigma 2.7 at Maximum Blur 2 to 25 at 20) is not modelled; ours blends Gaussian levels",
+  "blurnoise_bilateral": "not matched: Bilateral Blur's spatial kernel is not a Gaussian of Radius (peaked, with long tails: a 1 px column keeps 66/255 at Radius 5 and 36 at 12) and its range weight is not measured apart from it",
+  "blurnoise_bilateral_dot": "not matched: Bilateral Blur's spatial kernel is not a Gaussian of Radius (peaked, with long tails: a 1 px column keeps 66/255 at Radius 5 and 36 at 12) and its range weight is not measured apart from it",
+  "blurnoise_bilateral_patch": "not matched: Bilateral Blur's spatial kernel is not a Gaussian of Radius (peaked, with long tails: a 1 px column keeps 66/255 at Radius 5 and 36 at 12) and its range weight is not measured apart from it",
+  "blurnoise_bilateral_kernel": "not matched: Bilateral Blur's spatial kernel is not a Gaussian of Radius (peaked, with long tails: a 1 px column keeps 66/255 at Radius 5 and 36 at 12) and its range weight is not measured apart from it",
+  "blurnoise_smart": "not matched: Smart Blur's threshold depends on Radius and on the extent of the area that differs (a 20-level step is an edge on a 20 px patch but not on a 4 px one at Radius 3), and Normal mode averages the ladder patches more widely than a uniform window",
+  "blurnoise_smart_dot": "not matched: Smart Blur's threshold depends on Radius and on the extent of the area that differs (a 20-level step is an edge on a 20 px patch but not on a 4 px one at Radius 3), and Normal mode averages the ladder patches more widely than a uniform window",
+  "blurnoise_smart_patch": "not matched: Smart Blur's threshold depends on Radius and on the extent of the area that differs (a 20-level step is an edge on a 20 px patch but not on a 4 px one at Radius 3), and Normal mode averages the ladder patches more widely than a uniform window",
+  "blurnoise_smart_ladder": "not matched: Smart Blur's threshold depends on Radius and on the extent of the area that differs (a 20-level step is an edge on a 20 px patch but not on a 4 px one at Radius 3), and Normal mode averages the ladder patches more widely than a uniform window",
+  "blurnoise_smart_ladder_normal": "not matched: Smart Blur's threshold depends on Radius and on the extent of the area that differs (a 20-level step is an edge on a 20 px patch but not on a 4 px one at Radius 3), and Normal mode averages the ladder patches more widely than a uniform window",
+  "blurnoise_bilateral_ladder": "not matched: Bilateral Blur's spatial kernel is not a Gaussian of Radius (peaked, with long tails: a 1 px column keeps 66/255 at Radius 5 and 36 at 12) and its range weight is not measured apart from it"
+ }
+}

@@ -2,7 +2,7 @@ node_modules
 dist
 .unlazy
 .unlazy-hook-state.json
-dist-harness
+dist-harness*
 dist-tools
 refs/diff
 refs/ours

@@ -7,12 +7,13 @@ import type { Target } from "../render/gl.ts";
 import type { Renderer } from "../render/renderer.ts";
 import { audioSupported, encodeAudio, type EncodedAudio, type MixedAudio } from "./audio.ts";
 import { chooseEncoder } from "./codecs.ts";
+import { readI420 } from "./gpuYuv.ts";
 import { encodePng } from "./png.ts";
-import { autoBitrate, framePlan, outputChannels, outputSize, type FramePlan, type OutputModule, type RenderSettings } from "./settings.ts";
+import { autoBitrate, framePlan, outputChannels, outputSize, type Channels, type FramePlan, type OutputModule, type RenderSettings } from "./settings.ts";
 import { SoftwareH264, softwareH264Supported } from "./softwareH264.ts";
 import { StreamEncoder, type PictureEncoder } from "./video.ts";
 import { WebmMuxer } from "./webm.ts";
-import { alphaToI420, BT709_CODES, rgbToI420 } from "./yuv.ts";
+import { alphaToI420, BT709_CODES, rgbToI420, type I420 } from "./yuv.ts";
 
 /** Where encoded bytes go: a file on disk, or memory for a download. */
 export interface Sink {
@@ -28,6 +29,8 @@ export interface RenderHooks {
   resume?: () => Promise<void>;
   /** GPU frames for opaque video at "fast" and "good" quality. */
   gpuFrames?: GpuFrameSource;
+  /** I420 pictures made on the GPU, for the video the encoders take from memory; without them it converts RGBA. */
+  pictures?: PictureSource;
   stats?: RenderStats;
 }
 
@@ -38,6 +41,8 @@ export interface RenderSummary {
   fps: number;
   codec?: string;
   audioCodec?: string;
+  /** Which video encoder ran and how it got the frames, for an account of the render. */
+  encoder?: string;
   bytes: number;
 }
 
@@ -96,12 +101,41 @@ async function renderReady(renderer: Renderer, project: Project, comp: CompItem,
 }
 
 /** Straight RGBA of each frame once what it shows has loaded (see renderReady). */
-export function rendererSource(renderer: Renderer, project: Project, comp: CompItem, plan: FramePlan, warnings?: Set<string>): FrameSource {
+export function rendererSource(renderer: Renderer, project: Project, comp: CompItem, plan: FramePlan, warnings?: Set<string>, stats?: RenderStats): FrameSource {
   return async (time) => {
-    const target = await renderReady(renderer, project, comp, plan, time);
+    const target = await renderReady(renderer, project, comp, plan, time, stats);
     try {
       for (const w of renderer.lastWarnings) warnings?.add(w);
-      return renderer.readPixels(target, plan.width, plan.height);
+      const t0 = performance.now();
+      const rgba = renderer.readPixels(target, plan.width, plan.height);
+      if (stats) {
+        stats.captureMs += performance.now() - t0;
+        stats.frames++;
+      }
+      return rgba;
+    } finally {
+      renderer.release(target);
+    }
+  };
+}
+
+/** A frame as I420 pictures: its colour (matted over the comp's background for "rgb"), and its alpha for "rgba". */
+export type PictureSource = (time: number, width: number, height: number, channels: Channels) => Promise<{ colour: I420; alpha: I420 | null }>;
+
+/** Each frame's I420 pictures, converted on the GPU (gpuYuv.ts) once what it shows has loaded (see renderReady). */
+export function rendererPictures(renderer: Renderer, project: Project, comp: CompItem, plan: FramePlan, warnings?: Set<string>, stats?: RenderStats): PictureSource {
+  return async (time, width, height, channels) => {
+    const target = await renderReady(renderer, project, comp, plan, time, stats);
+    try {
+      for (const w of renderer.lastWarnings) warnings?.add(w);
+      const t0 = performance.now();
+      const colour = readI420(renderer.gl, target, width, height, channels === "rgb" ? { background: comp.bgColor } : "straight");
+      const alpha = channels === "rgba" ? readI420(renderer.gl, target, width, height, "alpha") : null;
+      if (stats) {
+        stats.captureMs += performance.now() - t0;
+        stats.frames++;
+      }
+      return { colour, alpha };
     } finally {
       renderer.release(target);
     }
@@ -122,13 +156,16 @@ export interface RenderStats {
   footageWaitMs: number;
   captureMs: number;
   encodeWaitMs: number;
+  /** The encoder's own time, for an encoder that works beside the rendering and says how long it took. */
+  encoderMs: number;
 }
 
-export const newStats = (): RenderStats => ({ frames: 0, renders: 0, renderMs: 0, footageWaitMs: 0, captureMs: 0, encodeWaitMs: 0 });
+export const newStats = (): RenderStats => ({ frames: 0, renders: 0, renderMs: 0, footageWaitMs: 0, captureMs: 0, encodeWaitMs: 0, encoderMs: 0 });
 
 export function statsSummary(s: RenderStats): string {
   const per = (ms: number) => (s.frames ? (ms / s.frames).toFixed(1) : "0");
-  return `per frame: render ${per(s.renderMs)} ms (${(s.renders / Math.max(1, s.frames)).toFixed(2)} renders), footage wait ${per(s.footageWaitMs)} ms, capture ${per(s.captureMs)} ms, encoder wait ${per(s.encodeWaitMs)} ms`;
+  const encoding = s.encoderMs ? ` (encoding ${per(s.encoderMs)} ms beside the rendering)` : "";
+  return `per frame: render ${per(s.renderMs)} ms (${(s.renders / Math.max(1, s.frames)).toFixed(2)} renders), footage wait ${per(s.footageWaitMs)} ms, capture ${per(s.captureMs)} ms, encoder wait ${per(s.encodeWaitMs)} ms${encoding}`;
 }
 
 export function rendererFrames(renderer: Renderer, project: Project, comp: CompItem, plan: FramePlan, warnings?: Set<string>, stats?: RenderStats): GpuFrameSource | undefined {
@@ -229,6 +266,15 @@ export async function renderToSink(
     const rgba = crop(await source(plan.time(index)), plan.width, width, height);
     return channels === "rgb" ? matte(rgba, comp.bgColor) : rgba;
   };
+  const picturesAt = async (index: number): Promise<{ colour: I420; alpha: I420 | null }> => {
+    if (hooks.pictures) {
+      await hooks.resume?.();
+      if (hooks.signal?.aborted) throw stopped();
+      return hooks.pictures(plan.time(index), width, height, channels);
+    }
+    const rgba = await frameAt(index);
+    return { colour: rgbToI420(rgba, width, height), alpha: channels === "rgba" ? alphaToI420(rgba, width, height) : null };
+  };
   const done = async (index: number) => {
     hooks.onFrame?.(index + 1, plan.frames);
     await yieldToEventLoop();
@@ -270,6 +316,8 @@ export async function renderToSink(
   else throw new Error(choice.error);
   const alpha = channels === "rgba" && choice.config ? new StreamEncoder({ ...choice.config, bitrate: Math.round(bitrate / 2) }) : null;
   const gpu = stream && !alpha && quality !== "high" ? hooks.gpuFrames : undefined;
+  const fed = gpu ? "frames from the canvas" : `pictures converted on the ${hooks.pictures ? "GPU" : "CPU"}`;
+  const encoder = `${stream ? `WebCodecs ${choice.config!.codec}` : "H.264 in WebAssembly"}, ${fed}`;
   try {
     for (let i = 0; i < plan.frames; i++) {
       const timestamp = Math.round(i * stepUs);
@@ -283,14 +331,21 @@ export async function renderToSink(
         await stream.encodeFrame(frame, key);
         if (hooks.stats) hooks.stats.encodeWaitMs += performance.now() - t0;
       } else {
-        const rgba = await frameAt(i);
-        await main.encode(rgbToI420(rgba, width, height), timestamp, duration, key);
-        if (alpha) await alpha.encode(alphaToI420(rgba, width, height), timestamp, duration, key);
+        const pictures = await picturesAt(i);
+        const t0 = performance.now();
+        await main.encode(pictures.colour, timestamp, duration, key);
+        if (alpha && pictures.alpha) await alpha.encode(pictures.alpha, timestamp, duration, key);
+        if (hooks.stats) hooks.stats.encodeWaitMs += performance.now() - t0;
       }
       await done(i);
     }
+    const t0 = performance.now();
     await main.flush();
     await alpha?.flush();
+    if (hooks.stats) {
+      hooks.stats.encodeWaitMs += performance.now() - t0;
+      hooks.stats.encoderMs += main.busyMs ?? 0;
+    }
   } finally {
     main.close();
     alpha?.close();
@@ -340,7 +395,16 @@ export async function renderToSink(
     await write(muxer.finish());
   }
   await sink.close();
-  return { frames: plan.frames, width, height, fps: plan.fps, codec: choice.config?.codec ?? main.frames[0]?.meta?.decoderConfig?.codec, audioCodec: sound ? (sound.codec === "aac" ? "mp4a.40.2" : "opus") : undefined, bytes: written };
+  return {
+    frames: plan.frames,
+    width,
+    height,
+    fps: plan.fps,
+    codec: choice.config?.codec ?? main.frames[0]?.meta?.decoderConfig?.codec,
+    audioCodec: sound ? (sound.codec === "aac" ? "mp4a.40.2" : "opus") : undefined,
+    encoder,
+    bytes: written,
+  };
 }
 
 export function memorySink(): Sink & { bytes(): Uint8Array } {

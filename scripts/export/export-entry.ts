@@ -5,9 +5,11 @@
 import type { CompItem, Project } from "../../src/aep/model.ts";
 import { parseProject } from "../../src/aep/parse.ts";
 import { codecCandidates } from "../../src/export/codecs.ts";
-import { memorySink } from "../../src/export/pipeline.ts";
+import { readI420 } from "../../src/export/gpuYuv.ts";
+import { crop, matte, memorySink } from "../../src/export/pipeline.ts";
 import { RenderQueue, type ItemStatus } from "../../src/export/queue.ts";
 import { framePlan, type OutputModule, type RenderSettings } from "../../src/export/settings.ts";
+import { alphaToI420, rgbToI420, type I420 } from "../../src/export/yuv.ts";
 import { audioLevelsDb } from "../../src/media/audioPreview.ts";
 import { footageStore } from "../../src/media/store.ts";
 import { Renderer } from "../../src/render/renderer.ts";
@@ -152,6 +154,34 @@ const api = {
     return { frames: plan.frames, width: plan.width, height: plan.height, fps: plan.fps, times, bgColor: comp.bgColor, frameRate: comp.frameRate };
   },
 
+  /**
+   * Bytes in which the GPU's I420 pictures (gpuYuv.ts) of each frame's top-left `width` x `height` differ from
+   * rgbToI420 / alphaToI420 of readPixels' RGBA (matted over the comp's background, straight, and alpha).
+   */
+  async gpuPictures(compName: string, settings: RenderSettings, width: number, height: number) {
+    const comp = compNamed(compName);
+    const plan = framePlan(comp, settings);
+    const renderer = new Renderer(new OffscreenCanvas(1, 1));
+    const differing = (got: I420, want: I420) => {
+      let n = Math.abs(got.data.length - want.data.length);
+      for (let k = 0; k < Math.min(got.data.length, want.data.length); k++) if (got.data[k] !== want.data[k]) n++;
+      return n;
+    };
+    const result = { frames: plan.frames, bytes: 0, matted: 0, straight: 0, alpha: 0 };
+    for (let i = 0; i < plan.frames; i++) {
+      const target = renderer.render(project!, comp, plan.time(i), { scale: plan.scale });
+      const rgba = crop(renderer.readPixels(target, plan.width, plan.height), plan.width, width, height);
+      const matted = rgbToI420(matte(rgba, comp.bgColor), width, height);
+      result.bytes += matted.data.length;
+      result.matted += differing(readI420(renderer.gl, target, width, height, { background: comp.bgColor }), matted);
+      result.straight += differing(readI420(renderer.gl, target, width, height, "straight"), rgbToI420(rgba, width, height));
+      result.alpha += differing(readI420(renderer.gl, target, width, height, "alpha"), alphaToI420(rgba, width, height));
+      renderer.release(target);
+    }
+    renderer.dispose();
+    return result;
+  },
+
   /** Renders one Render Queue item into memory; `stopAfter` presses Stop once that many frames are done. */
   async exportItem(key: string, compName: string, settings: RenderSettings, output: OutputModule, stopAfter?: number) {
     const comp = compNamed(compName);
@@ -211,6 +241,7 @@ const api = {
       progressEvents,
       ms,
       log: final.log,
+      perf: final.perf ?? null,
       audioCodec: final.audioCodec ?? null,
       idle: queue.getSnapshot().current === null,
     };

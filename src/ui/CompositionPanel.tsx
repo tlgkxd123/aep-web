@@ -1,6 +1,8 @@
 import { useContext, useEffect, useMemo, useRef, useState, useSyncExternalStore, type DragEvent, type MouseEvent, type PointerEvent } from "react";
-import type { CompItem, Layer, Project } from "../aep/model.ts";
+import type { CompItem, Layer, Project, Shape } from "../aep/model.ts";
 import { addLayer } from "../edit/layers.ts";
+import { addMasks } from "../edit/masks.ts";
+import { addShapeLayer, addShapes } from "../edit/shapes.ts";
 import { anchorInComp, moveLayers, panBehind, rotateByDrag, scaleByHandle, type Handle } from "../edit/transform-ops.ts";
 import { frameIndex } from "../playback/clock.ts";
 import { usePlaying } from "../playback/playhead.ts";
@@ -10,7 +12,9 @@ import { apply, invert, layerAffine, type Matrix } from "./animate.ts";
 import { openContextMenu, openMenuBelow, type MenuEntries } from "./ContextMenu.tsx";
 import { AppActionsContext, layerMenu, viewerMenu } from "./contextMenus.ts";
 import { TimeDisplay } from "./TimelinePanel.tsx";
-import { ChannelFilters, channelFilter, Guides, MaskPaths, snapDelta, snapTargets, type Channel, type GuideOptions } from "./viewerOverlays.tsx";
+import { ChannelFilters, channelFilter, Guides, layerBox, snapDelta, snapTargets, type Channel, type GuideOptions } from "./viewerOverlays.tsx";
+import { boxPath, boxShape, dragBox, drawOptions, isPenTool, isShapeTool, svgPath, type DragBox, type ShapeTool } from "./drawTools.ts";
+import { PathOverlay } from "./PathOverlay.tsx";
 import { attempt, EFFECT_MIME, ITEM_MIME, nextDragKey, useEditing } from "./editing.tsx";
 import { colorCss, labelColor, timecode } from "./format.ts";
 import { setHover } from "./hover.ts";
@@ -46,6 +50,8 @@ function storeFlag(key: string): void {
 interface Pickable {
   layer: Layer;
   matrix: Matrix;
+  /** Layer-space [x0, y0, x1, y1] a click selects it in. */
+  box: [number, number, number, number];
 }
 
 /** Visible 2D layers with video at time t, bottom first, for click selection. */
@@ -56,9 +62,10 @@ function pickableLayers(project: Project, comp: CompItem, t: number): Pickable[]
     const layer = comp.layers[i];
     if (!layer || !layer.enabled || layer.nullLayer || layer.threeDLayer || !layerHasVideo(layer, project)) continue;
     if (soloing && !layer.solo) continue;
-    if (t < layer.inPoint || t >= layer.outPoint || layer.width <= 0) continue;
-    const matrix = layerAffine(layer, comp, t);
-    if (matrix) out.push({ layer, matrix });
+    if (t < layer.inPoint || t >= layer.outPoint) continue;
+    const box = layerBox(layer, t);
+    const matrix = box && layerAffine(layer, comp, t);
+    if (box && matrix) out.push({ layer, matrix, box });
   }
   return out;
 }
@@ -70,6 +77,38 @@ function safeAnchor(comp: CompItem, layer: Layer, time: number): [number, number
     return undefined;
   }
 }
+
+/** A Pen vertex being placed, in comp pixels: its out handle (the in handle mirrors it). */
+interface PenPoint {
+  at: [number, number];
+  out: [number, number];
+}
+
+/** What a drawing tool shows while it draws: a shape tool's box, or the Pen's vertices so far. */
+type Draft = { kind: "box"; tool: ShapeTool; box: DragBox } | { kind: "pen"; points: PenPoint[] };
+
+/** Comp pixels from the Pen's first vertex within which a click closes the path. */
+const CLOSE_PIXELS = 6;
+/** The same for a finger, which covers far more than a mouse pointer's hot spot. */
+const CLOSE_TOUCH_PIXELS = 18;
+
+/** `shape` with its points mapped by the affine `m` (vertices through all of it, handles through its linear part). */
+function mapShape(shape: Shape, m: Matrix): Shape {
+  const linear = (p: number[]) => [m[0] * p[0] + m[2] * p[1], m[1] * p[0] + m[3] * p[1]];
+  return {
+    closed: shape.closed,
+    vertices: shape.vertices.map((p) => apply(m, p[0], p[1])),
+    inTangents: shape.inTangents.map(linear),
+    outTangents: shape.outTangents.map(linear),
+  };
+}
+
+const penShape = (points: PenPoint[], closed: boolean): Shape => ({
+  closed,
+  vertices: points.map((p) => p.at),
+  inTangents: points.map((p) => [-p.out[0], -p.out[1]]),
+  outTangents: points.map((p) => p.out),
+});
 
 const RESIZE_CURSORS = ["ew-resize", "nwse-resize", "ns-resize", "nesw-resize"];
 
@@ -154,6 +193,7 @@ export function CompositionPanel({
   const [showingSnapshot, setShowingSnapshot] = useState(false);
   const [roiMode, setRoiMode] = useState(false);
   const [roi, setRoi] = useState<[number, number, number, number]>();
+  const [draft, setDraft] = useState<Draft>();
   const fastPreviews = useSyncExternalStore(fastPreviewSetting.subscribe, () => fastPreviewSetting.adaptive);
   const [gpuHintHidden, setGpuHintHidden] = useState(() => storedFlag(GPU_HINT_KEY));
   const [alwaysPreview, setAlwaysPreview] = useState(false);
@@ -331,19 +371,32 @@ export function CompositionPanel({
     });
   };
   // `revision` changes after every edit; the layer objects behind `comp` are rebuilt then.
-  const pickable = useMemo(() => pickableLayers(project, comp, time), [project, comp, time, revision]);
+  // Measured when a pointer needs it, not every frame: shape layers' boxes come from their contents.
+  const pickCache = useRef<{ comp: CompItem; time: number; revision: number; layers: Pickable[] }>(undefined);
+  const pickable = (): Pickable[] => {
+    const cached = pickCache.current;
+    if (cached?.comp === comp && cached.time === time && cached.revision === revision) return cached.layers;
+    const layers = pickableLayers(project, comp, time);
+    pickCache.current = { comp, time, revision, layers };
+    return layers;
+  };
   const selected = comp.layers.find((l) => l.id === selectedLayerId);
-  const effectDropPick = effectDrop !== undefined ? pickable.find((p) => p.layer.id === effectDrop) : undefined;
+  const effectDropPick = effectDrop !== undefined ? pickable().find((p) => p.layer.id === effectDrop) : undefined;
   const selectedMatrix = selected && !selected.threeDLayer && selected.width > 0 ? layerAffine(selected, comp, time) : undefined;
+  const selectedBox = useMemo(
+    () => (selected && selectedMatrix && !playing ? layerBox(selected, time) : undefined),
+    [selected, selectedMatrix, time, revision, playing],
+  );
   const selectedAnchor = selected && selectedMatrix ? safeAnchor(comp, selected, time) : undefined;
 
   const hit = (x: number, y: number): Pickable | undefined => {
-    for (let i = pickable.length - 1; i >= 0; i--) {
-      const d = pickable[i];
+    const layers = pickable();
+    for (let i = layers.length - 1; i >= 0; i--) {
+      const d = layers[i];
       const inv = d ? invert(d.matrix) : undefined;
       if (!d || !inv || d.layer.locked) continue;
       const [lx, ly] = apply(inv, x, y);
-      if (lx >= 0 && ly >= 0 && lx <= d.layer.width && ly <= d.layer.height) return d;
+      if (lx >= d.box[0] && ly >= d.box[1] && lx <= d.box[2] && ly <= d.box[3]) return d;
     }
     return undefined;
   };
@@ -352,6 +405,136 @@ export function CompositionPanel({
     ((clientY - rect.top) / (rect.height || 1)) * comp.height,
   ];
   const toComp = (e: MouseEvent<SVGSVGElement>): [number, number] => clientToComp(e.clientX, e.clientY, e.currentTarget.getBoundingClientRect());
+  const pointToComp = (clientX: number, clientY: number): [number, number] => {
+    const rect = svgRef.current?.getBoundingClientRect();
+    return rect ? clientToComp(clientX, clientY, rect) : [0, 0];
+  };
+
+  /**
+   * Where a drawing tool's shape goes, as in AE: a mask on the selected layer, a shape in the selected shape layer
+   * (a mask with "Tool Creates Mask"), or a new shape layer when no unlocked 2D layer is selected.
+   */
+  const drawTarget = (): { kind: "mask" | "shape"; layer: Layer; toLayer: Matrix } | { kind: "new" } => {
+    const layer = selected;
+    const toLayer = selectedMatrix && invert(selectedMatrix);
+    if (!layer || layer.locked || !toLayer || layer.layerType === "CameraLayer" || layer.layerType === "LightLayer") return { kind: "new" };
+    if (layer.layerType === "ShapeLayer") return { kind: drawOptions.get().creates === "mask" ? "mask" : "shape", layer, toLayer };
+    return { kind: "mask", layer, toLayer };
+  };
+
+  const commitBox = (tool: ShapeTool, box: DragBox) => {
+    if (!editor) return;
+    const target = drawTarget();
+    const paint = drawOptions.get();
+    if (target.kind === "new") {
+      onSelectLayer(addShapeLayer(editor, comp, boxShape(tool, { ...box, center: [0, 0] }, paint), box.center));
+    } else if (target.kind === "mask") {
+      addMasks(editor, comp, target.layer.id, [{ shape: mapShape(boxPath(tool, box), target.toLayer) }]);
+    } else {
+      // Sizes in layer pixels: the box measured along the layer's axes.
+      const m = target.toLayer;
+      const sx = Math.hypot(m[0], m[1]);
+      const sy = Math.hypot(m[2], m[3]);
+      const inLayer = { ...box, center: apply(m, ...box.center), size: [box.size[0] * sx, box.size[1] * sy] as [number, number], radius: box.radius * (sx + sy) / 2 };
+      addShapes(editor, comp, target.layer.id, [boxShape(tool, inLayer, paint)]);
+    }
+  };
+
+  const commitPen = (points: PenPoint[], closed: boolean) => {
+    setDraft(undefined);
+    if (!editor || points.length < 2) return;
+    attempt(editing, () => {
+      const target = drawTarget();
+      const paint = drawOptions.get();
+      const path = penShape(points, closed);
+      if (target.kind === "mask") return addMasks(editor, comp, target.layer.id, [{ shape: mapShape(path, target.toLayer) }]);
+      if (target.kind === "shape") return addShapes(editor, comp, target.layer.id, [{ kind: "path", path: mapShape(path, target.toLayer), paint }]);
+      const xs = points.map((p) => p.at[0]);
+      const ys = points.map((p) => p.at[1]);
+      const center: [number, number] = [(Math.min(...xs) + Math.max(...xs)) / 2, (Math.min(...ys) + Math.max(...ys)) / 2];
+      onSelectLayer(addShapeLayer(editor, comp, { kind: "path", path: mapShape(path, [1, 0, 0, 1, -center[0], -center[1]]), paint }, center));
+    });
+  };
+  const latestPen = useRef(commitPen);
+  latestPen.current = commitPen;
+  const penPoints = draft?.kind === "pen" ? draft.points : undefined;
+
+  // Enter ends the Pen's open path and Escape drops it; picking another tool ends it too.
+  useEffect(() => {
+    if (!penPoints) return;
+    const key = (e: KeyboardEvent) => {
+      if ((e.target as HTMLElement | null)?.closest?.("input, textarea, select")) return;
+      if (e.key === "Enter") {
+        e.preventDefault();
+        latestPen.current(penPoints, false);
+      } else if (e.key === "Escape") {
+        e.preventDefault();
+        setDraft(undefined);
+      }
+    };
+    window.addEventListener("keydown", key);
+    return () => window.removeEventListener("keydown", key);
+  }, [penPoints]);
+  const lastTool = useRef(tool);
+  useEffect(() => {
+    if (lastTool.current === tool) return;
+    lastTool.current = tool;
+    if (penPoints && tool !== "pen") latestPen.current(penPoints, false);
+  }, [tool, penPoints]);
+
+  /** A shape tool's drag: the box previews while it is drawn and becomes a shape or mask when released. */
+  const drawBox = (e: PointerEvent<SVGSVGElement>, tool: ShapeTool, from: [number, number], rect: DOMRect) => {
+    e.preventDefault();
+    let box: DragBox | undefined;
+    const stop = followPointer(
+      e,
+      (ev) => {
+        const at = clientToComp(ev.clientX, ev.clientY, rect);
+        box = dragBox(tool, from, at, ev.shiftKey, ev.ctrlKey || ev.metaKey);
+        setDraft({ kind: "box", tool, box });
+      },
+      () => {
+        drag.current = null;
+        setDraft(undefined);
+        if (box && box.size[0] >= 1 && box.size[1] >= 1) attempt(editing, () => commitBox(tool, box!));
+      },
+    );
+    // A second finger (a pinch) drops the box being drawn.
+    drag.current = () => {
+      stop();
+      setDraft(undefined);
+    };
+  };
+
+  /** A Pen click adds a vertex (dragging pulls out its handles); a click on the first vertex closes the path. */
+  const penDown = (e: PointerEvent<SVGSVGElement>, at: [number, number], rect: DOMRect) => {
+    e.preventDefault();
+    const points = penPoints ?? [];
+    const first = points[0];
+    const closeAt = (e.pointerType === "touch" ? CLOSE_TOUCH_PIXELS : CLOSE_PIXELS) / scale;
+    if (first && points.length >= 2 && Math.hypot(at[0] - first.at[0], at[1] - first.at[1]) <= closeAt) {
+      commitPen(points, true);
+      return;
+    }
+    const placed = [...points, { at, out: [0, 0] as [number, number] }];
+    setDraft({ kind: "pen", points: placed });
+    const stop = followPointer(
+      e,
+      (ev) => {
+        const to = clientToComp(ev.clientX, ev.clientY, rect);
+        const out: [number, number] = [to[0] - at[0], to[1] - at[1]];
+        setDraft({ kind: "pen", points: [...points, { at, out }] });
+      },
+      () => {
+        drag.current = null;
+      },
+    );
+    // A second finger (a pinch) takes back the vertex the first one placed.
+    drag.current = () => {
+      stop();
+      setDraft(points.length ? { kind: "pen", points } : undefined);
+    };
+  };
 
   /**
    * Selection tool: a handle scales the selected layer, a layer is selected
@@ -383,6 +566,10 @@ export function CompositionPanel({
       );
       return;
     }
+    if (editor && isShapeTool(tool)) return drawBox(e, tool, start, rect);
+    if (editor && tool === "pen") return penDown(e, start, rect);
+    // The vertex tools act on paths only (PathOverlay); elsewhere they do nothing.
+    if (isPenTool(tool)) return;
     const grip = (e.target as Element).closest?.("[data-handle]")?.getAttribute("data-handle");
     const picked = hit(...start)?.layer;
     let kind: "move" | "scale" | "rotation" | "anchor" | undefined;
@@ -412,6 +599,7 @@ export function CompositionPanel({
     const id = layer.id;
     const action = kind;
     const snap = editing.snapping && kind === "move" ? snapTargets(comp, layer, time) : undefined;
+    const dragBoxOf = selectedBox;
     const stop = followPointer(
       e,
       (ev) => {
@@ -423,7 +611,7 @@ export function CompositionPanel({
         if (snap && !ev.ctrlKey) delta = snapDelta(snap, delta, SNAP_PIXELS / scale);
         attempt(editing, () => {
           if (action === "move") moveLayers(editor, comp, [target], delta, time, { coalesce: key, constrain: ev.shiftKey });
-          else if (action === "scale") scaleByHandle(editor, comp, target, handle, start, at, time, { coalesce: key, proportional: ev.shiftKey });
+          else if (action === "scale") scaleByHandle(editor, comp, target, handle, start, at, time, { coalesce: key, proportional: ev.shiftKey, box: dragBoxOf });
           else if (action === "rotation") rotateByDrag(editor, comp, target, start, at, time, { coalesce: key, snap: ev.shiftKey });
           else panBehind(editor, comp, target, delta, time, { coalesce: key, anchorOnly: ev.altKey });
         });
@@ -557,28 +745,57 @@ export function CompositionPanel({
             >
               {(guides.safe || guides.proportional || guides.grid) && <Guides comp={comp} options={guides} scale={scale} />}
               {roi && <rect className="roi-rect" x={roi[0]} y={roi[1]} width={roi[2]} height={roi[3]} strokeWidth={1 / scale} />}
-              {!playing && showMasks && selected && selectedMatrix && <MaskPaths layer={selected} matrix={selectedMatrix} time={time} scale={scale} />}
+              {!playing && showMasks && selected && selectedMatrix && (
+                <PathOverlay
+                  comp={comp}
+                  layer={selected}
+                  matrix={selectedMatrix}
+                  time={time}
+                  scale={scale}
+                  toComp={pointToComp}
+                  onDrag={(stop) => (drag.current = stop)}
+                />
+              )}
+              {draft && (
+                <g className="draw-draft" strokeWidth={1 / scale}>
+                  {draft.kind === "box" ? (
+                    <path d={svgPath(boxPath(draft.tool, draft.box), (x, y) => [x, y])} />
+                  ) : (
+                    <>
+                      <path d={svgPath(penShape(draft.points, false), (x, y) => [x, y])} />
+                      {draft.points.map((p, i) => (
+                        <g key={i}>
+                          {(p.out[0] !== 0 || p.out[1] !== 0) && (
+                            <path className="draw-handle" d={`M${p.at[0] - p.out[0]} ${p.at[1] - p.out[1]}L${p.at[0] + p.out[0]} ${p.at[1] + p.out[1]}`} />
+                          )}
+                          <rect className="draw-vertex" x={p.at[0] - 2.5 / scale} y={p.at[1] - 2.5 / scale} width={5 / scale} height={5 / scale} />
+                        </g>
+                      ))}
+                    </>
+                  )}
+                </g>
+              )}
               {effectDropPick && (
                 <polygon
                   className="effect-drop"
                   points={[
-                    [0, 0],
-                    [effectDropPick.layer.width, 0],
-                    [effectDropPick.layer.width, effectDropPick.layer.height],
-                    [0, effectDropPick.layer.height],
+                    [effectDropPick.box[0], effectDropPick.box[1]],
+                    [effectDropPick.box[2], effectDropPick.box[1]],
+                    [effectDropPick.box[2], effectDropPick.box[3]],
+                    [effectDropPick.box[0], effectDropPick.box[3]],
                   ]
                     .map(([x, y]) => apply(effectDropPick.matrix, x, y).join(","))
                     .join(" ")}
                 />
               )}
-              {!playing && layerControls && selected && selectedMatrix && (
+              {!playing && layerControls && selected && selectedMatrix && selectedBox && (
                 <g className="sel-box" style={{ color: labelColor(selected.label) }}>
                   <polygon
                     points={[
-                      apply(selectedMatrix, 0, 0),
-                      apply(selectedMatrix, selected.width, 0),
-                      apply(selectedMatrix, selected.width, selected.height),
-                      apply(selectedMatrix, 0, selected.height),
+                      apply(selectedMatrix, selectedBox[0], selectedBox[1]),
+                      apply(selectedMatrix, selectedBox[2], selectedBox[1]),
+                      apply(selectedMatrix, selectedBox[2], selectedBox[3]),
+                      apply(selectedMatrix, selectedBox[0], selectedBox[3]),
                     ]
                       .map((p) => p.join(","))
                       .join(" ")}
@@ -587,8 +804,9 @@ export function CompositionPanel({
                     [0, 0.5, 1]
                       .filter((fy) => fx !== 0.5 || fy !== 0.5)
                       .map((fy) => {
-                        const [x, y] = apply(selectedMatrix, selected.width * fx, selected.height * fy);
-                        const [cx, cy] = apply(selectedMatrix, selected.width / 2, selected.height / 2);
+                        const [bx0, by0, bx1, by1] = selectedBox;
+                        const [x, y] = apply(selectedMatrix, bx0 + (bx1 - bx0) * fx, by0 + (by1 - by0) * fy);
+                        const [cx, cy] = apply(selectedMatrix, (bx0 + bx1) / 2, (by0 + by1) / 2);
                         const cursor = resizeCursor((x - cx) * comp.pixelAspect, y - cy);
                         return handle(x, y, `${fx}-${fy}`, { handle: `${fx * 2 - 1},${fy * 2 - 1}`, cursor });
                       }),

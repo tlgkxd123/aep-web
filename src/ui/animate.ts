@@ -1,4 +1,4 @@
-import { currentValue, getExpressionScope, setExpressionScope, valueAtTime, type ExpressionScope } from "../aep/evaluate.ts";
+import { currentValue, getExpressionScope, hasLiveValue, setExpressionScope, valueAtTime, type ExpressionScope } from "../aep/evaluate.ts";
 import type { CompItem, Layer, Project, Property, PropertyValue } from "../aep/model.ts";
 import { sourcePointToComp } from "../aep/transform.ts";
 
@@ -16,10 +16,10 @@ const panelScopes = new WeakMap<Project, { time: number; scope: ExpressionScope 
 
 /**
  * The value a panel shows: after the property's expression when one is enabled, as After Effects shows it (in
- * red). Evaluating it also records the expression's error for the expression row.
+ * red), or its live value (registerLiveValue). Evaluating it also records the expression's error for the expression row.
  */
 export function shownValue(project: Project, prop: Property, t: number, layer: Layer): PropertyValue {
-  if (!prop.expression || !prop.expressionEnabled) return valueAt(prop, t, layer);
+  if ((!prop.expression || !prop.expressionEnabled) && !hasLiveValue(prop)) return valueAt(prop, t, layer);
   let entry = panelScopes.get(project);
   if (!entry || entry.time !== t) panelScopes.set(project, (entry = { time: t, scope: { project, warn: () => {} } }));
   const previous = getExpressionScope();

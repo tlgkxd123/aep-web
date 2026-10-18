@@ -7,6 +7,7 @@
 import type { CompItem, Layer, Project, PropertyGroup } from "../../aep/model.ts";
 import { layerAudio, mixWindow } from "../../media/mix.ts";
 import { displayLayout, displaySpectrum, soundKeysSettings } from "../../media/soundKeys.ts";
+import "../../media/soundKeysLive.ts";
 import { effectNumber } from "../effectParams.ts";
 import type { GL } from "../gl.ts";
 import { registerEffect } from "../registry.ts";

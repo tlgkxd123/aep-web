@@ -1,0 +1,77 @@
+{
+ "project": "matte2.aep",
+ "comps": [
+  {
+   "comp": "matte2_below",
+   "frames": [
+    0
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "matte2_gap",
+   "frames": [
+    0
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "matte2_shared",
+   "frames": [
+    0
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "matte2_visible",
+   "frames": [
+    0
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "matte2_chain",
+   "frames": [
+    0
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "matte2_chain_legacy",
+   "frames": [
+    0
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "matte2_dangling",
+   "frames": [
+    0
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "matte2_top",
+   "frames": [
+    0
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "matte2_inactive",
+   "frames": [
+    0,
+    12
+   ],
+   "fps": 24.0
+  },
+  {
+   "comp": "matte2_parented",
+   "frames": [
+    0,
+    12
+   ],
+   "fps": 24.0
+  }
+ ]
+}

@@ -30,9 +30,9 @@ export function isActive(layer: Layer, time: number): boolean {
   return time >= Math.min(layer.inPoint, layer.outPoint) && time < Math.max(layer.inPoint, layer.outPoint);
 }
 
+/** The layer's track matte layer; none when it names no layer of the comp, and then the layer renders unmatted. */
 export function matteLayerOf(layer: Layer, comp: CompItem): Layer | undefined {
-  if (layer.trackMatteLayerId) return comp.layers.find((l) => l.id === layer.trackMatteLayerId);
-  return comp.layers[layer.index - 2];
+  return layer.trackMatteLayerId ? comp.layers.find((l) => l.id === layer.trackMatteLayerId && l !== layer) : undefined;
 }
 
 /** Whether a solo switch limits what `comp` shows. */

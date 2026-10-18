@@ -12,7 +12,7 @@
 // baked keys within about 5% of their range.
 import { effectNumber, effectProperty, effectVector } from "../render/effectParams.ts";
 import { fft } from "../render/effects/audioSpectrumAnalysis.ts";
-import type { Layer, PropertyGroup } from "../aep/model.ts";
+import type { CompItem, Layer, Project, PropertyGroup } from "../aep/model.ts";
 
 export const SOUND_KEYS = "tc Sound Keys";
 /** The plugin-drawn "Commands" row holding the Apply button. */
@@ -99,6 +99,30 @@ export function soundKeysSettings(effect: PropertyGroup, layer: Layer, time: num
   };
 }
 
+/** The settings Apply analyses with: those at the work area's start, on the size of the layer's source. */
+export function appliedSettings(project: Project, comp: CompItem, layer: Layer, effect: PropertyGroup): SoundKeysSettings {
+  const source = project.items.get(layer.sourceId);
+  const width = source && "width" in source && source.width ? source.width : comp.width;
+  const height = source && "height" in source && source.height ? source.height : comp.height;
+  return soundKeysSettings(effect, layer, comp.workAreaStart, width, height);
+}
+
+export interface KeyGrid {
+  from: number;
+  to: number;
+  step: number;
+  /** Keys at from + k·step, k < count. */
+  count: number;
+}
+
+/** The times Apply keys: every 1/keysPerSecond (on that grid) over the Audio Layer's extent within the comp. */
+export function keyGrid(audioLayer: Layer, duration: number, keysPerSecond: number): KeyGrid {
+  const step = 1 / keysPerSecond;
+  const from = Math.max(0, Math.ceil(Math.min(audioLayer.inPoint, audioLayer.outPoint) / step - 1e-6) * step);
+  const to = Math.min(duration, Math.max(audioLayer.inPoint, audioLayer.outPoint));
+  return { from, to, step, count: to > from ? Math.floor((to - from) / step + 1e-6) + 1 : 0 };
+}
+
 function eqGain(eq: SoundKeysSettings["eq"], hz: number): number {
   return hz < 60 ? eq[0] : hz < 250 ? eq[1] : hz < 4000 ? eq[2] : eq[3];
 }
@@ -168,7 +192,11 @@ export async function computeSoundKeysAsync(
   return analysis.result;
 }
 
-function soundKeysAnalysis(settings: SoundKeysSettings, rate: number, read: SampleReader, from: number, to: number) {
+/**
+ * The levels (0..1, before falloff) of every range of `settings` at time `t`: how far the spectrum inside each box
+ * rises from its bottom to its top.
+ */
+export function rangeLevelAnalyser(settings: SoundKeysSettings, rate: number, read: SampleReader): (t: number) => number[] {
   const n = 2 ** Math.round(Math.log2(WINDOW_SECONDS * rate));
   const window = Float32Array.from({ length: n }, (_, i) => 0.5 - 0.5 * Math.cos((2 * Math.PI * i) / (n - 1)));
   const { width, height } = settings;
@@ -184,18 +212,10 @@ function soundKeysAnalysis(settings: SoundKeysSettings, rate: number, read: Samp
     }
     return out;
   });
-  const step = 1 / settings.keysPerSecond;
-  const count = Math.max(0, Math.floor((to - from) / step + 1e-6) + 1);
-  const times: number[] = [];
-  const outputs = settings.ranges.map(() => [] as number[]);
-  const state = settings.ranges.map(() => 0);
   const re = new Float64Array(n);
   const im = new Float64Array(n);
   const mag = new Float32Array(n / 2);
-  let k = 0;
-  const analyse = () => {
-    const t = from + k * step;
-    times.push(t);
+  return (t) => {
     const samples = read(Math.round(t * rate - n / 2), n);
     for (let i = 0; i < n; i++) {
       re[i] = samples[i] * window[i];
@@ -203,7 +223,7 @@ function soundKeysAnalysis(settings: SoundKeysSettings, rate: number, read: Samp
     }
     fft(re, im, -1);
     for (let i = 0; i < n / 2; i++) mag[i] = Math.hypot(re[i], im[i]) / n;
-    settings.ranges.forEach((r, ri) => {
+    return settings.ranges.map((r, ri) => {
       let sum = 0;
       let peak = 0;
       for (const { bin, gain } of columns[ri]) {
@@ -215,15 +235,36 @@ function soundKeysAnalysis(settings: SoundKeysSettings, rate: number, read: Samp
       const amplitude = r.type === RANGE_TYPE.AVERAGE ? (columns[ri].length ? sum / columns[ri].length : 0) : peak;
       const y = ZERO_LINE * height - GAIN * height * amplitude;
       const depth = r.yBottom - r.yTop;
-      let level = depth > 0 ? Math.max(0, Math.min(1, (r.yBottom - y) / depth)) : 0;
-      if (r.type === RANGE_TYPE.TRIGGER) level = y < r.yBottom ? 1 : 0;
-      const previous = state[ri];
-      let next = level;
-      if (k > 0 && r.falloff === FALLOFF.INTEGRATE) next = previous + level;
-      else if (k > 0 && r.falloffTime > 0 && level < previous) {
-        if (r.falloff === FALLOFF.LINEAR) next = Math.max(level, previous - step / r.falloffTime);
-        else if (r.falloff === FALLOFF.EXPONENTIAL) next = Math.max(level, previous * Math.exp((-3 * step) / r.falloffTime));
-      }
+      if (r.type === RANGE_TYPE.TRIGGER) return y < r.yBottom ? 1 : 0;
+      return depth > 0 ? Math.max(0, Math.min(1, (r.yBottom - y) / depth)) : 0;
+    });
+  };
+}
+
+/** A range's falloff: its state after a key of `level` follows a key whose state was `previous`, `step` seconds before. */
+export function falloffStep(range: SoundKeysRange, previous: number, level: number, step: number): number {
+  if (range.falloff === FALLOFF.INTEGRATE) return previous + level;
+  if (range.falloffTime > 0 && level < previous) {
+    if (range.falloff === FALLOFF.LINEAR) return Math.max(level, previous - step / range.falloffTime);
+    if (range.falloff === FALLOFF.EXPONENTIAL) return Math.max(level, previous * Math.exp((-3 * step) / range.falloffTime));
+  }
+  return level;
+}
+
+function soundKeysAnalysis(settings: SoundKeysSettings, rate: number, read: SampleReader, from: number, to: number) {
+  const levelsAt = rangeLevelAnalyser(settings, rate, read);
+  const step = 1 / settings.keysPerSecond;
+  const count = Math.max(0, Math.floor((to - from) / step + 1e-6) + 1);
+  const times: number[] = [];
+  const outputs = settings.ranges.map(() => [] as number[]);
+  const state = settings.ranges.map(() => 0);
+  let k = 0;
+  const analyse = () => {
+    const t = from + k * step;
+    times.push(t);
+    const levels = levelsAt(t);
+    settings.ranges.forEach((r, ri) => {
+      const next = k > 0 ? falloffStep(r, state[ri], levels[ri], step) : levels[ri];
       state[ri] = next;
       outputs[ri].push(r.min + next * (r.max - r.min));
     });

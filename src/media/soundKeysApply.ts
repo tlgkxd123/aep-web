@@ -6,7 +6,7 @@ import type { CompItem, Layer, Project, PropertyGroup } from "../aep/model.ts";
 import type { Editor } from "../edit/editor.ts";
 import { effectProperty } from "../render/effectParams.ts";
 import { layerAudio, mixWindow } from "./mix.ts";
-import { computeSoundKeysAsync, soundKeysSettings } from "./soundKeys.ts";
+import { appliedSettings, computeSoundKeysAsync, keyGrid } from "./soundKeys.ts";
 import { footageStore } from "./store.ts";
 
 /** Applies Sound Keys; resolves with a summary, rejects with a message the UI can show. */
@@ -18,17 +18,12 @@ export async function applySoundKeys(
   effect: PropertyGroup,
   progress?: (done: number) => void,
 ): Promise<string> {
-  const source = project.items.get(layer.sourceId);
-  const width = source && "width" in source && source.width ? source.width : comp.width;
-  const height = source && "height" in source && source.height ? source.height : comp.height;
-  const settings = soundKeysSettings(effect, layer, comp.workAreaStart, width, height);
+  const settings = appliedSettings(project, comp, layer, effect);
   if (!settings.ranges.length) throw new Error("No range is active.");
   const audioLayer = comp.layers.find((l) => l.index === settings.audioLayer);
   if (!audioLayer) throw new Error("Choose an Audio Layer first.");
-  const step = 1 / settings.keysPerSecond;
-  const from = Math.max(0, Math.ceil(Math.min(audioLayer.inPoint, audioLayer.outPoint) / step - 1e-6) * step);
-  const to = Math.min(comp.duration, Math.max(audioLayer.inPoint, audioLayer.outPoint));
-  if (to <= from) throw new Error(`"${audioLayer.name}" is not in the composition's duration.`);
+  const { from, to, count } = keyGrid(audioLayer, comp.duration, settings.keysPerSecond);
+  if (!count) throw new Error(`"${audioLayer.name}" is not in the composition's duration.`);
   let audio = layerAudio(project, audioLayer, from);
   for (let tries = 0; audio === "pending" && tries < 20; tries++) {
     await footageStore.idle();

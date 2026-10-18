@@ -1,9 +1,11 @@
 // The Android app (Capacitor) exports H.264 MP4: run on an emulator or a device with the debug APK installed.
 //
-//   node scripts/check-android-export.ts [--comp name] [--software-h264]
+//   node scripts/check-android-export.ts [--comp name] [--project file.aep] [--quality fast|good|high] [--software-h264]
+//     [--profile]
 //
 // Drives the app's WebView over DevTools: opens a fixture through the project file input, queues the comp as H.264,
-// renders it, then pulls the file the app saved to Documents/aep-web and checks its MP4 structure.
+// renders it, then pulls the file the app saved to Documents/aep-web and checks its MP4 structure. --profile prints
+// the render's progress each second and the page's CPU time by function while it rendered.
 import { execFileSync } from "node:child_process";
 import { mkdirSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
@@ -13,7 +15,7 @@ import { demuxMp4 } from "./lib/mp4-demux.ts";
 const args = process.argv.slice(2);
 const opt = (n: string) => (args.includes(n) ? args[args.indexOf(n) + 1] : undefined);
 const PKG = "com.zionschxma.aev3";
-const FIXTURE = resolve(import.meta.dirname, "../refs/fixtures/roundtrip.base.aep");
+const FIXTURE = resolve(opt("--project") ?? resolve(import.meta.dirname, "../refs/fixtures/roundtrip.base.aep"));
 const COMP = opt("--comp") ?? "roundtrip_minimax";
 const OUT = resolve("dist-tools/android");
 mkdirSync(OUT, { recursive: true });
@@ -30,7 +32,7 @@ adb("shell", "am", "force-stop", PKG);
 adb("shell", "rm", "-rf", "/sdcard/Documents/aep-web");
 adb("shell", "am", "start", "-n", `${PKG}/.MainActivity`);
 let socket = "";
-for (let i = 0; i < 40 && !socket; i++) {
+for (let i = 0; i < 80 && !socket; i++) {
   await new Promise((r) => setTimeout(r, 500));
   let pid = "";
   try {
@@ -38,7 +40,8 @@ for (let i = 0; i < 40 && !socket; i++) {
   } catch {
     // Not started yet.
   }
-  if (pid && i > 4) socket = `webview_devtools_remote_${pid}`;
+  // The WebView opens its DevTools socket a while after the process starts.
+  if (pid && adb("shell", "cat", "/proc/net/unix").includes(`@webview_devtools_remote_${pid}`)) socket = `webview_devtools_remote_${pid}`;
 }
 if (!socket) throw new Error("The app's WebView exposes no DevTools socket (is it a debug build?).");
 adb("forward", "tcp:9333", `localabstract:${socket}`);
@@ -72,7 +75,7 @@ await page.evaluate(
     input.files = transfer.files;
     input.dispatchEvent(new Event("change", { bubbles: true }));
   },
-  [bytes, "roundtrip.base.aep"] as const,
+  [bytes, FIXTURE.split(/[\\/]/).pop()!] as const,
 );
 await page.getByRole("tab", { name: "Project", exact: true }).click();
 await page.getByLabel("Search project").fill(COMP);
@@ -83,17 +86,53 @@ await page.getByRole("img", { name: new RegExp(`^${COMP}, `) }).waitFor({ timeou
 await page.getByRole("tab", { name: "Render Queue", exact: true }).click();
 await page.getByRole("button", { name: "Add Active Comp" }).click();
 await page.getByRole("listitem", { name: `${COMP}: Queued` }).waitFor();
+const quality = opt("--quality");
+if (quality) await page.getByRole("listitem", { name: `${COMP}: Queued` }).getByLabel("Quality").selectOption(quality);
+interface CpuNode {
+  id: number;
+  callFrame: { functionName: string; url: string; lineNumber: number; columnNumber: number };
+}
+const cdp = args.includes("--profile") ? await page.context().newCDPSession(page) : null;
+if (cdp) {
+  await cdp.send("Profiler.enable");
+  await cdp.send("Profiler.setSamplingInterval", { interval: 500 });
+  await cdp.send("Profiler.start");
+}
 await page.getByRole("button", { name: "Render", exact: true }).click();
 const started = Date.now();
 const finished = page.getByRole("listitem", { name: new RegExp(`^${COMP}: (Done|Failed)$`) });
+if (cdp) {
+  const progress = page.locator(".rq-progress");
+  for (let polls = 0; !(await finished.count()); polls++) {
+    const text = await progress.textContent({ timeout: 500 }).catch(() => null);
+    if (polls % 10 === 0) console.log(`  ${((Date.now() - started) / 1000).toFixed(1).padStart(6)} s  ${text ?? "(no render running)"}`);
+    await new Promise((r) => setTimeout(r, 1000));
+  }
+}
 await finished.waitFor({ timeout: 600_000 });
+const renderSeconds = (Date.now() - started) / 1000;
+if (cdp) {
+  const { profile } = (await cdp.send("Profiler.stop")) as unknown as { profile: { nodes: CpuNode[]; samples: number[]; timeDeltas: number[] } };
+  const selfMs = new Map<string, number>();
+  const byId = new Map(profile.nodes.map((n) => [n.id, n]));
+  profile.samples.forEach((id, i) => {
+    const frame = byId.get(id)!.callFrame;
+    const key = `${frame.functionName || "(anonymous)"} ${frame.url.split("/").pop()}:${frame.lineNumber + 1}:${frame.columnNumber + 1}`;
+    selfMs.set(key, (selfMs.get(key) ?? 0) + (profile.timeDeltas[i] ?? 0) / 1000);
+  });
+  const total = [...selfMs.values()].reduce((a, b) => a + b, 0);
+  console.log(`CPU self time on the page's main thread (${(total / 1000).toFixed(1)} s sampled):`);
+  for (const [fn, ms] of [...selfMs].sort((a, b) => b[1] - a[1]).slice(0, 25)) console.log(`  ${ms.toFixed(0).padStart(8)} ms  ${fn}`);
+}
 const label = (await finished.getAttribute("aria-label")) ?? "";
-const error = await finished.locator(".rq-error").textContent().catch(() => null);
+const error = await finished.locator(".rq-error").textContent({ timeout: 1000 }).catch(() => null);
+const perf = await finished.locator(".rq-perf").textContent({ timeout: 1000 }).catch(() => null);
+if (perf) console.log(`Render Queue: ${perf}`);
 await page.screenshot({ path: join(OUT, "render-queue.png") });
-check(label.endsWith("Done"), "the H.264 render finishes", `${label} in ${((Date.now() - started) / 1000).toFixed(1)} s${error ? ` (${error})` : ""}`);
+check(label.endsWith("Done"), "the H.264 render finishes", `${label} in ${renderSeconds.toFixed(1)} s${error ? ` (${error})` : ""}`);
 
-const listing = adb("shell", "ls", "/sdcard/Documents/aep-web/").trim();
-const name = listing.split(/\s+/).find((f) => f.endsWith(".mp4"));
+const listing = adb("shell", "ls", "-1", "/sdcard/Documents/aep-web/").trim();
+const name = listing.split(/\r?\n/).map((f) => f.trim()).find((f) => f.endsWith(".mp4"));
 check(!!name, "the app saves the MP4 to Documents/aep-web", listing || "nothing there");
 if (name) {
   const local = join(OUT, name);

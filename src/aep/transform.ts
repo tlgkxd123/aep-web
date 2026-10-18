@@ -265,3 +265,13 @@ export function projectThroughCamera(point: Vec3, camera: Camera, comp: CompItem
   const factor = camera.zoom / local[2];
   return [comp.width / 2 + local[0] * factor, comp.height / 2 + local[1] * factor, local[2]];
 }
+
+/** Whether `target` is `from` or a layer its chain of track mattes leads to (bounded, as a file may hold a loop). */
+export function matteChainReaches(comp: CompItem, from: Layer, target: Layer): boolean {
+  let m: Layer | undefined = from;
+  for (let steps = 0; m && steps <= comp.layers.length; steps++) {
+    if (m === target) return true;
+    m = m.trackMatteLayerId ? comp.layers.find((l) => l.id === m!.trackMatteLayerId) : undefined;
+  }
+  return false;
+}

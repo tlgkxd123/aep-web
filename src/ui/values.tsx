@@ -2,7 +2,7 @@ import { EffectControlType, isGradientValue, PropertyValueType, type CompItem, t
 import { openMenuBelow, type MenuEntries } from "./ContextMenu.tsx";
 import { colorCss, fixed, isShape, rotationLabel, timecode } from "./format.ts";
 import { Icon } from "./icons.tsx";
-import { findGroup, is3D } from "./properties.ts";
+import { findGroup, is3D, propertyOptions } from "./properties.ts";
 
 export interface ValueContext {
   comp: CompItem;
@@ -49,7 +49,8 @@ export function valueText(prop: Property, value: PropertyValue, ctx: ValueContex
   if (isGradientValue(value)) return "Edit Gradient...";
   if (prop.propertyValueType === PropertyValueType.LAYER_INDEX && typeof value === "number") return layerOption(ctx.comp, value);
   if (prop.propertyValueType === PropertyValueType.MASK_INDEX && typeof value === "number") return maskOption(ctx.layer, value);
-  if (prop.options && typeof value === "number") return prop.options[value - 1] ?? String(value);
+  const options = propertyOptions(prop);
+  if (options && typeof value === "number") return options[value - 1] ?? String(value);
   if (type === EffectControlType.CHECKBOX && typeof value === "number") return value ? "On" : "Off";
   if (Array.isArray(value)) {
     if (prop.propertyValueType === PropertyValueType.COLOR) return colorCss(value);
@@ -167,7 +168,7 @@ export function PropertyValueView({
     );
   }
   const isDropdown =
-    (prop.options && typeof value === "number") ||
+    (propertyOptions(prop) && typeof value === "number") ||
     type === EffectControlType.POPUP ||
     prop.propertyValueType === PropertyValueType.LAYER_INDEX ||
     prop.propertyValueType === PropertyValueType.MASK_INDEX;

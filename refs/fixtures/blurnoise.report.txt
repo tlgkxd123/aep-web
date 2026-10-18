@@ -1,0 +1,8 @@
+﻿
+frames: 89, passing: 89 (89 with <= 0.1% of non-edge pixels off by more than 3/255 and mean error <= 1/255, 0 known 
+approximations)
+  known: mask_feather@0: AE's feather falls off ~0.01 faster inside the edge than a Gaussian; outside it matches 
+exactly
+PIXELS-PASSED
+
+

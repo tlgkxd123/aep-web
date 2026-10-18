@@ -55,6 +55,19 @@ const SPEC_BY_MATCH_NAME: ReadonlyMap<string, Spec> = (() => {
   return map;
 })();
 
+const TOP_LEVEL_SPECS: ReadonlyMap<string, Spec> = new Map([...tables.topLevel, ...tables.parametricMeshTopLevel].map((s) => [s.matchName, s]));
+
+/**
+ * The value After Effects gives a layer property it leaves out of the file, when the spec tables know one; Transform
+ * properties whose default depends on the layer or the comp (Anchor Point, Position) have none here.
+ */
+export function specDefault(matchName: string): PropertyValue | undefined {
+  const fixed = tables.transformFixedDefaults[matchName];
+  if (fixed !== undefined) return fixed;
+  const value = (SPEC_BY_MATCH_NAME.get(matchName) ?? TOP_LEVEL_SPECS.get(matchName))?.value;
+  return value ?? undefined;
+}
+
 function clone(value: PropertyValue | undefined): PropertyValue {
   if (value === undefined) return null;
   return Array.isArray(value) ? [...value] : value;

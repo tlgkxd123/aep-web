@@ -9,6 +9,7 @@ import { hasNumericValue, isEditableProperty, type Editor } from "../edit/editor
 import { canStore, setPropertyValue } from "../edit/stored-property.ts";
 import { attempt, useEditing } from "./editing.tsx";
 import { colorCss, fixed, rotationLabel } from "./format.ts";
+import { propertyOptions } from "./properties.ts";
 import { ScrubNumber } from "./TransformValue.tsx";
 import { Checkbox, Dropdown } from "./values.tsx";
 
@@ -98,12 +99,13 @@ export function EffectValue({ comp, layer, prop, value, time }: { comp: CompItem
     if (prop.controlType === EffectControlType.CHECKBOX) {
       return <Checkbox on={!!value} label={prop.name} onToggle={() => write(value ? 0 : 1)} />;
     }
-    if (prop.options?.length) {
+    const options = propertyOptions(prop);
+    if (options?.length) {
       return (
         <Dropdown
-          text={prop.options[value - 1] ?? String(value)}
+          text={options[value - 1] ?? String(value)}
           label={prop.name}
-          menu={() => prop.options!.map((label, i) => ({ label, checked: value === i + 1, onSelect: () => write(i + 1) }))}
+          menu={() => options.map((label, i) => ({ label, checked: value === i + 1, onSelect: () => write(i + 1) }))}
         />
       );
     }

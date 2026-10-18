@@ -41,7 +41,7 @@ const page = await browser.newPage();
 const ORIGIN = "https://aep-harness.test/";
 await page.route(`${ORIGIN}**`, (route) => route.fulfill({ contentType: "text/html", body: "<!doctype html><html><body></body></html>" }));
 await page.goto(ORIGIN);
-await page.addScriptTag({ path: resolve("dist-harness/harness.js") });
+await page.addScriptTag({ path: resolve(process.env.AEP_HARNESS_DIR ?? "dist-harness", "harness.js") });
 const diffDir = join(root, "diff");
 rmSync(diffDir, { recursive: true, force: true });
 mkdirSync(diffDir, { recursive: true });
