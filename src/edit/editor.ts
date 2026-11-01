@@ -20,6 +20,7 @@ import { findChild, findList, readRifx, type Chunk, type RifxFile } from "../aep
 import { writeRifx } from "../aep/write.ts";
 import { applyStates, chunkPath, readDoubles, Transaction, utf8Chunk, type ChunkChange } from "./chunks.ts";
 import { syncItems } from "./layer-items.ts";
+import { upgradePortalCards } from "./portalCards.ts";
 import { pathUnits, shapChunk, shapsOf } from "./paths.ts";
 import {
   CDTA,
@@ -164,7 +165,9 @@ export class Editor {
 
   constructor(file: RifxFile, project = projectFromRifx(file)) {
     this.file = file;
-    this.project = project;
+    const tx = new Transaction();
+    upgradePortalCards(project, tx);
+    this.project = tx.empty ? project : projectFromRifx(file);
   }
 
   static fromBytes(bytes: Uint8Array): Editor {

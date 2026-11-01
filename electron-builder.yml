@@ -1,0 +1,21 @@
+# The Windows desktop build, run through npm run dist:desktop.
+appId: com.aepweb.desktop
+productName: AEP Web
+directories:
+  output: dist-desktop
+  buildResources: desktop/resources
+# The page is bundled by Vite and the main process by vite.desktop.config.ts; no runtime dependencies are needed.
+files:
+  - dist/**/*
+  - desktop/build/**/*
+  - package.json
+  - "!node_modules/**/*"
+asar: true
+npmRebuild: false
+win:
+  target:
+    - target: portable
+      arch: [x64]
+  artifactName: AEP-Web-${version}-${arch}.${ext}
+portable:
+  artifactName: AEP-Web-${version}-portable.exe

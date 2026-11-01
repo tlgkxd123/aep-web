@@ -32,7 +32,7 @@ import { isTransformValue, resetTransform, toggleTransformStopwatch, transformPr
 import { keyframeAt, shownValue } from "./animate.ts";
 import { openContextMenu, openMenuBelow } from "./ContextMenu.tsx";
 import { contentsAddEntries, isShapeItem, maskMenu, maskModeEntries, renameMaskTo, renameShapeItemTo, shapeItemMenu, toggleMaskInverted } from "./maskCommands.ts";
-import { AppActionsContext, layerMenu } from "./contextMenus.ts";
+import { AppActionsContext, layerMenu, viewerMenu } from "./contextMenus.ts";
 import { attempt, EFFECT_MIME, ITEM_MIME, LAYER_MIME, nextDragKey, useEditing } from "./editing.tsx";
 import { modeEntries, parentEntries, QUALITY, trackMatteEntries } from "./layerRowMenus.ts";
 import { followPointer } from "./pointer.ts";
@@ -1584,7 +1584,14 @@ export const TimelinePanel = memo(function TimelinePanel({
           </div>
         </div>
       </div>
-      <div className="tl-body-wrap">
+      <div
+        className="tl-body-wrap"
+        onContextMenu={(e) => {
+          // Rows open their own menus; the empty area below them offers the comp's New menu.
+          if (!appActions || e.defaultPrevented) return;
+          openContextMenu(e, viewerMenu(comp, appActions));
+        }}
+      >
         <div
           className="tl-body"
           role="tree"

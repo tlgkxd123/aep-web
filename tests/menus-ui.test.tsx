@@ -175,6 +175,24 @@ test("Layer > Layer Settings renames; File > Close closes the comp; Help opens i
   expect(screen.getByText(/No composition is open/)).toBeTruthy();
 });
 
+test("right-clicking the empty Timeline or the viewer's pasteboard offers New, and New > Solid opens Solid Settings", async () => {
+  await openFixture();
+  const pasteboard = screen.getByRole("img", { name: /^layerops_holder/ }).closest(".pasteboard")!;
+  fireEvent.contextMenu(pasteboard);
+  fireEvent.click(entry("New"));
+  fireEvent.click(entry("Solid..."));
+  const fromViewer = screen.getByRole("dialog", { name: "Solid Settings" });
+  fireEvent.click(within(fromViewer).getByRole("button", { name: "Cancel" }));
+
+  fireEvent.contextMenu(tree());
+  fireEvent.click(entry("New"));
+  fireEvent.click(entry("Solid..."));
+  const fromTimeline = screen.getByRole("dialog", { name: "Solid Settings" });
+  fireEvent.change(within(fromTimeline).getByLabelText("Solid color"), { target: { value: "#00ff00" } });
+  fireEvent.click(within(fromTimeline).getByRole("button", { name: "OK" }));
+  expect(layerNames()[0]).toBe("Green Solid 1");
+});
+
 test("the Project panel's context menu makes a comp from a footage item and labels it", async () => {
   await openFixture();
   const projectItems = screen.getByRole("tree", { name: "Project items" });

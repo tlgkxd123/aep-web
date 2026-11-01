@@ -430,10 +430,13 @@ export const autoResolution = {
   },
 };
 
-/** The divisor a viewer renders at: the comp's Resolution, or with Auto the coarser of it and the magnification's. */
-export function viewerFactor(compFactor: number, zoom: number, auto: boolean): number {
+/**
+ * The divisor a viewer renders at: the comp's Resolution, with Auto the coarser of it and the magnification's, and
+ * in low VRAM mode no finer than Half.
+ */
+export function viewerFactor(compFactor: number, zoom: number, auto: boolean, lowVram = false): number {
   const factor = Math.max(1, compFactor || 1);
-  return auto ? Math.max(factor, autoFactor(zoom)) : factor;
+  return Math.max(factor, auto ? autoFactor(zoom) : 1, lowVram ? 2 : 1);
 }
 
 const factors = new Map<number, number>();

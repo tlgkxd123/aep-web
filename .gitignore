@@ -1,5 +1,7 @@
 node_modules
 dist
+dist-desktop
+desktop/build
 .unlazy
 .unlazy-hook-state.json
 dist-harness*

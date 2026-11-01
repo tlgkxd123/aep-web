@@ -3,6 +3,7 @@
 // out of memory instead stops the page, and the session with it.
 import { deviceBudgets, type MemoryBudgets } from "../device.ts";
 import { footageStore } from "../media/store.ts";
+import { lowVram } from "./lowVram.ts";
 import { ramCache, viewerRenderers } from "./ramCache.ts";
 
 /**
@@ -15,9 +16,17 @@ export type MemoryPressure = "hidden" | "background" | "low";
 
 let constrained = false;
 
-/** The budgets the caches keep to: the device's, or its constrained ones once memory ran low (see constrainMemory). */
+/** The budgets the caches keep to: the device's (low VRAM mode's on a 2-4 GB GPU), or its constrained ones once memory ran low. */
 export function appBudgets(): MemoryBudgets {
-  return deviceBudgets(constrained);
+  return deviceBudgets(constrained, lowVram.on);
+}
+
+/** The budgets new renderers get, and what the caches that already hold memory shrink to. */
+function applyBudgets(): void {
+  const budgets = appBudgets();
+  ramCache.setBudget(budgets.ramPreview);
+  footageStore.setBudget(budgets.footage);
+  for (const renderer of viewerRenderers()) renderer.setBudgets(budgets);
 }
 
 /** Whether the caches keep to the constrained budgets. */
@@ -29,11 +38,12 @@ export function memoryConstrained(): boolean {
 export function constrainMemory(): void {
   if (constrained) return;
   constrained = true;
-  const budgets = appBudgets();
-  ramCache.setBudget(budgets.ramPreview);
-  footageStore.setBudget(budgets.footage);
-  for (const renderer of viewerRenderers()) renderer.setBudgets(budgets);
+  applyBudgets();
 }
+
+// Low VRAM mode may be on from the start (the desktop app read the GPU's memory) or turned on in the viewer later.
+if (lowVram.on) applyBudgets();
+lowVram.subscribe(applyBudgets);
 
 /**
  * Gives back what the caches hold for `pressure`: the viewers' pooled targets, reused layer images and uploaded

@@ -25,6 +25,13 @@ test("a desktop keeps the renderer's budgets; a phone an eighth of its memory, h
   });
   expect(memoryBudgets({ mobile: false, memoryGiB: 4 }).ramPreview).toBe(512 * MIB);
 
+  // A 2-4 GB GPU keeps less of everything: about 600 MiB of GPU-side caches, not 2.7 GiB.
+  const low = memoryBudgets({ mobile: false, memoryGiB: 8, lowVram: true });
+  const desktop = memoryBudgets({ mobile: false, memoryGiB: 8 });
+  expect(total(low)).toBeLessThan(total(desktop));
+  for (const key of Object.keys(low) as (keyof MemoryBudgets)[]) expect(low[key]).toBeLessThan(desktop[key]);
+  expect(memoryBudgets({ mobile: true, memoryGiB: 4, lowVram: true })).toEqual(memoryBudgets({ mobile: true, memoryGiB: 4 }));
+
   const phone = memoryBudgets({ mobile: true, memoryGiB: 4 });
   expect(total(phone)).toBe(512 * MIB);
   expect(total(memoryBudgets({ mobile: true, memoryGiB: 2 }))).toBe(256 * MIB);
@@ -239,6 +246,34 @@ test("on a phone the viewers give back what they keep before a render makes its 
     unregister();
     vi.doUnmock("../src/device.ts");
   }
+});
+
+test("low VRAM mode shrinks every cache at once, and turning it off gives the desktop budgets back", async () => {
+  vi.resetModules();
+  const { deviceBudgets } = await import("../src/device.ts");
+  const { lowVram } = await import("../src/playback/lowVram.ts");
+  const { appBudgets } = await import("../src/playback/memory.ts");
+  const { ramCache, registerRenderer } = await import("../src/playback/ramCache.ts");
+  const { footageStore } = await import("../src/media/store.ts");
+  const setFootageBudget = vi.spyOn(footageStore, "setBudget");
+  const renderer = { setBudgets: vi.fn() };
+  const unregister = registerRenderer(renderer as unknown as Renderer);
+  const normal = deviceBudgets();
+  const low = deviceBudgets(false, true);
+
+  expect(lowVram.on).toBe(false);
+  expect(appBudgets()).toEqual(normal);
+  lowVram.set(true);
+  expect(appBudgets()).toEqual(low);
+  expect(ramCache.budget).toBe(low.ramPreview);
+  expect(setFootageBudget).toHaveBeenLastCalledWith(low.footage);
+  expect(renderer.setBudgets).toHaveBeenCalledWith(low);
+
+  lowVram.set(false);
+  expect(appBudgets()).toEqual(normal);
+  expect(ramCache.budget).toBe(normal.ramPreview);
+  expect(renderer.setBudgets).toHaveBeenLastCalledWith(normal);
+  unregister();
 });
 
 test("constraining memory shrinks every cache once, and the budgets new renderers get", async () => {

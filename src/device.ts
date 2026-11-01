@@ -42,14 +42,30 @@ export interface MemoryBudgets {
 const MIB = 1024 * 1024;
 
 /**
+ * What a GPU with 2-4 GB of memory can hold: about 600 MiB of render targets, layer images, shape content and
+ * coverage, leaving the rest to the browser and its own surfaces. The desktop budgets are several times that.
+ */
+const LOW_VRAM_BUDGETS: MemoryBudgets = {
+  targets: 192 * MIB,
+  floatTargets: 192 * MIB,
+  layers: 96 * MIB,
+  shapes: 96 * MIB,
+  coverage: 24 * MIB,
+  ramPreview: 256 * MIB,
+  footage: 128 * MIB,
+};
+
+/**
  * The cache budgets for a device. Desktops keep the sizes the renderer was tuned with, and an eighth of their memory
  * (at most 1 GiB) for the RAM preview. A phone or tablet shares its memory with the GPU and the system, and Android
  * stops a page that holds too much: there the budgets follow the device's memory, about an eighth of it in all.
  * `constrained` (after Android stopped the page, or reported memory running low) halves that, on any device.
+ * `lowVram` gives a desktop GPU with 2-4 GB smaller caches that fit its memory (see playback/lowVram.ts).
  */
-export function memoryBudgets(device: { memoryGiB?: number; mobile: boolean; constrained?: boolean }): MemoryBudgets {
+export function memoryBudgets(device: { memoryGiB?: number; mobile: boolean; constrained?: boolean; lowVram?: boolean }): MemoryBudgets {
   const gib = Math.min(8, Math.max(0.25, device.memoryGiB ?? (device.mobile ? 4 : 8)));
   if (!device.mobile && !device.constrained) {
+    if (device.lowVram) return LOW_VRAM_BUDGETS;
     return {
       targets: 1024 * MIB,
       floatTargets: 1024 * MIB,
@@ -73,6 +89,6 @@ export function memoryBudgets(device: { memoryGiB?: number; mobile: boolean; con
 }
 
 /** This device's budgets (see memoryBudgets). */
-export function deviceBudgets(constrained = false): MemoryBudgets {
-  return memoryBudgets({ memoryGiB: deviceMemoryGiB(), mobile: isMobileDevice(), constrained });
+export function deviceBudgets(constrained = false, lowVram = false): MemoryBudgets {
+  return memoryBudgets({ memoryGiB: deviceMemoryGiB(), mobile: isMobileDevice(), constrained, lowVram });
 }

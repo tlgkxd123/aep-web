@@ -7,6 +7,7 @@ import { anchorInComp, moveLayers, panBehind, rotateByDrag, scaleByHandle, type 
 import { frameIndex } from "../playback/clock.ts";
 import { usePlaying } from "../playback/playhead.ts";
 import { useViewer } from "../playback/useViewer.ts";
+import { lowVram } from "../playback/lowVram.ts";
 import { autoResolution, fastPreviews as fastPreviewSetting, isIntegratedGpu, viewerFactor, viewerZooms } from "../playback/viewer.ts";
 import { apply, invert, layerAffine, type Matrix } from "./animate.ts";
 import { openContextMenu, openMenuBelow, type MenuEntries } from "./ContextMenu.tsx";
@@ -208,6 +209,7 @@ export function CompositionPanel({
   const { editor, revision, tool } = editing;
   const compFactor = Math.max(1, comp.resolutionFactor[0] || 1);
   const autoRes = useSyncExternalStore(autoResolution.subscribe, () => autoResolution.on);
+  const lowVramOn = useSyncExternalStore(lowVram.subscribe, () => lowVram.on);
   // Layer boxes would trail the picture during playback; they come back where it stops.
   const playing = usePlaying(comp.id);
 
@@ -245,7 +247,7 @@ export function CompositionPanel({
     viewer.width && viewer.height ? Math.min(1, (viewer.width - 40) / frameW, (viewer.height - 40) / comp.height) : 0.33;
   const scale = zoom === "fit" ? Math.max(0.01, fit) : zoom;
   useEffect(() => viewerZooms.set(comp.id, scale), [comp.id, scale]);
-  const downsample = viewerFactor(compFactor, scale, autoRes);
+  const downsample = viewerFactor(compFactor, scale, autoRes, lowVramOn);
   const render = useViewer(canvas, project, comp, time, downsample);
   const gpu = render.engine.current?.gpu;
   const integratedGpu = gpu && !gpuHintHidden && isIntegratedGpu(gpu) ? gpu : null;
@@ -693,7 +695,9 @@ export function CompositionPanel({
     );
   };
 
-  const resolution = RESOLUTIONS[comp.resolutionFactor[0]] ?? "Custom";
+  const resolution = lowVramOn
+    ? `${RESOLUTIONS[downsample] ?? "Custom"} (Low VRAM)`
+    : (RESOLUTIONS[comp.resolutionFactor[0]] ?? "Custom");
   const pct = `${Number((scale * 100).toFixed(1))}%`;
 
   return (
@@ -702,7 +706,16 @@ export function CompositionPanel({
         <Icon name="lock" size={12} className="dim" />
         <span className="crumb">{comp.name}</span>
       </div>
-      <div className={`viewer ${itemOver ? "item-over" : ""}`} ref={viewerRef} {...itemDrop} onPointerDownCapture={onViewerPointerDown}>
+      <div
+        className={`viewer ${itemOver ? "item-over" : ""}`}
+        ref={viewerRef}
+        {...itemDrop}
+        onPointerDownCapture={onViewerPointerDown}
+        onContextMenu={(e) => {
+          if (!actions || e.defaultPrevented) return;
+          openContextMenu(e, viewerMenu(comp, actions));
+        }}
+      >
         <div className="pasteboard">
           <div
             className={`comp-frame ${grid ? "transparency" : ""}`}
@@ -884,16 +897,24 @@ export function CompositionPanel({
           menu={() => [
             ...[1, 2, 3, 4].map((f) => ({
               label: RESOLUTIONS[f],
-              checked: !autoRes && compFactor === f,
+              checked: !autoRes && !lowVramOn && compFactor === f,
               onSelect:
                 editor || f === compFactor
                   ? () => {
+                      lowVram.set(false);
                       autoResolution.set(false);
                       if (editor && f !== compFactor) attempt(editing, () => editor.setCompSettings(comp, { resolutionFactor: [f, f] }));
                     }
                   : undefined,
             })),
-            { label: "Auto", checked: autoRes, onSelect: () => autoResolution.set(true) },
+            { label: "Auto", checked: autoRes, onSelect: () => {
+              lowVram.set(false);
+              autoResolution.set(true);
+            } },
+            { label: "Low VRAM Mode", checked: lowVramOn, onSelect: () => {
+              autoResolution.set(false);
+              lowVram.set(true);
+            } },
           ]}
         />
         <ViewerButton
