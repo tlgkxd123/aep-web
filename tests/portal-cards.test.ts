@@ -83,7 +83,12 @@ describe("Portal Cards", () => {
     for (let card = 0; card < 8; card++) for (let axis = 0; axis < 2; axis++) expect(still[card * 3 + axis]).toBeCloseTo(0);
     set(16, 0);
     expect(frames(0)[0].u_count).toEqual([8]);
+    // Alternate planes are flipped, so the regular stack repeats after two intervals.
+    expect(frames(5)[0]).not.toEqual(frames(0)[0]);
+    expect(frames(10)[0]).toEqual(frames(0)[0]);
+    set(18, 0);
     expect(frames(5)[0]).toEqual(frames(0)[0]);
+    set(18, 1);
     set(16, 50);
     const partial = frames(0);
     expect(partial).toHaveLength(1);
@@ -106,12 +111,12 @@ describe("Portal Cards", () => {
     const unrelated = file.root.children!.filter((c) => c.listType !== "Fold" && c.listType !== "EfdG").map(writeChunkBytes);
     const editor = Editor.fromBytes(original);
     let state = get(editor.project);
-    expect(state.controls).toHaveLength(17);
+    expect(state.controls).toHaveLength(PORTAL_CARD_PARAMS.length);
     expect(state.controls.slice(0, 15).map((p) => [p.name, p.value])).toEqual(legacy.controls.map((p) => [p.name, p.value]));
-    expect(state.controls.slice(15).map((p) => [p.name, p.value])).toEqual([["Randomness", 0], ["Random Seed", 1]]);
+    expect(state.controls.slice(15).map((p) => [p.name, p.value])).toEqual([["Randomness", 0], ["Random Seed", 1], ["Alternate Flip", 0], ["Fragments", 0]]);
     expect(state.controls.slice(15).every((p) => p.chunk && !p.synthesized && p.canVaryOverTime)).toBe(true);
     expect(state.controls.slice(4, 7).map((p) => [p.min, p.max])).toEqual([[-360, 360], [-360, 360], [-360, 360]]);
-    expect(editor.project.effectParams.get(PORTAL_CARDS)).toHaveLength(17);
+    expect(editor.project.effectParams.get(PORTAL_CARDS)).toHaveLength(PORTAL_CARD_PARAMS.length);
     expect(editor.file.root.children!.filter((c) => c.listType !== "Fold" && c.listType !== "EfdG").map(writeChunkBytes)).toEqual(unrelated);
     expect(editor.dirty).toBe(false);
     const baseline = editor.save();
@@ -154,11 +159,11 @@ describe("Portal Cards", () => {
     expect(state.controls[0].expression).toBe("time * 2");
     expect(state.controls[0].keyframes.map((k) => [k.time, k.value])).toEqual([[0, legacy.controls[0].value], [1, 12]]);
     expect(state.controls.slice(15).every((p) => p.keyframes.length === 0 && p.expression === "")).toBe(true);
-    expect(get(Editor.fromBytes(upgraded.save()).project).controls).toHaveLength(17);
+    expect(get(Editor.fromBytes(upgraded.save()).project).controls).toHaveLength(PORTAL_CARD_PARAMS.length);
     expect(projectEffect(upgraded.file.root, PORTAL_CARDS)?.template.instance).toBeTruthy();
     const library = (await effectLibrary()).find((e) => e.matchName === PORTAL_CARDS)!;
     applyLibraryEffect(upgraded, state.comp, [state.layer.id], library);
-    expect(get(Editor.fromBytes(upgraded.save()).project).controls).toHaveLength(17);
+    expect(get(Editor.fromBytes(upgraded.save()).project).controls).toHaveLength(PORTAL_CARD_PARAMS.length);
   });
 
   it("is offered with independent editable defaults, saves/reopens, and undoes as one step", async () => {
@@ -208,7 +213,7 @@ describe("Portal Cards", () => {
     applyLibraryEffect(reopened, saved.c, [id], effect);
     const effects = (get(reopened).layer.properties.find((p) => p.matchName === "ADBE Effect Parade") as PropertyGroup).children;
     const fresh = effects[1] as PropertyGroup;
-    expect((fresh.children[4] as Property).value).toBe(60);
+    expect((fresh.children[4] as Property).value).toBe(0);
     expect((fresh.children[14] as Property).keyframes).toHaveLength(0);
     expect((fresh.children[15] as Property).value).toBe(100);
     expect((fresh.children[16] as Property).value).toBe(1);

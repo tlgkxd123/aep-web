@@ -152,7 +152,10 @@ try {
   await set({ 16: 50 });
   assert(difference(await render("cards-loop-mixed-before", 159.9999), await render("cards-loop-mixed-after", 160.0001)) < 0.1, "partial randomness must also remain continuous across a loop boundary");
   await set({ 16: 0 });
-  assert((await render("cards-regular-loop", 1.25)).equals(await render("cards-regular-loop-repeat", 6.25)), "the regular stack must keep its five-second loop");
+  assert((await render("cards-regular-loop", 1.25)).equals(await render("cards-regular-loop-repeat", 11.25)), "the regular stack with alternate flips must loop after two intervals");
+  await set({ 18: 0 });
+  assert((await render("cards-regular-unflipped", 1.25)).equals(await render("cards-regular-unflipped-repeat", 6.25)), "the unflipped regular stack must keep its five-second loop");
+  await set({ 18: 1 });
   await set({ 16: 100 });
   await set({ 3: -20 });
   assert((await render("cards-reverse", 1.25)).equals(await render("cards-reverse-repeat", 161.25)), "reverse travel must repeat deterministically");
@@ -162,7 +165,7 @@ try {
   // Two unrotated cards (count = Cards + 1 = 3): the first fades out and the last is still
   // zero, so the card over the centre is i = 1 at depth 1. Its size is zoom * spacing, which is
   // the source exactly at Zoom = 100 / 0.62. Pulse is cleared: it scales the zoom.
-  const IDENTITY = { ...defaults, 1: 2, 3: 0, 5: 0, 6: 0, 7: 0, 8: 0, 9: 100 / 0.62, 12: 0, 13: 0, 14: 0, 15: 0, 16: 0 };
+  const IDENTITY = { ...defaults, 1: 2, 3: 0, 5: 0, 6: 0, 7: 0, 8: 0, 9: 100 / 0.62, 12: 0, 13: 0, 14: 0, 15: 0, 16: 0, 18: 0 };
   await set(IDENTITY);
   assert(difference(await render("identity", 0), base) < 0.1, "source coordinates and row order must be preserved");
   const flipped = (horizontal: boolean, vertical: boolean) => {
@@ -173,6 +176,9 @@ try {
     }
     return result;
   };
+  // The card over the centre has identity 1, so Alternate Flip turns it upside down.
+  await set({ ...IDENTITY, 18: 1 });
+  assert(difference(await render("cards-alternate-flip", 0), flipped(true, true)) < 0.1, "alternate planes must show the source turned 180 degrees");
   for (const [index, horizontal, vertical] of [[5, true, false], [7, true, true]] as const) {
     const amount = index === 5 ? 180 / Math.sin(1.45) : 180 / Math.sin(1.45 * 0.61);
     await set({ ...IDENTITY, [index]: amount });

@@ -1,5 +1,5 @@
 // Nested source-image planes travel outward from a shared vanishing point.
-// Each plane keeps its seeded tilt and offset until it expands beyond the frame.
+// Each plane keeps its seeded tilt, offset, orientation and fragments until it expands beyond the frame.
 import { registerEffect } from "../registry.ts";
 import { imageRect, layerPass, params } from "./stockUtil.ts";
 
@@ -13,11 +13,43 @@ uniform vec3 u_x[17];
 uniform vec3 u_y[17];
 uniform vec3 u_centers[17];
 uniform vec4 u_sizes[17];
+uniform vec4 u_info[17];
+uniform float u_fragments;
 uniform int u_count;
 uniform float u_shadow;
 uniform float u_edge;
 uniform float u_background;
 vec4 at(int i, vec2 q);
+float rnd(uint s, uint salt) {
+  uint v = s * 0x45d9f3bu ^ (salt + 1u) * 0x27d4eb2du;
+  v = (v ^ (v >> 16)) * 0x7feb352du;
+  v = (v ^ (v >> 15)) * 0x846ca68bu;
+  return float((v ^ (v >> 16)) >> 8) / 16777216.0;
+}
+// Seeded slabs inside a card show the image shifted, with a dark side like an extruded block.
+vec3 fragmentUv(vec2 uv, uint s) {
+  vec2 base = uv;
+  float shade = 1.0;
+  for (int k = 0; k < 4; k++) {
+    uint salt = uint(k) * 16u;
+    float start = rnd(s, salt) * 0.9;
+    float weight = smoothstep(start, start + 0.1, u_fragments);
+    if (weight <= 0.0) continue;
+    bool tall = rnd(s, salt + 1u) < 0.3;
+    vec2 extent = tall ? vec2(mix(0.008, 0.025, rnd(s, salt + 2u)), mix(0.06, 0.2, rnd(s, salt + 3u)))
+                       : vec2(mix(0.08, 0.24, rnd(s, salt + 2u)), mix(0.012, 0.045, rnd(s, salt + 3u)));
+    vec2 center = vec2(mix(0.1, 0.9, rnd(s, salt + 4u)), tall ? mix(0.3, 0.75, rnd(s, salt + 5u)) : mix(0.55, 0.92, rnd(s, salt + 5u)));
+    vec2 d = abs(base - center) - extent;
+    if (max(d.x, d.y) > 0.0) continue;
+    vec2 shift = tall ? vec2(0.0, (rnd(s, salt + 6u) - 0.5) * 0.3) : vec2((rnd(s, salt + 6u) - 0.5) * 0.12, -extent.y * mix(2.0, 5.0, rnd(s, salt + 7u)));
+    uv += shift * weight;
+    // The dark side is the face nearest the image centre: the top of a low slab, the inner side of a tall one.
+    float across = tall ? (base.x - center.x) * sign(center.x - 0.5) + extent.x : base.y - center.y + extent.y;
+    float width = tall ? extent.x * 2.0 : extent.y * 2.0;
+    shade *= mix(1.0, mix(0.35, 1.0, smoothstep(0.0, 0.35 * width, across)), weight);
+  }
+  return vec3(uv, shade);
+}
 `;
 
 const BODY = `
@@ -45,8 +77,13 @@ const BODY = `
     if (frame >= 1.0 && d > max(aa, u_sizes[i].y * 0.12)) continue;
     if (u_background > 0.0) cover = mix(1.0, cover, frame);
     vec2 texel = 0.5 / u_dimensions;
-    vec2 uv = clamp(local / u_sizes[i].xy + 0.5, texel, 1.0 - texel);
+    vec2 uv = local / u_sizes[i].xy + 0.5;
+    // Alternate planes are turned upside down, so each ring meets the next at the opposite edge.
+    if (u_info[i].y > 0.5) uv = 1.0 - uv;
+    vec3 fragment = fragmentUv(uv, uint(u_info[i].x));
+    uv = clamp(fragment.xy, texel, 1.0 - texel);
     vec4 card = at(0, uv * u_dimensions);
+    card.rgb *= fragment.z;
     // Contact shadow and a restrained bright rim separate the repeated image planes.
     float shadow = exp(-max(d, 0.0) * 100.0 / u_sizes[i].y) * u_shadow * fade * card.a * (1.0 - cover) * frame;
     float rim = exp(-abs(d) * 240.0 / u_sizes[i].y) * u_edge * frame;
@@ -87,6 +124,8 @@ registerEffect("AEPW Portal Cards", (input, effect, layer, time, ctx) => {
   const axesY = new Float32Array(MAX_CARDS * 3);
   const centers = new Float32Array(MAX_CARDS * 3);
   const sizes = new Float32Array(MAX_CARDS * 4);
+  const info = new Float32Array(MAX_CARDS * 4);
+  const flip = bounded(18, 0, 0, 1) >= 0.5;
   const smooth = (v: number) => { const t = Math.max(0, Math.min(1, v)); return t * t * (3 - 2 * t); };
   const mix = (a: number, b: number, amount: number) => a + (b - a) * amount;
   const hash = (index: number, salt: number) => {
@@ -120,6 +159,7 @@ registerEffect("AEPW Portal Cards", (input, effect, layer, time, ctx) => {
     // Only the farthest arrival and the departing background fade; interiors stay opaque.
     const fade = i === 0 ? smooth((1 - phase) / 0.02) : i === count - 1 ? smooth(phase) : 1;
     sizes.set([aspect * size, size, fade, depth], i * 4);
+    info.set([amount > 0 ? identity * 100003 + seed : 0, flip && identity % 2 === 1 ? 1 : 0, 0, 0], i * 4);
   }
   const out = layerPass(ctx, imageRect(input), [input], DECLS, BODY, (u) => {
     const gl = ctx.gl;
@@ -129,6 +169,9 @@ registerEffect("AEPW Portal Cards", (input, effect, layer, time, ctx) => {
     gl.uniform3fv(u("u_y[0]"), axesY);
     gl.uniform3fv(u("u_centers[0]"), centers);
     gl.uniform4fv(u("u_sizes[0]"), sizes);
+    gl.uniform4fv(u("u_info[0]"), info);
+    // Fragments vary per plane, so they follow Randomness to keep the regular stack regular.
+    gl.uniform1f(u("u_fragments"), bounded(19, 0, 0, 100) / 100 * amount);
     gl.uniform1i(u("u_count"), count);
     gl.uniform1f(u("u_shadow"), bounded(12, 45, 0, 100) / 100);
     gl.uniform1f(u("u_edge"), bounded(13, 12, 0, 100) / 100);

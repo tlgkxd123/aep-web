@@ -129,7 +129,7 @@ test("Portal Cards applies from search with editable controls and survives save/
   expect(within(controls).getByText("Random Seed")).toBeTruthy();
   const saved = savedEffects(await save(), COMP);
   expect(saved[0].matchName).toBe("AEPW Portal Cards");
-  expect(saved[0].children.filter((p) => p.kind === "property")).toHaveLength(17);
+  expect(saved[0].children.filter((p) => p.kind === "property")).toHaveLength(19);
   key("z", { ctrlKey: true });
   expect(effectNames()).toEqual([]);
 });

@@ -14,22 +14,26 @@ export const PORTAL_CARDS_NAME = "Portal Cards";
 export const PORTAL_CARD_PARAMS = [
   ["Cards", 7, 1, 16],
   ["Depth Spacing", 62, 25, 90],
-  ["Speed", 18, -200, 200],
+  ["Speed", 38, -200, 200],
   ["Evolution", 0, -100000, 100000],
-  ["Y Rotation", 60, -360, 360],
-  ["X Rotation", 22, -360, 360],
-  ["Twist", 12, -360, 360],
-  ["Drift", 18, 0, 100],
+  ["Y Rotation", 0, -360, 360],
+  ["X Rotation", 0, -360, 360],
+  ["Twist", 0, -360, 360],
+  ["Drift", 0, 0, 100],
   ["Zoom", 100, 10, 400],
   ["Center X", 50, -100, 200],
   ["Center Y", 50, -100, 200],
-  ["Shadow", 45, 0, 100],
-  ["Edge Light", 12, 0, 100],
-  ["Background", 70, 0, 100],
+  ["Shadow", 20, 0, 100],
+  ["Edge Light", 0, 0, 100],
+  ["Background", 100, 0, 100],
   ["Pulse", 0, 0, 100],
   ["Randomness", 100, 0, 100],
   ["Random Seed", 1, 0, 100000],
+  ["Alternate Flip", 1, 0, 1],
+  ["Fragments", 60, 0, 100],
 ] as const;
+/** Controls appended after the first release; saved effects without them keep their earlier look. */
+const APPENDED = [16, 17, 18, 19];
 
 const paramName = (index: number) => `${PORTAL_CARDS}-${String(index).padStart(4, "0")}`;
 
@@ -137,11 +141,11 @@ export function upgradePortalCards(project: Project, tx: Transaction): void {
       changed = true;
     }
     const stream = paramChunk(tdgp, 1) ?? baseStream;
-    for (const index of [16, 17]) {
+    for (const index of APPENDED) {
       const old = paramChunk(sourcePart, index);
       const [name, fallback, min, max] = PORTAL_CARD_PARAMS[index - 1];
-      // Older layouts start with zero Randomness to preserve their appearance.
-      const value = old?.type === "pard" ? Number(decodePard(old).defaultValue ?? fallback) : index === 16 ? 0 : fallback;
+      // Older layouts start with these controls off to preserve their appearance; the seed keeps its default.
+      const value = old?.type === "pard" ? Number(decodePard(old).defaultValue ?? fallback) : index === 17 ? fallback : 0;
       const param = parameter(index, [name, value, min, max], originalPard, stream);
       if (!old) { defs.push(...param.definition); changed = true; }
       if (!paramChunk(tdgp, index)) {
