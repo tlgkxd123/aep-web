@@ -97,6 +97,7 @@ const cases: Case[] = [
     sapphire: true,
     time: 0.3,
   },
+  { name: "separate_rgb", matchName: "GUTS SEPRGB", values: { 4: 112, 6: 6, 12: 100, 14: 6, 20: 92, 22: 12, 23: 90, 19: 4, 30: 8 }, scalable: true },
   {
     name: "form_grid",
     matchName: "tc Form",

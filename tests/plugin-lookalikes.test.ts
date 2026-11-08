@@ -19,6 +19,8 @@ import {
   zSliceWeight,
   type FlickerParams,
 } from "../src/render/effects/sapphireMath.ts";
+import { channelBounds, channelSettings, sourcePoint } from "../src/render/effects/separateRgb.ts";
+import type { Params } from "../src/render/effects/stockUtil.ts";
 import { effectIsCacheable, effectIsScalable, effectRenderer, type LayerImage, type RenderContext } from "../src/render/registry.ts";
 
 interface Param {
@@ -252,6 +254,56 @@ describe("Trapcode Form look-alike", () => {
     expect(formVisibility(v, 500)).toBe(1);
     expect(formVisibility(v, 1500)).toBeCloseTo(0.5);
     expect(formVisibility(v, 2500)).toBe(0);
+  });
+});
+
+describe("Rowbyte Separate RGB look-alike", () => {
+  const center: [number, number] = [960, 540];
+  const size = { width: 1920, height: 1080 };
+  const reader = (values: Record<number, number | number[]>): Params => ({
+    num: (i, fallback) => (typeof values[i] === "number" ? (values[i] as number) : fallback),
+    vec: (i, fallback) => (Array.isArray(values[i]) ? (values[i] as number[]) : fallback),
+    bool: (_, fallback) => fallback,
+    rgb: (_, fallback) => fallback,
+    choice: (_, fallback) => fallback,
+  });
+
+  it("is registered, listed and reusable between frames", () => {
+    expect(effectRenderer("GUTS SEPRGB")).toBeTypeOf("function");
+    expect(effectIsCacheable("GUTS SEPRGB")).toBe(true);
+    expect(effectIsScalable("GUTS SEPRGB")).toBe(true);
+    expect(catalogName("GUTS SEPRGB")).toBe("Separate RGB");
+    expect(effectCategory("GUTS SEPRGB")).toBe("Rowbyte");
+  });
+
+  it("leaves a channel in place at its defaults", () => {
+    const [red] = channelSettings(reader({}), size, center, 1);
+    expect(sourcePoint(red, center, 1101, [100, 200])).toEqual([100, 200]);
+  });
+
+  it("reads offsets as points around the layer's centre, and follows the image scale", () => {
+    const [red] = channelSettings(reader({ 2: [947, 500], 6: 24 }), size, center, 0.5);
+    expect(red.offset).toEqual([-6.5, -20]);
+    expect(red.sigma).toBeCloseTo(5, 6);
+  });
+
+  it("takes a point never edited, stored as 50 x the layer's size, for the layer's centre", () => {
+    const [, green] = channelSettings(reader({ 10: [96000, 54000], 33: [96000, 54000] }), size, center, 1);
+    expect(green.offset).toEqual([0, 0]);
+    expect(green.distortCenter).toEqual(center);
+  });
+
+  it("rotates and scales about the layer's centre, after the offset", () => {
+    const [red] = channelSettings(reader({ 2: [1060, 540], 3: 90, 4: 200 }), size, center, 1);
+    // The source point 10 px right of the centre lands 20 px below the moved centre: clockwise on screen, y down.
+    const source = sourcePoint(red, center, 1101, [1060, 560]);
+    expect(source[0]).toBeCloseTo(970, 6);
+    expect(source[1]).toBeCloseTo(540, 6);
+  });
+
+  it("grows the output to where a moved channel lands", () => {
+    const [red] = channelSettings(reader({ 2: [1060, 540] }), size, center, 1);
+    expect(channelBounds(red, center, 1101, { x: 0, y: 0, width: 1920, height: 1080 })).toEqual({ x: 100, y: 0, width: 1920, height: 1080 });
   });
 });
 

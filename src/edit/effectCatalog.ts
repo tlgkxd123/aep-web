@@ -29,6 +29,7 @@ const UNNAMED_CATEGORIES = ["Immersive Video"];
 /** The plug-ins the renderer knows, by match name: Effects & Presets lists them whether or not they can be applied. */
 const PLUGINS: Record<string, { name: string; category: string }> = {
   "Keller.io Superpose 2": { name: "Superpose 2", category: "Keller.io" },
+  "GUTS SEPRGB": { name: "Separate RGB", category: "Rowbyte" },
   PEDG2: { name: "Deep Glow 2", category: "Plugin Everything" },
   S_Blur: { name: "S_Blur", category: "Sapphire Blur+Sharpen" },
   S_BlurDirectional: { name: "S_BlurDirectional", category: "Sapphire Blur+Sharpen" },

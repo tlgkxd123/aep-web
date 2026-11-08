@@ -16,6 +16,7 @@ import "./effects/particular.ts";
 import "./effects/form.ts";
 import "./effects/particleMatch.ts";
 import "./effects/portalCards.ts";
+import "./effects/separateRgb.ts";
 import "./effects/polar.ts";
 import "./effects/soundKeys.ts";
 import "./effects/superpose.ts";
