@@ -1,6 +1,6 @@
 // The Stylize effects added in src/render/effects/stylizeExtra.ts: each has a renderer with the reuse options its
 // output allows, and Strobe Light strobes on the frames After Effects does. Their pixels are checked against After
-// Effects renders by scripts/pixel-report.ts --suite stylize2 (gates/stylize2.md).
+// Effects renders by scripts/reports/pixel-report.ts --suite stylize2 (gates/stylize2.md).
 import { describe, expect, it } from "vitest";
 import "../src/render/features.ts";
 import { strobeOn } from "../src/render/effects/stylizeExtra.ts";

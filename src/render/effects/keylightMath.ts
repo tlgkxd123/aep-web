@@ -1,5 +1,5 @@
 // Keylight's core keying model, fitted to After Effects' renders of colour
-// palettes (scripts/fxextra-fit-keylight.ts). Shared by the effect shader
+// palettes (scripts/research/fxextra/fxextra-fit-keylight.ts). Shared by the effect shader
 // (keylight.ts mirrors it in GLSL) and the fitting script.
 
 export interface KeylightSettings {

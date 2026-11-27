@@ -11,7 +11,7 @@
 # file paths. Color-profile records are left empty (py-aep's no-ICC-store
 # path): the profile bytes AE would embed come from Adobe's ICC library.
 #
-# Run through `node scripts/projectops-templates.ts`, which packs the output
+# Run through `node scripts/project-ops/projectops-templates.ts`, which packs the output
 # (argv[1], a JSON file of base64 projects) into the item blocks the app ships.
 import base64
 import json

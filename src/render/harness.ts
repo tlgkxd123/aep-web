@@ -1,4 +1,4 @@
-// Browser entry used by scripts/pixel-report.ts: loads a project and renders
+// Browser entry used by scripts/reports/pixel-report.ts: loads a project and renders
 // frames to straight-alpha RGBA, exposed on window.aepHarness.
 import type { CompItem, Project, Property, PropertyGroup, PropertyValue } from "../aep/model.ts";
 import { parseProject } from "../aep/parse.ts";
@@ -51,7 +51,7 @@ const harness = {
   },
   /**
    * Replaces a layer's effects with one effect of static parameter values by 1-based index, for checking the
-   * renderers of effects no fixture project defines (scripts/check-stock-effects.ts).
+   * renderers of effects no fixture project defines (scripts/checks/effects/check-stock-effects.ts).
    */
   setEffect(compName: string, layerName: string, matchName: string, values: Record<number, PropertyValue>): void {
     harness.setNamedEffect(

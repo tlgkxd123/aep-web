@@ -181,7 +181,7 @@ export class AudioPreview {
 
 export const audioPreview = new AudioPreview();
 
-// Dev server pages only: lets scripts/check-video-playback.ts follow the preview audio.
+// Dev server pages only: lets scripts/checks/app/check-video-playback.ts follow the preview audio.
 if (typeof document !== "undefined" && document.querySelector('meta[name="aep-local-footage"]')) {
   (window as unknown as { aepAudio: AudioPreview }).aepAudio = audioPreview;
 }

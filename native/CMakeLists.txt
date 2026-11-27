@@ -1,5 +1,5 @@
 # The native Vulkan engine (aevk): the compositor and playback core the Android app runs, and a headless renderer
-# for checking it against After Effects' reference frames (scripts/native-report.ts).
+# for checking it against After Effects' reference frames (scripts/reports/native-report.ts).
 #
 #   cmake -S native -B native/build -DCMAKE_BUILD_TYPE=Release && cmake --build native/build && ctest --test-dir native/build
 #

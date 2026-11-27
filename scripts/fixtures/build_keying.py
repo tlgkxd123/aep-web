@@ -4,7 +4,7 @@
 # cells) and on a keyed scene with soft edges. Each comp tiles four copies of a
 # source, each with its own settings; a parameter given as a list is keyed one
 # value per frame. The palette's colours go to refs/fixtures/keying.palette.json
-# for the fitting scripts (scripts/check-keying-cells.ts).
+# for the fitting scripts (scripts/checks/effects/keying/check-keying-cells.ts).
 #
 #   uv run --no-project --with attrs --with pyyaml --with fonttools python scripts/fixtures/build_keying.py
 import json

@@ -1,5 +1,5 @@
 // Per-pixel models of the Keying effects (keying.ts mirrors them in GLSL), fitted to After Effects' renders of the
-// keying fixtures' palette (scripts/check-keying-fit.ts). Colours are straight RGB 0-1; a model returns the share
+// keying fixtures' palette (scripts/checks/effects/keying/check-keying-fit.ts). Colours are straight RGB 0-1; a model returns the share
 // of the pixel's alpha it keeps.
 
 export type RGB = [number, number, number];

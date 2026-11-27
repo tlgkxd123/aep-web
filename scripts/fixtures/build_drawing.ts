@@ -1,8 +1,8 @@
 // Builds refs/fixtures/drawing.aep and drawing.manifest.json: masks and shapes drawn by the browser editor
 // (src/edit/masks.ts, src/edit/shapes.ts, path values through the Editor) the way the Composition viewer's
 // tools and the Timeline write them, on a project the editor starts. After Effects' renders of the saved
-// file (node scripts/render-refs.ts --suite drawing) check that it opens and draws what the editor writes,
-// as the app draws it (node scripts/pixel-report.ts --suite drawing).
+// file (node scripts/ae/render-refs.ts --suite drawing) check that it opens and draws what the editor writes,
+// as the app draws it (node scripts/reports/pixel-report.ts --suite drawing).
 //
 //   node scripts/fixtures/build_drawing.ts
 import { writeFileSync } from "node:fs";

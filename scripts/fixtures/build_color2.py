@@ -6,7 +6,7 @@
 #
 # With --probe it builds refs/fixtures/color2.probe.aep instead: one comp sweeping
 # every effect over a grid of 256 colours, rendered as an approximation list (no pixel
-# gate) to read After Effects' formulas from (scripts/check-color2-probe.ts).
+# gate) to read After Effects' formulas from (scripts/checks/effects/color2/check-color2-probe.ts).
 #
 #   uv run --no-project --with attrs --with pyyaml --with fonttools python scripts/fixtures/build_color2.py [--probe]
 import json

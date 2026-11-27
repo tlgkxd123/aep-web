@@ -469,7 +469,7 @@ missing_case("fxextra_missing_sshake", "Render This", "Intro", "S_Shake", frames
 missing_case("fxextra_missing_szglow", "Final", "Spectrum soundkeys 2", "S_ZGlow")
 missing_case("fxextra_missing_sflicker", "Render This", "Put Wallpaper Here", "S_Flicker", frames=(0, 6))
 
-#: Look-alikes of plugin output that is not reproduced; measured by scripts/fxextra-approx-report.ts
+#: Look-alikes of plugin output that is not reproduced; measured by scripts/research/fxextra/fxextra-approx-report.ts
 #: and kept out of the pixel gate (refs/fixtures/fxextra.approximations.json).
 APPROXIMATIONS = {
     "fxextra_soundkeys": "Sound Keys draws its own spectrum/output display over the layer; only its grid and bars are imitated",

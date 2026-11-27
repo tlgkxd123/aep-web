@@ -1,6 +1,6 @@
 # Gates: stockfx - stock After Effects effects
 
-OWNS: scripts/check-blur-paths.ts, src/render/effects/stockUtil.ts, src/render/effects/stockMath.ts, src/render/effects/colorCorrection.ts, src/render/effects/blurSharpen.ts, src/render/effects/distort.ts, src/render/effects/transitions.ts, src/render/effects/stylize.ts, src/render/effects/matte.ts, src/render/effects/generate.ts, src/render/effects/displace.ts, src/render/effects/fractal.ts, scripts/check-stock-effects.ts, scripts/fixtures/build_stockfx.py, refs/fixtures/stockfx.*, refs/frames/stockfx_*/**, tests/stock-effects.test.ts, gates/stockfx.md
+OWNS: scripts/checks/effects/check-blur-paths.ts, src/render/effects/stockUtil.ts, src/render/effects/stockMath.ts, src/render/effects/colorCorrection.ts, src/render/effects/blurSharpen.ts, src/render/effects/distort.ts, src/render/effects/transitions.ts, src/render/effects/stylize.ts, src/render/effects/matte.ts, src/render/effects/generate.ts, src/render/effects/displace.ts, src/render/effects/fractal.ts, scripts/checks/effects/check-stock-effects.ts, scripts/fixtures/build_stockfx.py, refs/fixtures/stockfx.*, refs/frames/stockfx_*/**, tests/stock-effects.test.ts, gates/stockfx.md
 
 Scope: the stock effects Tint, Tritone, Brightness & Contrast (and legacy), Exposure, Hue/Saturation, Vibrance, Color Balance (HLS), Channel Mixer, Black & White, Levels, Invert, Posterize, Threshold (and legacy), Shift Channels, Gaussian Blur (and legacy, Fast Blur), Directional Blur, Radial Blur, Sharpen, Unsharp Mask, Transform, Offset, Corner Pin, Motion Tile, Turbulent Displace, Wave Warp, Bulge, Twirl, Optics Compensation, Displacement Map, Linear Wipe, Radial Wipe, Venetian Blinds, Drop Shadow, Glow, Mosaic, Noise, Fractal Noise, 4-Color Gradient, Fill, Set Matte and Simple Choker render on the GPU from their stored parameters; those whose definitions a project After Effects saved holds render as aerender renders the stockfx fixtures.
 
@@ -17,21 +17,21 @@ Scope: the stock effects Tint, Tritone, Brightness & Contrast (and legacy), Expo
   EXPECT: /Test Files\s+1 passed/
 
 - [ ] S2: in a browser, every stock renderer compiles and draws without warnings, identity parameters leave the frame unchanged, the per-pixel colour effects match their formulas, and half resolution stays close to full
-  CHECK: node scripts/check-stock-effects.ts
+  CHECK: node scripts/checks/effects/check-stock-effects.ts
   EXPECT: STOCK-EFFECTS-OK
 
 - [ ] S3: aerender renders every stockfx comp
-  CHECK: node scripts/render-refs.ts --suite stockfx --strict
+  CHECK: node scripts/ae/render-refs.ts --suite stockfx --strict
   EXPECT: ALL-COMPS-RENDERED
 
 - [ ] S4: every stockfx fixture frame matches its aerender reference (pixel criterion; accepted approximations within a mean error of 1/255)
-  CHECK: node scripts/pixel-report.ts --suite stockfx --require
+  CHECK: node scripts/reports/pixel-report.ts --suite stockfx --require
   EXPECT: PIXELS-PASSED
 
 - [ ] S6: the Gaussians' fast ways (two taps a texture read, blurs of sigma 10 and more on both axes at half or a quarter of the resolution in half float) stay within 3/255 of the exact kernel rounded once, off by more than 1/255 in at most 0.1 % of the channels or in no more than the exact kernel rounded between its passes is, for Gaussian Blur from sigma 5 to 24 (both axes, one, a 3 px line, Repeat Edge Pixels), Glow and Drop Shadow, and on the Trap Nation 2020 template; that template's 1080p frame renders at least twice as fast as with the exact kernel on SwiftShader
-  CHECK: node scripts/check-blur-paths.ts
+  CHECK: node scripts/checks/effects/check-blur-paths.ts
   EXPECT: BLUR-PATHS-PASSED
 
 - [ ] S5: nothing regressed: the core, adjust and fxextra pixel suites pass
-  CHECK: node scripts/pixel-report.ts --suite fixtures --require --no-build && node scripts/pixel-report.ts --suite adjust --require --no-build && node scripts/pixel-report.ts --suite fxextra --require --no-build && echo NO-REGRESSION
+  CHECK: node scripts/reports/pixel-report.ts --suite fixtures --require --no-build && node scripts/reports/pixel-report.ts --suite adjust --require --no-build && node scripts/reports/pixel-report.ts --suite fxextra --require --no-build && echo NO-REGRESSION
   EXPECT: NO-REGRESSION

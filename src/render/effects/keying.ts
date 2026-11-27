@@ -1,7 +1,7 @@
 // Keying and Matte effects: Linear Color Key, Color Key, Luma Key, Extract, Color Range, Color Difference Key,
 // Difference Matte, Spill Suppressor, Advanced Spill Suppressor, Matte Choker, Simple Wire Removal and Key
 // Cleaner. The per-pixel models are keyingMath.ts's, fitted to After Effects' renders of the keying fixtures
-// (scripts/fixtures/build_keying.py, scripts/check-keying-fit.ts).
+// (scripts/fixtures/build_keying.py, scripts/checks/effects/keying/check-keying-fit.ts).
 import type { LayerImage, RenderContext } from "../registry.ts";
 import { copyImage, grown, mapPass, PASS_HEADER, type Uniforms } from "./fxextraUtil.ts";
 import { CHROMA_WEIGHTS, LINEAR_SOFTNESS, LINEAR_TOLERANCE, MatchColors, rgbToHsl } from "./keyingMath.ts";
@@ -382,7 +382,7 @@ uniform vec2 u_offset;`,
       (u) => {
         ctx.gl.uniform1i(u("u_view"), view);
         ctx.gl.uniform1i(u("u_hasPlate"), plate ? 1 : 0);
-        // Fitted to keying_dmatte (scripts/check-keying-dmatte.ts): the premultiplied RGB distance in 8-bit steps
+        // Fitted to keying_dmatte (scripts/checks/effects/keying/check-keying-dmatte.ts): the premultiplied RGB distance in 8-bit steps
         // against the tolerance, its square ramped over the softness.
         ctx.gl.uniform1f(u("u_tolerance"), p.num(4, 15) * 4.37);
         ctx.gl.uniform1f(u("u_softness"), p.num(5, 0) * 1302.6);

@@ -1,5 +1,5 @@
 // Headless Edge (on the high-performance GPU) with the Particle Match harness
-// (src/extra/pmatch/harness.ts) for the scripts/pmatch-*.ts checks: builds the bundle,
+// (src/extra/pmatch/harness.ts) for the scripts/pmatch/pmatch-*.ts checks: builds the bundle,
 // serves it with the files a check names, collects what the page uploads, trains the
 // PyTorch model on analyses the page posts to /train (server/pmatch-trainer.ts), and
 // calls window.pmatch.

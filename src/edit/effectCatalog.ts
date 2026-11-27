@@ -1,5 +1,5 @@
 // The effects After Effects 2025 lists in Effects & Presets: its own, by category, from
-// py-aep's tables (src/aep/data, written by scripts/gen-match-names.ts), and plug-ins
+// py-aep's tables (src/aep/data, written by scripts/generate/gen-match-names.ts), and plug-ins
 // under their vendors' categories.
 import categories from "../aep/data/effect-categories.json" with { type: "json" };
 import names from "../aep/data/match-names.json" with { type: "json" };

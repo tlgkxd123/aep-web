@@ -1,6 +1,6 @@
 // The Sapphire look-alikes (S_Blur, S_BlurDirectional, S_Shake, S_Glow, S_ZGlow, S_Flicker) and the Trapcode Form
 // look-alike: how they are registered and skipped, the parameter math they share, and Form's settings read by
-// parameter name. Their GPU passes are exercised in a browser by scripts/check-plugin-lookalikes.ts.
+// parameter name. Their GPU passes are exercised in a browser by scripts/checks/effects/check-plugin-lookalikes.ts.
 import { describe, expect, it } from "vitest";
 import type { Layer, Property, PropertyGroup, PropertyValue } from "../src/aep/model.ts";
 import { catalogCategories, catalogName, effectCategory } from "../src/edit/effectCatalog.ts";

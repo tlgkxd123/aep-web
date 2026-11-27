@@ -56,8 +56,8 @@ Read `AGENTS.md` first and follow it: its rules, gates and code style override a
   with `parseProject` and has the expected comps, layers, effects and keyframes) and the UI open path
   (`tests/project-ops-ui.test.tsx` shows how).
 - Check that After Effects 2025 opens the converted project: save it, render a few frames through
-  `scripts/render-refs.ts` / `scripts/aerender.ts` (never call aerender directly), and compare them with the app's
-  renders using `scripts/pixel-report.ts`. Record accepted approximations as `known` entries with reasons.
+  `scripts/ae/render-refs.ts` / `scripts/ae/aerender.ts` (never call aerender directly), and compare them with the app's
+  renders using `scripts/reports/pixel-report.ts`. Record accepted approximations as `known` entries with reasons.
 - Keep a gate ledger in `gates/viz.md` following the unlazy skill, and check it with
   `node C:/Users/schxm/.claude/skills/unlazy/scripts/gate-check.mjs --approve gates/viz.md`.
 

@@ -1,4 +1,4 @@
-// Browser entry for scripts/export-report.ts. It renders reference frames with
+// Browser entry for scripts/reports/export-report.ts. It renders reference frames with
 // a fresh Renderer, runs real Render Queue items into memory, decodes the
 // encoded samples that the Node side demuxed (VideoDecoder), and plays the
 // files in a <video> element. Large results go back to Node as POST uploads.

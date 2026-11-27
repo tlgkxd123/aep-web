@@ -194,7 +194,7 @@ describe("native render plan", () => {
     expect(buildFramePlan(project, comp, 0).unsupported).toEqual([expect.stringMatching(/^adjustment layer effects/)]);
   });
 
-  it("embeds SPIR-V compiled from the current shader sources (node scripts/native-shaders.ts)", () => {
+  it("embeds SPIR-V compiled from the current shader sources (node scripts/generate/native-shaders.ts)", () => {
     const header = readFileSync(SHADER_HEADER, "utf8");
     const sources = readdirSync(SHADER_DIR).filter((f) => /\.(vert|frag|comp)$/.test(f));
     expect(sources.length).toBeGreaterThan(0);

@@ -1,6 +1,6 @@
 # Gates: channel - Channel and Utility effects
 
-OWNS: src/render/effects/channelUtility.ts, scripts/fixtures/build_channel.py, refs/fixtures/channel.*, refs/frames/channel_*/**, tests/channel-effects.test.ts, gates/channel.md, scripts/check-channel-probe.ts, scripts/check-channel-fit.ts, scripts/check-channel-diff.ts
+OWNS: src/render/effects/channelUtility.ts, scripts/fixtures/build_channel.py, refs/fixtures/channel.*, refs/frames/channel_*/**, tests/channel-effects.test.ts, gates/channel.md, scripts/checks/effects/channel/check-channel-probe.ts, scripts/checks/effects/channel/check-channel-fit.ts, scripts/checks/effects/channel/check-channel-diff.ts
 
 Scope: the Channel and Utility effects Set Channels, Channel Combiner, Arithmetic, Compound Arithmetic, Blend, Calculations, Solid Composite, CC Composite, Grow Bounds, Cineon Converter, CC Overbrights, HDR Compander and HDR Highlight Compression render on the GPU from their stored parameters, reading second layers through layer parameters; the channel fixtures (cards of scattered colours with partly transparent rows and empty cells, second layers of another size) render as aerender renders them.
 
@@ -17,9 +17,9 @@ Scope: the Channel and Utility effects Set Channels, Channel Combiner, Arithmeti
   EXPECT: /Test Files\s+1 passed/
 
 - [ ] C2: aerender renders every channel comp
-  CHECK: node scripts/render-refs.ts --suite channel --strict
+  CHECK: node scripts/ae/render-refs.ts --suite channel --strict
   EXPECT: ALL-COMPS-RENDERED
 
 - [ ] C3: every channel fixture frame matches its aerender reference (pixel criterion; accepted approximations within a mean error of 1/255)
-  CHECK: set AEP_HARNESS_DIR=dist-harness-channel&& node scripts/pixel-report.ts --suite channel --require
+  CHECK: set AEP_HARNESS_DIR=dist-harness-channel&& node scripts/reports/pixel-report.ts --suite channel --require
   EXPECT: PIXELS-PASSED

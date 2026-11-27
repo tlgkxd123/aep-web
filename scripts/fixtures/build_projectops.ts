@@ -1,7 +1,7 @@
 // Builds the projectops fixture suite (refs/fixtures/projectops.aep and its
 // manifest) entirely through the editor's project operations: a new project,
 // new compositions and folders, imported, replaced, renamed, moved, deleted
-// and duplicated items. After Effects renders it (scripts/render-refs.ts
+// and duplicated items. After Effects renders it (scripts/ae/render-refs.ts
 // --suite projectops) as the acceptance test that AE opens and reads what
 // the operations write.
 //

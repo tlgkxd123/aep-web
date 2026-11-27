@@ -1,4 +1,4 @@
-// Browser entry for scripts/perf-report.ts: times the viewer path (render +
+// Browser entry for scripts/reports/perf-report.ts: times the viewer path (render +
 // present, synchronised with a 1-pixel readback) frame by frame. It only uses
 // the Renderer API of the base commit, so the same file builds against older
 // sources for before/after numbers.

@@ -48,15 +48,15 @@ frame by frame against After Effects 2025's own renders. React + TypeScript + Vi
   through `useCompRender`.
 - `src/quickstart/` - the Quick Start templates (Home screen, File > New > New Project from Template):
   projects built through the editor around the user's song, with a Bass slider keyed from its low end
-  (`bass.ts`). Masks come from `src/edit/masks.ts`. Gates: `gates/quickstart.md`; `node scripts/quickstart-sample.ts
+  (`bass.ts`). Masks come from `src/edit/masks.ts`. Gates: `gates/quickstart.md`; `node scripts/tools/quickstart-sample.ts
   [--aerender]` writes (and has After Effects render) both templates.
 - `src/viz/` - Avee Player templates (`.viz`: a ZIP of `scene.json` and images, or the unpacked folder) converted into
  projects through the editor, like the Quick Start templates, around the user's song (`convert.ts`), and projects
  exported back as templates (`export.ts`, File > Export > Avee Player Template: every comp, the active one first) with
- every property Avee stores (`data/schema.json`, from `node scripts/viz-schema.ts <templates>`). Effects Avee has no
+ every property Avee stores (`data/schema.json`, from `node scripts/generate/viz-schema.ts <templates>`). Effects Avee has no
  element for become Avee Custom Shaders (`shaders.ts`, GLSL ES 1.00 ported from the renderer's formulas; `node
- scripts/check-viz-shaders.ts` compiles them as WebGL 1). `docs/viz-format.md` says what is known about the
- format and how sure. Gates: `gates/viz.md`; `node scripts/viz-sample.ts <template> [song.wav] [--at s] [--aerender]
+ scripts/checks/app/check-viz-shaders.ts` compiles them as WebGL 1). `docs/viz-format.md` says what is known about the
+ format and how sure. Gates: `gates/viz.md`; `node scripts/tools/viz-sample.ts <template> [song.wav] [--at s] [--aerender]
  [--export]` writes the converted project in the collected layout (and has After Effects render it).
 - Projects save as a `.zip` with their footage (File > Save As > Save As Zip with Footage, Dependencies > Collect Files):
  `src/edit/collect.ts` lays the footage out under `(Footage)/` and points the archived project at it with After Effects'
@@ -77,19 +77,25 @@ frame by frame against After Effects 2025's own renders. React + TypeScript + Vi
  (`strokeOutline` in `geometry.cpp`, canvas caps and joins) that all wind the same way.
  - What it cannot render yet (text layers, footage, effects, dashed strokes) is listed in `plan.unsupported`; those
  frames stay the WebGL renderer's.
- - After editing a shader, run `node scripts/native-shaders.ts`: it compiles the SPIR-V into `native/src/shaders.inc`
+ - After editing a shader, run `node scripts/generate/native-shaders.ts`: it compiles the SPIR-V into `native/src/shaders.inc`
  with glslc from the Vulkan SDK or the Android NDK. A vitest test checks the header is up to date.
  - Build and test: `cmake -S native -B native/build -DCMAKE_BUILD_TYPE=Release && cmake --build native/build --config
  Release && ctest --test-dir native/build -C Release`. Without the Vulkan SDK, CMake fetches the headers; the loader is
  opened at run time.
- - Against After Effects: `node scripts/native-report.ts [--suite s] [--require]` renders the suites' frames with
+ - Against After Effects: `node scripts/reports/native-report.ts [--suite s] [--require]` renders the suites' frames with
  `aevk-render` and applies the pixel criterion of `pixel-report.ts` (`scripts/lib/pixel-criterion.ts`). Any Vulkan
  device works, Mesa's lavapipe included (`AEVK_DEVICE=llvmpipe` picks it).
  - Android: Gradle builds `native/` (`externalNativeBuild`) into `libaevk_jni.so`. `NativeEnginePlugin.java` serves
  `src/native/engine.ts`. With Composition > Preview Renderer > Vulkan (`src/playback/previewRenderer.ts`), playback's
  render-ahead renders frames natively, as pending work it waits on as it does for footage.
-- `scripts/` - verification and tooling. Run each with `node scripts/<name>.ts` (Node runs
- TypeScript directly).
+- `scripts/` - verification and tooling, grouped by purpose. Run each from the repository root with
+ `node scripts/<folder>/<name>.ts` (Node runs TypeScript directly):
+ - `reports/`: the gate reports (`pixel-report.ts`, `corpus-report.ts`, `native-report.ts`...);
+ - `checks/app/`: end-to-end checks of the running app; `checks/effects/<area>/`: effect probes and fits by area;
+ - `ae/`: After Effects tooling (`aerender.ts`, `render-refs.ts`, donors); `fixtures/`: fixture builders;
+ - `generate/`: generators of committed data and code (effect library, templates, `native-shaders.ts`);
+ - `inspect/`: readers of projects and the corpus; `research/`: one-off measurements and fits;
+ - `pmatch/`, `project-ops/`, `export/`, `perf/`, `device/`, `tools/` (samples, conversions), `lib/` (shared helpers).
 - `ml/pmatch/` - the Particle Match world model (Extra > Particle Match) in PyTorch, a uv project
  (CUDA wheels; `uv run --project ml/pmatch ...`).
  - The browser analyses the reference video (detection, tracking, sprite crops, shake) and writes
@@ -99,26 +105,26 @@ frame by frame against After Effects 2025's own renders. React + TypeScript + Vi
  audio network in `tcn.ts`).
  - The browser then calibrates the model by synthesis.
  - The dev server runs the trainer for the dialog (`server/pmatch-trainer.ts`). From the command line:
- `node scripts/pmatch-train.ts` (`--dataset` exports the analysis for
+ `node scripts/pmatch/pmatch-train.ts` (`--dataset` exports the analysis for
  `uv run --project ml/pmatch python -m pmatch train`).
  - The window exports a model as Trapcode Particular layers, into a comp of the open project or as a new
  `.aep` with its soundtrack (`src/extra/pmatch/particularExport.ts`).
- - Gates: `gates/pmatch-torch.md`; `gates/pmatch-fast.md` (detail and speed: `scripts/pmatch-report.ts`,
+ - Gates: `gates/pmatch-torch.md`; `gates/pmatch-fast.md` (detail and speed: `scripts/pmatch/pmatch-report.ts`,
  `pmatch-profile.ts`, `pmatch-inference.ts`); `gates/pmatch-ux.md` (the window and the export:
- `scripts/check-pmatch-ui.ts`, `check-pmatch-export.ts`).
+ `scripts/checks/app/check-pmatch-ui.ts`, `check-pmatch-export.ts`).
 
 ## Verification (the gates)
 
 | Gate | Command | Checks |
 | --- | --- | --- |
 | G1 | `npx tsc --noEmit` | strict types |
-| G2/G3 | `node scripts/corpus-report.ts --require-parse` / `--require-match` | parser vs py-aep ExtendScript exports (slow, ~1 min) |
+| G2/G3 | `node scripts/reports/corpus-report.ts --require-parse` / `--require-match` | parser vs py-aep ExtendScript exports (slow, ~1 min) |
 | G4 | `npx vitest run tests/ui.test.tsx` | UI smoke test |
 | G5 | `npx vite build` | production bundle |
-| G6 | `node scripts/vat-report.ts --require` | `valueAtTime` vs AE per-frame values |
-| G7 | `node scripts/geometry-report.ts --require` | matrices and cameras vs AE |
-| G8 | `node scripts/pixel-report.ts --require` | renders vs AE reference frames, all suites |
-| G9 | `node scripts/native-report.ts --suite fixtures --require --min 68` | the Vulkan engine vs AE reference frames |
+| G6 | `node scripts/reports/vat-report.ts --require` | `valueAtTime` vs AE per-frame values |
+| G7 | `node scripts/reports/geometry-report.ts --require` | matrices and cameras vs AE |
+| G8 | `node scripts/reports/pixel-report.ts --require` | renders vs AE reference frames, all suites |
+| G9 | `node scripts/reports/native-report.ts --suite fixtures --require --min 68` | the Vulkan engine vs AE reference frames |
 
 `npm run check` runs G1, the full vitest suite and G5 in that order (same as CI).
 
@@ -165,7 +171,7 @@ Gate ledgers follow the unlazy skill (`C:/Users/schxm/.claude/skills/unlazy/SKIL
   variable. Its `samples/` corpus holds `.aep` files plus ExtendScript JSON exports. See
   `scripts/lib/paths.ts`.
 - **After Effects 2025** `aerender` renders reference frames. Always go through
-  `scripts/aerender.ts` / `scripts/render-refs.ts`:
+  `scripts/ae/aerender.ts` / `scripts/ae/render-refs.ts`:
   - they take a machine-wide lock (`scripts/lib/ae-lock.ts`), so parallel worktrees never run
     two renders at once;
   - they handle render-only mode;
@@ -175,9 +181,9 @@ Gate ledgers follow the unlazy skill (`C:/Users/schxm/.claude/skills/unlazy/SKIL
   writes `refs/fixtures/<area>.aep` plus `<area>.manifest.json`. The core suite is
   `build_fixtures.py` → `fixtures.aep` / `manifest.json`; leave it alone.
   - Build: `uv run --no-project --with attrs --with pyyaml --with fonttools python scripts/fixtures/build_<area>.py`
-  - Render references: `node scripts/render-refs.ts --suite <area>`, which writes
+  - Render references: `node scripts/ae/render-refs.ts --suite <area>`, which writes
     `refs/frames/<comp>/frame_#####.tif`. Commit those frames.
-  - Compare: `node scripts/pixel-report.ts --suite <area> --require [--only comp,comp] [--no-build]`
+  - Compare: `node scripts/reports/pixel-report.ts --suite <area> --require [--only comp,comp] [--no-build]`
   - Comp names are global across suites, so prefix them with the area (`text_basic`, ...).
   - Known py-aep authoring quirks are listed at the top of `aepfix.py`:
     - AE ignores static 2D positions of shape items;
@@ -201,11 +207,11 @@ Gate ledgers follow the unlazy skill (`C:/Users/schxm/.claude/skills/unlazy/SKIL
  holds a template for every effect with a registered renderer whose definition an AE-saved project
  (or a rendered fixture) holds. After adding renderers, re-run the export and the round trip, which
  applies every library effect through the editor and has AE render the saved file (`gates/library.md`):
- 1. `node scripts/export-effect-library.ts` (it lists the effects left out, and why);
+ 1. `node scripts/generate/export-effect-library.ts` (it lists the effects left out, and why);
  2. `uv run --no-project --with attrs --with pyyaml --with fonttools python scripts/fixtures/build_roundtrip.py`;
  3. `node scripts/fixtures/apply_roundtrip.ts` (add `SETTINGS` for the new effects);
- 4. `node scripts/render-refs.ts --suite roundtrip --strict`, then
- `node scripts/pixel-report.ts --suite roundtrip --require`.
+ 4. `node scripts/ae/render-refs.ts --suite roundtrip --strict`, then
+ `node scripts/reports/pixel-report.ts --suite roundtrip --require`.
 
 ## AE rules found so far (from references)
 
@@ -226,20 +232,20 @@ Gate ledgers follow the unlazy skill (`C:/Users/schxm/.claude/skills/unlazy/SKIL
 - Rendering runs on the GPU. Masks, effects and layer content must not read pixels back
   (`readPixels`, `getImageData`) or loop over pixels in JavaScript per frame.
   - Use `ctx.pass`/`ctx.program` shaders, instanced draws, or scissored clears.
- - Profile with `node scripts/profile-render.ts <project> [--comps a,b] [--cpu] [--scale 0.5] [--layers]
+ - Profile with `node scripts/perf/profile-render.ts <project> [--comps a,b] [--cpu] [--scale 0.5] [--layers]
  [--discrete]`. It runs on the machine's GPU and reports ms per frame, per stage and per top-level layer.
  - Chrome's `gl.finish()` only flushes. Time GPU work with `finishGpu` (`gl.ts`), which reads a pixel back.
  - Browsers on this laptop default to the integrated Intel GPU (`powerPreference` does not change that);
  scripts take `--discrete` for the RTX.
- - Playback in the app: `node scripts/check-video-playback.ts <project> <comps> [s] [start] --serve
+ - Playback in the app: `node scripts/checks/app/check-video-playback.ts <project> <comps> [s] [start] --serve
  [--require-fps n] [--require-audio] [--require-smooth ms] [--bench frames]`.
  - The stock effects (`gates/stockfx.md`) run in any WebGL2 browser, SwiftShader included:
- `node scripts/check-stock-effects.ts [--chrome <path>] [--out dir]` checks they compile, follow their formulas
+ `node scripts/checks/effects/check-stock-effects.ts [--chrome <path>] [--out dir]` checks they compile, follow their formulas
  and scale; it does not compare with After Effects.
  - The plugin look-alikes (Sapphire in `sapphire.ts`/`sapphireLight.ts`, Trapcode Form in `form.ts`, read by parameter
- name through `namedParams.ts`, Rowbyte Separate RGB in `separateRgb.ts`) are checked the same way: `node scripts/check-plugin-lookalikes.ts [--chrome <path>]`.
- - The frame caches must not change a pixel: `node scripts/check-render-cache.ts <project>
- "<comp>@<start>:<frames>" --require`; reduced resolutions against Full: `node scripts/check-render-scale.ts`.
+ name through `namedParams.ts`, Rowbyte Separate RGB in `separateRgb.ts`) are checked the same way: `node scripts/checks/effects/check-plugin-lookalikes.ts [--chrome <path>]`.
+ - The frame caches must not change a pixel: `node scripts/checks/app/check-render-cache.ts <project>
+ "<comp>@<start>:<frames>" --require`; reduced resolutions against Full: `node scripts/checks/app/check-render-scale.ts`.
 
 - Never copy Adobe code, assets or binaries. Never decompile or disassemble plugins (third-party or
   Adobe's): that breaks their licenses.

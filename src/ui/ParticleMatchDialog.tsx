@@ -485,7 +485,7 @@ export function ParticleMatchDialog({ onClose, project }: { onClose: () => void;
   const trainerNote = !trainer && (
     <p className="pm-note">
       Training runs the PyTorch trainer through the app's development server: start the app with <code>npm run dev</code> (uv installs PyTorch on first use). A model
-      trained earlier, or with <code>node scripts/pmatch-train.ts</code>, can still be opened.
+      trained earlier, or with <code>node scripts/pmatch/pmatch-train.ts</code>, can still be opened.
     </p>
   );
   const alerts = (

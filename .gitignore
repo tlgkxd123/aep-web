@@ -1,22 +1,45 @@
+# Dependencies
 node_modules
+
+# Build output
 dist
 dist-desktop
-desktop/build
-.unlazy
-.unlazy-hook-state.json
 dist-harness*
 dist-tools
-refs/diff
-refs/ours
-refs/probe
-*.log
+desktop/build
+native/build*
+
+# Python (ml/pmatch, scripts/fixtures)
 __pycache__
 .venv
 .pytest_cache
-refs/fixtures/effect-donors.json
+
+# Logs, including After Effects' render logs ("registros")
+*.log
 *registros/
+
+# Scratch output from the reference scripts (diff sheets, probes)
+refs/diff
+refs/ours
+refs/probe
 refs/probe*
-/*.zip
+.probe-frames/
+refs/fixtures/effect-donors.json
+
+# Local tooling state
+.unlazy
+.unlazy-hook-state.json
+
+# Release signing keys and loose archives
 *.jks
 *.keystore
-native/build*
+/*.zip
+
+# OS and editor files
+.DS_Store
+Thumbs.db
+desktop.ini
+.idea/
+.vscode/
+*.swp
+*~

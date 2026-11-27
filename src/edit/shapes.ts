@@ -1,5 +1,5 @@
 // Shape groups added to shape layers as the shape tools and the Pen draw them, cloned from the groups After
-// Effects 2025 saved in data/shape-template.json (scripts/export-shape-template.ts): a Rectangle, Ellipse,
+// Effects 2025 saved in data/shape-template.json (scripts/generate/export-shape-template.ts): a Rectangle, Ellipse,
 // Star, Polygon or Path with a Stroke and a Fill, every property stored so all of them can be edited. The
 // template holds them away from their defaults; they are set to the drawn shape and paint after cloning.
 import type { CompItem, Layer, Property, PropertyGroup, PropertyNode, PropertyValue, Shape } from "../aep/model.ts";

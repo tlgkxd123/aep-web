@@ -13,7 +13,7 @@ Scope: Match the centered expanding image planes in INZO - ANGST (https://www.yo
   EVIDENCE: automatic-evidence=v1; definition-sha256=6866753abe02d5bafa1cfee182aaa890db44c763433191991470f05d95b1d502; exit=0; EXPECT=matched; output-sha256=18a3c35c8fb32d29ede45f8ea701af54259218cfe9dd5661287e3f5d1277567c; output-bytes=1350; shell=C:\WINDOWS\system32\cmd.exe; cwd=C:\Users\schxm\projects\aep-web; path=cbccff5ca122/57 entries
 
 - [x] G3: GPU renders nested opaque image planes with centered outward travel, shallow seeded tilt, clean exits, deterministic scrubbing, independent rotation, pulse, reduced resolution and transparency; randomized and regular sequences loop continuously.
-  CHECK: node scripts/check-portal-cards.ts
+  CHECK: node scripts/checks/effects/check-portal-cards.ts
   EXPECT: Portal Cards GPU checks passed
   EVIDENCE: automatic-evidence=v1; definition-sha256=8bb16a2126bfc8cf569e3fa320cf8306817633dc614af0c0c48484da0b29ae1d; exit=0; EXPECT=matched; output-sha256=b15530c153953c3d1d40e0aaa56efc23fac17c1d21ad2db343fae1137ad73adf; output-bytes=69; shell=C:\WINDOWS\system32\cmd.exe; cwd=C:\Users\schxm\projects\aep-web; path=cbccff5ca122/57 entries
 

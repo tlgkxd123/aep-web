@@ -1,5 +1,5 @@
 // window.pmatch: Particle Match entry points for the headless checks in
-// scripts/pmatch-*.ts. Files come from the page's server; bulky results are
+// scripts/pmatch/pmatch-*.ts. Files come from the page's server; bulky results are
 // POSTed back to it (/upload/<key>) instead of going through evaluate(), and
 // analyses are POSTed to its PyTorch trainer (/train).
 import { DEFAULT_DETECTOR, DETECTION_FLOATS, Detector, type DetectorOptions } from "./detect.ts";

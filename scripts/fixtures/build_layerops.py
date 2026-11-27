@@ -1,7 +1,7 @@
 # Builds the base project of the layerops suite, refs/fixtures/layerops.base.aep:
 # empty layerops_* comps, a source precomp and a holder comp whose solids give
 # the layer operations footage of other sizes and aspect ratios. The edits
-# themselves are made by the browser editor in scripts/build-layerops.ts, which
+# themselves are made by the browser editor in scripts/fixtures/build-layerops.ts, which
 # writes refs/fixtures/layerops.aep and its manifest.
 #
 #   uv run --no-project --with attrs --with pyyaml --with fonttools python scripts/fixtures/build_layerops.py

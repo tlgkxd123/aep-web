@@ -1,6 +1,6 @@
 # Gates: expressions - After Effects expressions evaluated in the browser
 
-OWNS: src/expressions/**, tests/expressions.test.ts, scripts/expr-report.ts, scripts/expr-bench.ts, scripts/fixtures/build_expr.py, refs/fixtures/expr*, refs/frames/expr_*/**, gates/expr.md
+OWNS: src/expressions/**, tests/expressions.test.ts, scripts/reports/expr-report.ts, scripts/perf/expr-bench.ts, scripts/fixtures/build_expr.py, refs/fixtures/expr*, refs/frames/expr_*/**, gates/expr.md
 
 Scope: an expression engine installed with setExpressionEvaluator. Expressions run in an AST-guarded sandbox (acorn parse, allowlist rewrite, verified output, run-time member guards) against the After Effects object model, and rendering reads post-expression values. Truth comes from After Effects itself: the py-aep ExtendScript exports (post-expression values, markers) and aerender references of the expr, expr_legacy and expr_random fixture projects, whose probe comps encode exact numbers in pixel colours. AE's random generators (random, gaussRandom, wiggle, noise) are a known gap: they are measured by expr-report but never counted as passing.
 
@@ -17,27 +17,27 @@ Scope: an expression engine installed with setExpressionEvaluator. Expressions r
   EXPECT: /Tests\s+\d+ passed \(\d+\)/
 
 - [ ] E3: every deterministic expression value matches After Effects - corpus post-expression values within 0.001 with the same error state, and every probe cell of the expr and expr_legacy references within 2/1024
-  CHECK: node scripts/expr-report.ts --require
+  CHECK: node scripts/reports/expr-report.ts --require
   EXPECT: EXPRESSIONS-MATCH-AE
 
 - [ ] E4: the expr fixture comps (JavaScript engine) render like After Effects under the G8 pixel criterion
-  CHECK: node scripts/pixel-report.ts --suite expr --require
+  CHECK: node scripts/reports/pixel-report.ts --suite expr --require
   EXPECT: PIXELS-PASSED
 
 - [ ] E5: the expr_legacy fixture comps (Legacy ExtendScript engine) render like After Effects under the G8 pixel criterion
-  CHECK: node scripts/pixel-report.ts --suite expr_legacy --require
+  CHECK: node scripts/reports/pixel-report.ts --suite expr_legacy --require
   EXPECT: PIXELS-PASSED
 
 - [ ] E6: every fixture frame of every suite still passes the G8 pixel criterion
-  CHECK: node scripts/pixel-report.ts --require
+  CHECK: node scripts/reports/pixel-report.ts --require
   EXPECT: PIXELS-PASSED
 
 - [ ] E7: G6 still holds - valueAtTime reproduces After Effects' per-frame values for every animated property in the value_at_time exports
-  CHECK: node scripts/vat-report.ts --require
+  CHECK: node scripts/reports/vat-report.ts --require
   EXPECT: VALUE-AT-TIME-PASSED
 
 - [ ] E8: G7 still holds - layer world matrices, parenting and camera rays reproduce After Effects' results within 0.005 px
-  CHECK: node scripts/geometry-report.ts --require
+  CHECK: node scripts/reports/geometry-report.ts --require
   EXPECT: GEOMETRY-PASSED
 
 - [ ] E9: the inspector UI still opens a project and shows its composition, layers and properties
