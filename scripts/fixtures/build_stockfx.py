@@ -4,7 +4,7 @@
 # Brightness & Contrast, Exposure, Hue/Saturation, Gaussian Blur, Drop Shadow,
 # Glow, Transform, Set Matte, Fill), each on a textured card and on an alpha-edged
 # star, with every parameter the case depends on set. The other new renderers have
-# no donor definition here; scripts/check-stock-effects.ts exercises them.
+# no donor definition here; scripts/checks/effects/check-stock-effects.ts exercises them.
 #
 #   uv run --no-project --with attrs --with pyyaml --with fonttools python scripts/fixtures/build_stockfx.py
 import sys

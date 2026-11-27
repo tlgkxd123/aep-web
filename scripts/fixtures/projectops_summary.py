@@ -1,7 +1,7 @@
 # Prints, as JSON, what py-aep (MIT, https://github.com/forticheprod/py-aep)
 # reads from projects written by the project operations: every item with its
 # folder, kind, size and timing, footage file and alpha, and composition
-# layers with their sources. scripts/projectops-check.ts compares it with
+# layers with their sources. scripts/project-ops/projectops-check.ts compares it with
 # aep-web's own parse.
 #
 #   uv run --no-project --with attrs --with pyyaml --with fonttools python scripts/fixtures/projectops_summary.py FILE.aep [...]

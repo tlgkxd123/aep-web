@@ -1,4 +1,4 @@
-# Reads the projects written by scripts/edit-roundtrip.ts with py-aep
+# Reads the projects written by scripts/tools/edit-roundtrip.ts with py-aep
 # (MIT, https://github.com/forticheprod/py-aep) and checks every recorded
 # expectation, so the edited files are verified by an independent decoder.
 #

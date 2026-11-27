@@ -1,5 +1,5 @@
 // The effects Particle Match creates layers with, as After Effects writes them
-// (data/effect-templates.json, exported by scripts/export-effect-templates.ts),
+// (data/effect-templates.json, exported by scripts/generate/export-effect-templates.ts),
 // unpacked once on first use.
 import type { EffectTemplate } from "../../edit/effects.ts";
 import { chunksFromBytes } from "../../edit/layer-templates.ts";

@@ -1,6 +1,6 @@
 # Gates: pmatch-torch - the Particle Match world model as a PyTorch model
 
-OWNS: ml/pmatch/**, src/extra/pmatch/**, src/render/effects/particleMatch.ts, src/ui/ParticleMatchDialog.tsx, src/ui/particle-match.css, server/pmatch-trainer.ts, vite.config.ts, scripts/pmatch-*.ts, scripts/check-pmatch-*.ts, scripts/lib/pmatch-*.ts, tests/particle-match*.test.ts, tests/data/pmatch-*, tests/particular-layers.test.ts, gates/pmatch-torch.md, AGENTS.md, .gitignore
+OWNS: ml/pmatch/**, src/extra/pmatch/**, src/render/effects/particleMatch.ts, src/ui/ParticleMatchDialog.tsx, src/ui/particle-match.css, server/pmatch-trainer.ts, vite.config.ts, scripts/pmatch/pmatch-*.ts, scripts/checks/app/check-pmatch-*.ts, scripts/lib/pmatch-*.ts, tests/particle-match*.test.ts, tests/data/pmatch-*, tests/particular-layers.test.ts, gates/pmatch-torch.md, AGENTS.md, .gitignore
 
 Scope: the Particle Match world model (audio-driven clock, zoom and shake; particle population; sprites; appearance over depth and life) is defined and trained in PyTorch on the GPU from the browser's analysis of a reference video, exported to the effect's model format and run by the app (effect, preview, Particular layers), with training launched from Extra > Particle Match through the dev server or from the command line. The browser keeps what touches pixels: decoding, particle detection and tracking, sprite crops, the shake measurement, and the calibration by synthesis that renders the trained model through the same detector.
 
@@ -33,15 +33,15 @@ Scope: the Particle Match world model (audio-driven clock, zoom and shake; parti
   EXPECT: /Test Files\s+1 passed/
 
 - [ ] T4: trained by PyTorch on CUDA (the RTX 3070) from the reference protocol's 50-80 s and calibrated in the browser, the model matches the held-out 136-166 s (particles per frame within 15 %, KS at most 0.15 for brightness, size and distance from the emitter, median radial speed within 25 % in each radius quartile, the quarter-second speed series correlating at least 0.5, each sprite template correlating at least 0.85 with the held-out crops most like it) and its output is not mirrored (model mirror correlation at most 0.2, reference at least 0.9)
-  CHECK: node scripts/pmatch-report.ts --check torch,match,mirror
+  CHECK: node scripts/pmatch/pmatch-report.ts --check torch,match,mirror
   EXPECT: /PMATCH-TORCH-CUDA[\s\S]*PMATCH-REFERENCE-PASSED[\s\S]*PMATCH-UNMIRRORED/
 
 - [ ] T5: analysing the 30 s training window, training the PyTorch model and calibrating it takes at most 180 s on this machine
-  CHECK: node scripts/pmatch-train.ts --max-seconds 180
+  CHECK: node scripts/pmatch/pmatch-train.ts --max-seconds 180
   EXPECT: PMATCH-TIME-OK
 
 - [ ] T6: in the running app (its own dev server, headless Edge), Extra > Particle Match analyses a reference window, trains the PyTorch model through the dev server's trainer (which refuses requests without the page's token) and shows the learned particles, with a report naming PyTorch and the GPU it trained on
-  CHECK: node scripts/check-pmatch-ui.ts --serve --from 50 --to 62
+  CHECK: node scripts/checks/app/check-pmatch-ui.ts --serve --from 50 --to 62
   EXPECT: PMATCH-UI-PASSED
 
 - [ ] T7: the Trapcode Particular layers derived from a model still build and save
@@ -49,5 +49,5 @@ Scope: the Particle Match world model (audio-driven clock, zoom and shake; parti
   EXPECT: /Test Files\s+1 passed/
 
 - [ ] T8: the hand-written fitting the PyTorch model replaces is gone from the app: no fitClock, fitDynamics, buildPopulation, stitchTracks, depthExponents or learnSprites remains under src/ (the audit first finds them in the committed fit.ts as its positive control)
-  CHECK: node scripts/pmatch-torch-audit.ts
+  CHECK: node scripts/pmatch/pmatch-torch-audit.ts
   EXPECT: PMATCH-TS-FIT-REMOVED

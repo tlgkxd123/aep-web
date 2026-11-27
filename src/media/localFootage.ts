@@ -22,7 +22,7 @@ const token = () => document.querySelector<HTMLMetaElement>('meta[name="aep-loca
 
 export const localFootageAvailable = () => typeof document !== "undefined" && !!token();
 
-// Dev server pages only: lets scripts/check-app-footage.ts inspect what was located.
+// Dev server pages only: lets scripts/checks/app/check-app-footage.ts inspect what was located.
 if (localFootageAvailable()) (window as unknown as { aepFootage: typeof footageStore }).aepFootage = footageStore;
 
 const baseName = (path: string) => path.split(/[\\/]/).pop() ?? path;

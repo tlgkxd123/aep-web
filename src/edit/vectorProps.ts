@@ -1,5 +1,5 @@
 // Shape and mask properties After Effects left out because they held their defaults, written from the
-// stored instances in data/shape-template.json (exported by scripts/export-shape-template.ts from a project
+// stored instances in data/shape-template.json (exported by scripts/generate/export-shape-template.ts from a project
 // After Effects 2025 saved with every one of them set) so they can be edited.
 import type { CompItem, Layer, Property, PropertyGroup, PropertyNode } from "../aep/model.ts";
 import type { Chunk } from "../aep/riff.ts";

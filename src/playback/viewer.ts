@@ -43,7 +43,7 @@ export const viewerStats = {
   aheadFootage: 0,
 };
 
-// Dev server pages only: lets scripts/check-video-playback.ts count renders.
+// Dev server pages only: lets scripts/checks/app/check-video-playback.ts count renders.
 if (typeof document !== "undefined" && document.querySelector('meta[name="aep-local-footage"]')) {
   (window as unknown as { aepViewer: typeof viewerStats }).aepViewer = viewerStats;
 }

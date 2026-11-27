@@ -1,5 +1,5 @@
 // Masks added to layers, cloned from a Masks group After Effects 2025 saved
-// (data/mask-template.json, exported by scripts/export-mask-template.ts) with the
+// (data/mask-template.json, exported by scripts/generate/export-mask-template.ts) with the
 // shape, mode and name filled in, and the Timeline's mask commands. A layer's Masks
 // group (ADBE Mask Parade) comes before its Effects group; each mask is its ADBE Mask
 // Atom name, its mkif (inversion, lock, motion blur, feather falloff, mode, id,

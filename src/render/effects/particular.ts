@@ -7,7 +7,7 @@
 // against After Effects renders of the user's setup), seen through the comp's
 // camera, drawn as soft dots with a glow halo. It replaces the layer's pixels as
 // Particular does. Positions cannot match; the particle count, sizes, brightness and
-// spread are fitted to After Effects renders (scripts/particular-stats.ts): Size Random
+// spread are fitted to After Effects renders (scripts/research/particular/particular-stats.ts): Size Random
 // varies the size by up to ±half its percentage, and with Depth of Field on, particles
 // off the focal plane (at the camera's zoom distance) spread over a circle of confusion.
 import type { CompItem, Layer, Project } from "../../aep/model.ts";
@@ -509,7 +509,7 @@ registerEffect("tc Particular", (input, effect, layer, time, ctx) => {
     const coreSplats: number[] = [];
     for (const p of particles) {
       // A disc of radius R and feather f is full out to (R + 0.5)(1 - f) - 3 px and gone at R + 0.5 (fitted to
-      // After Effects renders over sizes 4-40 and feathers 0-100: scripts/particular-fit.ts); the glow is such a
+      // After Effects renders over sizes 4-40 and feathers 0-100: scripts/research/particular/particular-fit.ts); the glow is such a
       // disc Glow Size times larger, with Glow Feather, under the particle.
       const disc = (radius: number, f: number): [number, number] => [Math.max(0, (radius + 0.5) * (1 - f) - 3), radius + 0.5];
       if (glows) defocused(glowSplats, p.sx, p.sy, ...disc(p.r * glowSize, glowFeather), p.seen * glowOpacity, p.blur);

@@ -1,6 +1,6 @@
 import { defineConfig } from "vite";
 
-// Bundles the renderer test harness into one script for scripts/pixel-report.ts; AEP_HARNESS_DIR gives runs in
+// Bundles the renderer test harness into one script for scripts/reports/pixel-report.ts; AEP_HARNESS_DIR gives runs in
 // parallel folders of their own.
 export default defineConfig({
   build: {

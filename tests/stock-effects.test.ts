@@ -1,7 +1,7 @@
 // The stock After Effects effects added in src/render/effects/{colorCorrection,blurSharpen,distort,transitions,
 // stylize,matte,generate,displace}.ts: each has a renderer with the reuse options its output allows, popups are
 // read by their choice, and the geometry, colour and noise math they share (stockMath.ts, fractal.ts) behaves as
-// the effects describe. Their GPU passes are exercised in a browser by scripts/check-stock-effects.ts.
+// the effects describe. Their GPU passes are exercised in a browser by scripts/checks/effects/check-stock-effects.ts.
 import { describe, expect, it } from "vitest";
 import type { Layer, PropertyGroup } from "../src/aep/model.ts";
 import "../src/render/features.ts";

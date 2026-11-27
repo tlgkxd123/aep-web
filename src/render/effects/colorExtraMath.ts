@@ -1,6 +1,6 @@
 // Per-pixel models of the Color Correction effects in colorExtra.ts, on straight colour
 // fractions (alpha last): the formulas the shaders follow, as measured against After
-// Effects renders (scripts/check-color2-probe.ts).
+// Effects renders (scripts/checks/effects/color2/check-color2-probe.ts).
 import type { Layer, PropertyGroup } from "../../aep/model.ts";
 import { findChild, type Chunk } from "../../aep/riff.ts";
 import type { Params } from "./stockUtil.ts";

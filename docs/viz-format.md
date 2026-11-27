@@ -125,7 +125,7 @@ decompiled. Each fact says how sure it is:
 ## Export (After Effects to Avee)
 
 - **inferred** The exporter writes elements with every property Avee Player stores, in its order and groups
-  (src/viz/data/schema.json, written by scripts/viz-schema.ts from templates' structure, their content cleared), as a
+  (src/viz/data/schema.json, written by scripts/generate/viz-schema.ts from templates' structure, their content cleared), as a
   ZIP of scene.json and the images. Every comp of the project goes in: the exported comp as composition 0, then the
   others. Whether Avee Player opens what it writes has not been tried in Avee Player.
 - **seen** A Custom Shader is GLSL ES 1.00 (`texture2D`, `gl_FragColor`): the fragment shader samples the composition it
@@ -135,7 +135,7 @@ decompiled. Each fact says how sure it is:
   `"Constant 0.2 1.0"` for the constant 0.2), and ends with an empty `newVariable`.
 - **inferred** Effects Avee has no element for are exported as Custom Shaders written for them (src/viz/shaders.ts,
   their formulas ported from the app's renderer): scalar settings are variables, colours and points constants, and the
-  first line names the effect and its settings so convert.ts restores the effect. `scripts/check-viz-shaders.ts`
+  first line names the effect and its settings so convert.ts restores the effect. `scripts/checks/app/check-viz-shaders.ts`
   compiles and draws them all as WebGL 1. **unknown** Which way `vTexCoord`'s y runs: taken as GL's (0 at the bottom),
   which only matters for effects with a direction or points (Gradient Ramp, Offset, Directional Blur, Drop Shadow,
   Polar Coordinates).

@@ -1,7 +1,7 @@
 // The Perspective and Time effects of src/render/effects/perspectiveTime.ts: each has a renderer, the Time effects
 // (which read their layer at other times) are drawn anew every frame at full resolution, and the Perspective effects,
 // whose output depends only on their input and parameters, are reused between frames and follow the resolution.
-// Their pixels are checked against After Effects' renders by scripts/pixel-report.ts --suite perspective.
+// Their pixels are checked against After Effects' renders by scripts/reports/pixel-report.ts --suite perspective.
 import { describe, expect, it } from "vitest";
 import "../src/render/features.ts";
 import { effectIsCacheable, effectIsScalable, effectRenderer } from "../src/render/registry.ts";

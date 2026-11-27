@@ -15,7 +15,7 @@ import { Editor } from "../../src/edit/editor.ts";
 import { applyLibraryEffect, effectLibrary } from "../../src/edit/effectLibrary.ts";
 import { addEffects, newInstance, setInstanceColor, setInstanceNumber, setInstancePoint } from "../../src/edit/effects.ts";
 import { chunkText } from "../../src/edit/effectTemplates.ts";
-import { LIBRARY, type Library } from "../export-effect-library.ts";
+import { LIBRARY, type Library } from "../generate/export-effect-library.ts";
 import { ROOT } from "../lib/suites.ts";
 
 type Setting = [n: number, value: number | number[]];

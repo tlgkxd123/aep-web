@@ -1,6 +1,6 @@
 # Gates: pmatch - Extra > Particle Match, a particle world model learned from a reference video
 
-OWNS: src/extra/**, src/render/effects/particleMatch.ts, src/edit/customEffect.ts, src/edit/data/effect-param-templates.json, src/ui/ParticleMatchDialog.tsx, scripts/pmatch-*.ts, scripts/check-pmatch-*.ts, scripts/lib/pmatch-*.ts, tests/particle-match*.test.ts, tests/particle-match*.test.tsx, gates/pmatch.md
+OWNS: src/extra/**, src/render/effects/particleMatch.ts, src/edit/customEffect.ts, src/edit/data/effect-param-templates.json, src/ui/ParticleMatchDialog.tsx, scripts/pmatch/pmatch-*.ts, scripts/checks/app/check-pmatch-*.ts, scripts/lib/pmatch-*.ts, tests/particle-match*.test.ts, tests/particle-match*.test.tsx, gates/pmatch.md
 
 Shared files with small focused edits: src/ui/MenuBar.tsx, src/ui/App.tsx, src/ui/styles.css, src/render/features.ts.
 
@@ -25,7 +25,7 @@ Reference protocol (P5, P6, P12): the Trap Nation "Butterflies" upload (PMATCH_R
   EXPECT: /built in/
 
 - [ ] G8: every pixel suite that passed before this work still passes the pixel criterion (fixtures, adjust, boxblur, controls, fxextra, layerops, projectops; deepglow, expr, expr_legacy, footage and fxmisc already failed at the start and essential has no project file)
-  CHECK: node scripts/pixel-report.ts --suite fixtures --require && node scripts/pixel-report.ts --suite adjust --require --no-build && node scripts/pixel-report.ts --suite boxblur --require --no-build && node scripts/pixel-report.ts --suite controls --require --no-build && node scripts/pixel-report.ts --suite fxextra --require --no-build && node scripts/pixel-report.ts --suite layerops --require --no-build && node scripts/pixel-report.ts --suite projectops --require --no-build && echo SUITES-PASSED
+  CHECK: node scripts/reports/pixel-report.ts --suite fixtures --require && node scripts/reports/pixel-report.ts --suite adjust --require --no-build && node scripts/reports/pixel-report.ts --suite boxblur --require --no-build && node scripts/reports/pixel-report.ts --suite controls --require --no-build && node scripts/reports/pixel-report.ts --suite fxextra --require --no-build && node scripts/reports/pixel-report.ts --suite layerops --require --no-build && node scripts/reports/pixel-report.ts --suite projectops --require --no-build && echo SUITES-PASSED
   EXPECT: SUITES-PASSED
 
 - [ ] P1: the menu bar has an Extra menu between Window and Help; its Particle Match... item is disabled without a project and opens the Particle Match dialog with one, whose Analyze & Train stays disabled until a reference video is chosen
@@ -45,11 +45,11 @@ Reference protocol (P5, P6, P12): the Trap Nation "Butterflies" upload (PMATCH_R
   EXPECT: PMATCH-RECOVERY-PASSED
 
 - [ ] P5: trained on the reference protocol's training window, the model matches the reference's particles on the held-out window: mean particles per frame within 15 percent, Kolmogorov-Smirnov distance at most 0.15 for brightness, size and distance from the emitter, median radial speed within 25 percent in each radius quartile, the per-0.25 s median speed series correlating at least 0.5 with the reference's, and each learned sprite template correlating at least 0.85 with the reference's mean crop of its class
-  CHECK: node scripts/pmatch-report.ts --check match
+  CHECK: node scripts/pmatch/pmatch-report.ts --check match
   EXPECT: PMATCH-REFERENCE-PASSED
 
 - [ ] P6: the effect's output is not mirrored: the correlation between its left half and its flipped right half is at most 0.2, while the reference's is at least 0.9 (both measured on white-residual maps, leaving out 40 px around the axis and the logo mask)
-  CHECK: node scripts/pmatch-report.ts --check mirror
+  CHECK: node scripts/pmatch/pmatch-report.ts --check mirror
   EXPECT: PMATCH-UNMIRRORED
 
 - [ ] P7: the effect rendered through Renderer in headless Edge (real GPU) is deterministic (a frame rendered twice, and after a later frame, is identical), reacts to the comp's audio (particles move at least 1.5 times farther per frame on synthetic kicks than between them), draws its sprites where its particles are, and takes at most 6 ms per 1080p frame with 3000 particles (median of 30 frames)
@@ -73,5 +73,5 @@ Reference protocol (P5, P6, P12): the Trap Nation "Butterflies" upload (PMATCH_R
   EXPECT: PMATCH-APP-PASSED
 
 - [ ] P12: analysing and training the 30 s training window of the 1080p60 reference takes at most 180 s on this machine
-  CHECK: node scripts/pmatch-report.ts --check time
+  CHECK: node scripts/pmatch/pmatch-report.ts --check time
   EXPECT: PMATCH-TIME-OK

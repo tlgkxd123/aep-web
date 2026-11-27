@@ -4,7 +4,7 @@
 // its top, mapped to the output range and shaped by the falloff.
 //
 // The display model was calibrated against keyframes Sound Keys baked in After
-// Effects (scripts/fit-soundkeys.ts): the spectrum spans 5%..95% of the layer
+// Effects (scripts/research/soundkeys/fit-soundkeys.ts): the spectrum spans 5%..95% of the layer
 // width on a log axis from 15 Hz to 22050 Hz, an amplitude A (Hann window of
 // ~0.19 s centred on the key, |X|/n, of the channels' mean) sits at
 // y = 0.783·H − 7.40·H·A, and a range

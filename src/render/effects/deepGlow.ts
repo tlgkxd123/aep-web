@@ -1,5 +1,5 @@
 // Deep Glow 2 (PEDG2, Plugin Everything): a black-box look-alike fitted to After
-// Effects renders of the deepglow fixtures (scripts/dg-*.ts).
+// Effects renders of the deepglow fixtures (scripts/research/deep-glow/dg-*.ts).
 //
 // The glow is a sum of Gaussian octaves of the source's linear light (gamma 2.2):
 // sigma_k = Radius / 8.12 * 2^-k for as long as sigma_k stays above ~0.86 px (the

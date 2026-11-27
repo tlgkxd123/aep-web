@@ -1,6 +1,6 @@
 // The Effects & Presets library: a template, as After Effects writes it, for every
 // effect the renderer draws (data/effect-library.json, exported by
-// scripts/export-effect-library.ts), loaded and unpacked once on first use. Effects the
+// scripts/generate/export-effect-library.ts), loaded and unpacked once on first use. Effects the
 // open project defines apply from its own definitions too.
 import type { CompItem } from "../aep/model.ts";
 import type { Chunk } from "../aep/riff.ts";

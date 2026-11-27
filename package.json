@@ -13,7 +13,7 @@
     "typecheck": "tsc --noEmit",
     "check": "tsc --noEmit && vitest run && vite build",
     "test": "vitest run",
-    "corpus": "node scripts/corpus-report.ts"
+    "corpus": "node scripts/reports/corpus-report.ts"
   },
   "dependencies": {
     "@capacitor/android": "^8.5.3",

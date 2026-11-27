@@ -4,7 +4,7 @@
 # space, no linearization), so After Effects 2025 can open and render it.
 #
 # A suite writes refs/fixtures/<suite>.aep and refs/fixtures/<suite>.manifest.json;
-# scripts/render-refs.ts and scripts/pixel-report.ts pick up every manifest.
+# scripts/ae/render-refs.ts and scripts/reports/pixel-report.ts pick up every manifest.
 #
 # py-aep authoring quirks found so far (AE reads these differently from py-aep):
 #   - static 2D spatial positions of shape items (Rect/Ellipse/Star Position,
@@ -93,7 +93,7 @@ def tr(layer, match_name):
 #: The py-aep corpus is searched after these.
 EFFECT_DONORS = [
     os.environ.get("AEP_EFFECT_DONOR"),
-    # Every effect After Effects 2025 lists, applied at its factory defaults (node scripts/ae-donors.ts).
+    # Every effect After Effects 2025 lists, applied at its factory defaults (node scripts/ae/ae-donors.ts).
     str(REFS / "donors" / "ae2025-effects.aep"),
     str(PY_AEP / "samples" / "versions" / "ae2025" / "complete.aep"),
     "C:/Users/schxm/projects/_user/bass-supreme.aep",

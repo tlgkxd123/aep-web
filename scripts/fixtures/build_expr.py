@@ -5,7 +5,7 @@
 #
 # A probe comp is a grid of 10x10 cells. Each cell is a shape layer whose Fill
 # Color expression evaluates one number and encodes round(v * SCALE) + OFFSET
-# in the 24 bits of the colour, so scripts/expr-report.ts can read After
+# in the 24 bits of the colour, so scripts/reports/expr-report.ts can read After
 # Effects' exact value back from the reference frame. Cells are listed in
 # refs/fixtures/<suite>.probes.json.
 #

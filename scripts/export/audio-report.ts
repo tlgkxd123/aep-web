@@ -1,4 +1,4 @@
-// Audio checks of scripts/export-report.ts. A comp with an audible WAV layer is exported to MP4 (AAC) and
+// Audio checks of scripts/reports/export-report.ts. A comp with an audible WAV layer is exported to MP4 (AAC) and
 // WebM (Opus); the container must declare a 48 kHz stereo track of the video's duration, and the audio the
 // browser decodes from the file must match a mix computed here, independently of the app: the WAV read in
 // Node and placed by the layer's start time and in/out points, with its Audio Levels as gain.

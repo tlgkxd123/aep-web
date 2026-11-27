@@ -87,11 +87,23 @@ aep-web/
 ├── native/              C++17 Vulkan engine (aevk) used by the Android app
 ├── ml/pmatch/           Particle Match model training (PyTorch, uv project)
 ├── tests/               vitest suite; tests/data holds its fixtures
-├── scripts/             Verification and tooling, run with node scripts/<name>.ts
-│   ├── lib/             Shared helpers for the scripts
-│   ├── fixtures/        Python builders for the .aep test fixtures
-│   ├── export/, perf/   Export and performance reports
-│   └── ae/              ExtendScript run inside After Effects
+├── scripts/             Verification and tooling, run with node scripts/<folder>/<name>.ts
+│   ├── reports/         Gate reports: pixel, corpus, geometry, native, export...
+│   ├── checks/
+│   │   ├── app/         End-to-end checks of the running app (UI, mobile, desktop, playback)
+│   │   └── effects/     Effect checks; one folder per area (keying, distort2, color2...)
+│   ├── ae/              After Effects tooling: aerender, reference renders, donors
+│   ├── fixtures/        Builders for the .aep test fixtures
+│   ├── generate/        Generators of committed data and code (effect library, shaders)
+│   ├── inspect/         Readers of projects and the sample corpus
+│   ├── research/        One-off measurements and fits (Deep Glow, FX extra, Particular...)
+│   ├── pmatch/          Particle Match training and reports
+│   ├── project-ops/     Project operations checks and templates
+│   ├── export/          Export reports
+│   ├── perf/            Benchmarks and profiling
+│   ├── device/          GPU, codec and Android probes
+│   ├── tools/           Sample writers and small conversions
+│   └── lib/             Shared helpers for the scripts
 ├── refs/                Reference data the tests and scripts compare against
 │   ├── fixtures/        Authored .aep fixtures and their manifests
 │   ├── frames/          After Effects reference renders

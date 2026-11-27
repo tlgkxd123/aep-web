@@ -213,7 +213,7 @@ export function prefetchSpectra(audio: LayerAudio, times: number[], settings: Sp
 
 registerPendingSource(PENDING, { done: (key) => spectra.has(key) || !pending.has(key), busy: () => pending.size > 0 });
 
-// Dev server pages only: lets scripts/check-video-playback.ts check the workers' spectra.
+// Dev server pages only: lets scripts/checks/app/check-video-playback.ts check the workers' spectra.
 if (typeof document !== "undefined" && document.querySelector('meta[name="aep-local-footage"]')) {
   (window as unknown as { aepSpectra: typeof spectrumStats }).aepSpectra = spectrumStats;
 }
