@@ -6,7 +6,8 @@
 # Android builds it through android/app/build.gradle (externalNativeBuild), with the NDK's Vulkan headers.
 #
 # aepcore (native/core) is the project side in C++: it parses .aep files, evaluates properties and builds the plans the
-# engine draws, with no GPU dependency (docs/native-port.md, milestone M1).
+# engine draws, with no GPU dependency (docs/native-port.md, milestone M1). aepplayer (native/app) plays a project in a
+# native window on both, for the desktop viewer (aep-viewer) and the Android app (milestone M2).
 cmake_minimum_required(VERSION 3.18)
 project(aevk LANGUAGES CXX)
 
@@ -44,6 +45,19 @@ else()
   endif()
   if(UNIX)
     target_link_libraries(aevk PUBLIC ${CMAKE_DL_LIBS})
+  endif()
+  # Desktop windows: Win32 always, xcb on Linux when its headers are installed (libxcb1-dev).
+  set(AEVK_DESKTOP_WINDOW OFF)
+  if(WIN32)
+    set(AEVK_DESKTOP_WINDOW ON)
+  elseif(UNIX AND NOT APPLE)
+    find_path(AEVK_XCB_INCLUDE_DIR xcb/xcb.h)
+    find_library(AEVK_XCB_LIBRARY xcb)
+    if(AEVK_XCB_INCLUDE_DIR AND AEVK_XCB_LIBRARY)
+      target_compile_definitions(aevk PRIVATE AEVK_XCB=1)
+      target_include_directories(aevk PRIVATE ${AEVK_XCB_INCLUDE_DIR})
+      set(AEVK_DESKTOP_WINDOW ON)
+    endif()
   endif()
 endif()
 
@@ -102,10 +116,21 @@ else()
   target_compile_options(aepcore PRIVATE -Wall -Wextra -Wno-missing-field-initializers)
 endif()
 
+# A project playing in a native window (native/app): the shared loop of the desktop viewer and the Android player
+# (docs/native-port.md, milestone M2).
+add_library(aepplayer STATIC app/session.cpp)
+target_include_directories(aepplayer PUBLIC app)
+target_link_libraries(aepplayer PUBLIC aepcore aevk)
+if(MSVC)
+  target_compile_options(aepplayer PRIVATE /W4)
+else()
+  target_compile_options(aepplayer PRIVATE -Wall -Wextra -Wno-missing-field-initializers)
+endif()
+
 if(ANDROID)
-  add_library(aevk_jni SHARED android/aevk_jni.cpp)
-  target_link_libraries(aevk_jni PRIVATE aevk)
-  set_target_properties(aevk aevk_jni PROPERTIES CXX_VISIBILITY_PRESET hidden VISIBILITY_INLINES_HIDDEN ON)
+  add_library(aevk_jni SHARED android/aevk_jni.cpp android/aep_player_jni.cpp)
+  target_link_libraries(aevk_jni PRIVATE aevk aepplayer)
+  set_target_properties(aevk aepcore aepplayer aevk_jni PROPERTIES CXX_VISIBILITY_PRESET hidden VISIBILITY_INLINES_HIDDEN ON)
   # 16 KB pages: Android 15 devices may use them, and Google Play requires libraries aligned for them.
   target_link_options(aevk_jni PRIVATE -Wl,--exclude-libs,ALL -Wl,--gc-sections -Wl,-z,max-page-size=16384)
 endif()
@@ -121,6 +146,18 @@ if(AEVK_TOOLS)
   # A comp parsed, planned and rendered end to end, with the time each stage takes.
   add_executable(aep-play tools/aep_play.cpp)
   target_link_libraries(aep-play PRIVATE aepcore aevk)
+
+  # The desktop player: a window that plays a project's comps on the C++ core.
+  if(AEVK_DESKTOP_WINDOW)
+    add_executable(aep-viewer tools/aep_viewer.cpp)
+    target_link_libraries(aep-viewer PRIVATE aepplayer)
+    if(WIN32)
+      set_target_properties(aep-viewer PROPERTIES WIN32_EXECUTABLE OFF)
+    else()
+      target_include_directories(aep-viewer PRIVATE ${AEVK_XCB_INCLUDE_DIR})
+      target_link_libraries(aep-viewer PRIVATE ${AEVK_XCB_LIBRARY})
+    endif()
+  endif()
 
   enable_testing()
   add_executable(aevk-tests tests/main.cpp tests/plan_test.cpp tests/playback_test.cpp tests/render_test.cpp)

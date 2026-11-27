@@ -216,6 +216,16 @@ struct Engine::Impl {
       extensions.push_back(VK_KHR_SURFACE_EXTENSION_NAME);
       extensions.push_back(VK_KHR_ANDROID_SURFACE_EXTENSION_NAME);
     }
+#elif defined(VK_USE_PLATFORM_WIN32_KHR)
+    if (options.presentation && has(VK_KHR_SURFACE_EXTENSION_NAME) && has(VK_KHR_WIN32_SURFACE_EXTENSION_NAME)) {
+      extensions.push_back(VK_KHR_SURFACE_EXTENSION_NAME);
+      extensions.push_back(VK_KHR_WIN32_SURFACE_EXTENSION_NAME);
+    }
+#elif defined(VK_USE_PLATFORM_XCB_KHR)
+    if (options.presentation && has(VK_KHR_SURFACE_EXTENSION_NAME) && has(VK_KHR_XCB_SURFACE_EXTENSION_NAME)) {
+      extensions.push_back(VK_KHR_SURFACE_EXTENSION_NAME);
+      extensions.push_back(VK_KHR_XCB_SURFACE_EXTENSION_NAME);
+    }
 #else
     (void)has;
 #endif
@@ -1140,6 +1150,25 @@ struct Engine::Impl {
     swap = Swapchain();
   }
 
+  /** FIFO paces frames to the display; without vsync, the first mode that does not wait for it. */
+  VkPresentModeKHR presentMode() {
+    if (options.vsync || !vk::vkGetPhysicalDeviceSurfacePresentModesKHR) return VK_PRESENT_MODE_FIFO_KHR;
+    uint32_t count = 0;
+    vk::vkGetPhysicalDeviceSurfacePresentModesKHR(physical, swap.surface, &count, nullptr);
+    std::vector<VkPresentModeKHR> modes(count);
+    vk::vkGetPhysicalDeviceSurfacePresentModesKHR(physical, swap.surface, &count, modes.data());
+    for (VkPresentModeKHR want : {VK_PRESENT_MODE_MAILBOX_KHR, VK_PRESENT_MODE_IMMEDIATE_KHR})
+      if (std::find(modes.begin(), modes.end(), want) != modes.end()) return want;
+    return VK_PRESENT_MODE_FIFO_KHR;
+  }
+
+  /** Checks the window's surface can take the rendering queue's frames; throws when it cannot. */
+  void checkSurface() {
+    VkBool32 supported = VK_FALSE;
+    vk::vkGetPhysicalDeviceSurfaceSupportKHR(physical, queueFamily, swap.surface, &supported);
+    if (!supported) throw std::runtime_error("the rendering queue cannot present to this window");
+  }
+
   void createSwapchain() {
     VkSurfaceCapabilitiesKHR caps;
     AEVK_CHECK(vk::vkGetPhysicalDeviceSurfaceCapabilitiesKHR(physical, swap.surface, &caps));
@@ -1172,7 +1201,7 @@ struct Engine::Impl {
     create.imageSharingMode = VK_SHARING_MODE_EXCLUSIVE;
     create.preTransform = caps.currentTransform;
     create.compositeAlpha = (caps.supportedCompositeAlpha & VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR) ? VK_COMPOSITE_ALPHA_OPAQUE_BIT_KHR : VK_COMPOSITE_ALPHA_INHERIT_BIT_KHR;
-    create.presentMode = VK_PRESENT_MODE_FIFO_KHR;
+    create.presentMode = presentMode();
     create.clipped = VK_TRUE;
     AEVK_CHECK(vk::vkCreateSwapchainKHR(device, &create, nullptr, &swap.swapchain));
     uint32_t count = 0;
@@ -1367,9 +1396,7 @@ bool Engine::attachWindow(ANativeWindow* window, std::string& error) {
     AEVK_CHECK(vk::vkCreateAndroidSurfaceKHR(impl_->instance, &create, nullptr, &impl_->swap.surface));
     ANativeWindow_acquire(window);
     impl_->swap.window = window;
-    VkBool32 supported = VK_FALSE;
-    vk::vkGetPhysicalDeviceSurfaceSupportKHR(impl_->physical, impl_->queueFamily, impl_->swap.surface, &supported);
-    if (!supported) throw std::runtime_error("the rendering queue cannot present to this window");
+    impl_->checkSurface();
     return true;
   } catch (const std::exception& e) {
     impl_->destroySwapchain(false);
@@ -1378,8 +1405,38 @@ bool Engine::attachWindow(ANativeWindow* window, std::string& error) {
   }
 }
 
-void Engine::detachWindow() { impl_->destroySwapchain(false); }
+#else
+bool Engine::attachDesktopWindow(void* display, uint64_t window, std::string& error) {
+  try {
+    impl_->destroySwapchain(false);
+#if defined(VK_USE_PLATFORM_WIN32_KHR)
+    if (!impl_->swapchainExtension || !vk::vkCreateWin32SurfaceKHR) throw std::runtime_error("this device cannot present Vulkan frames to a window");
+    VkWin32SurfaceCreateInfoKHR create{VK_STRUCTURE_TYPE_WIN32_SURFACE_CREATE_INFO_KHR};
+    create.hinstance = static_cast<HINSTANCE>(display);
+    create.hwnd = reinterpret_cast<HWND>(static_cast<uintptr_t>(window));
+    AEVK_CHECK(vk::vkCreateWin32SurfaceKHR(impl_->instance, &create, nullptr, &impl_->swap.surface));
+#elif defined(VK_USE_PLATFORM_XCB_KHR)
+    if (!impl_->swapchainExtension || !vk::vkCreateXcbSurfaceKHR) throw std::runtime_error("this device cannot present Vulkan frames to a window");
+    VkXcbSurfaceCreateInfoKHR create{VK_STRUCTURE_TYPE_XCB_SURFACE_CREATE_INFO_KHR};
+    create.connection = static_cast<xcb_connection_t*>(display);
+    create.window = static_cast<xcb_window_t>(window);
+    AEVK_CHECK(vk::vkCreateXcbSurfaceKHR(impl_->instance, &create, nullptr, &impl_->swap.surface));
+#else
+    (void)display;
+    (void)window;
+    throw std::runtime_error("this build has no window support (Linux needs the xcb headers)");
 #endif
+    impl_->checkSurface();
+    return true;
+  } catch (const std::exception& e) {
+    impl_->destroySwapchain(false);
+    error = e.what();
+    return false;
+  }
+}
+#endif
+
+void Engine::detachWindow() { impl_->destroySwapchain(false); }
 
 bool Engine::hasWindow() const { return impl_->swap.surface != VK_NULL_HANDLE; }
 

@@ -168,6 +168,8 @@ class Player {
 
   /** Hands over the plan of `frame` in `view`, replacing an earlier one; false when the bytes are not a plan. */
   bool queue(const std::string& view, int64_t frame, const uint8_t* plan, size_t size, std::string& error);
+  /** Hands over a plan built in memory (the C++ planner's), with no wire format in between. */
+  void queue(const std::string& view, int64_t frame, Plan&& plan);
   bool queued(const std::string& view, int64_t frame) const;
   bool cached(const std::string& view, int64_t frame) const;
 

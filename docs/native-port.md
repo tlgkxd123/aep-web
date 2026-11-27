@@ -57,10 +57,35 @@ pre-expression and reported (M3).
 
 **M2. Native shells: desktop window and Android without the WebView in the frame loop**
 
-- Desktop: a window (GLFW, Vulkan surface) with playback, scrubbing and the engine's present path, which today only
+- Desktop: a window (Vulkan surface) with playback, scrubbing and the engine's present path, which today only
   covers Android surfaces.
 - Android: the Java side hands the project bytes to C++ once; playback, timing and presentation run in C++ on a
   `SurfaceView`. The WebView only sends edits and the playhead.
+
+Status: built; the desktop viewer runs, the Android side is written but not yet compiled.
+
+- `native/app/session.cpp` (`CPlaybackSession`) is the loop both share: it parses the project once, plans frames in C++
+  ahead of the playhead (`Player::queue` now takes an in-memory plan, so no wire format is involved), renders them into
+  the RAM preview cache within a per-frame budget and presents the due frame, with the Preview panel's timing
+  (`playbackSpan`, `dueSlot`).
+- The engine presents to desktop windows too (`Engine::attachDesktopWindow`): Win32 on Windows, xcb on Linux when its
+  headers are installed. The window code is written straight against Win32 and xcb rather than GLFW, so the build pulls in
+  nothing new. `EngineOptions::vsync = false` picks a present mode that does not wait for the display.
+- `aep-viewer` (`native/tools/aep_viewer.cpp`) plays a project in a window: Space plays, Left and Right step, 1 to 4 set
+  the resolution, Page Up and Down switch comps, dragging scrubs. `--benchmark --no-vsync --frames n` plans and renders
+  every frame afresh as fast as it can and prints what it cost.
+- Android: `native/android/aep_player_jni.cpp` runs the session on its own thread, ticked by `AChoreographer` once per
+  display frame, presenting into the plugin's `SurfaceView`. `NativeEnginePlugin` gains `openProject`, `selectComp`,
+  `setResolution`, `setPlaying`, `seek` and `playbackState`, and `src/native/player.ts` wraps them for the page. After an
+  edit the page sends the project again as `src/aep/write.ts` writes it. The Preview panel does not use it yet (M6).
+
+Measured (M2, cloud x86-64, lavapipe under Xvfb): 28 of the 30 fixture projects open and play in `aep-viewer`; the
+other two have no comp the engine can draw yet. Played at the comp's rate with vsync, simple comps hold their frame
+rate with no dropped frames. With `--benchmark --no-vsync` (each frame planned, rendered and presented, nothing cached),
+the fixtures' small comps (64x48 to 320x240) run at 2.5 to 650 frames a second; the slow ones are effect-heavy comps
+whose GPU work lavapipe does on the CPU (planning stays under 8 ms everywhere). Windows and Android are not compiled
+here: there is no Windows toolchain or Android NDK on the cloud copy, so both were only syntax-checked (Android against
+stand-in NDK headers).
 
 **M3. Expressions**
 

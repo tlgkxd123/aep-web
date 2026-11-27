@@ -124,6 +124,99 @@ public class NativeEnginePlugin extends Plugin {
         reply.postMessage("{\"id\":" + Integer.toUnsignedString(id) + ",\"error\":" + JSONObject.quote(error == null ? "unknown" : error) + "}");
     }
 
+    /**
+     * Opens `project` (an .aep file, base64) to play in C++ in the attached surface; resolves with {comps}. Again after
+     * an edit, with the project as the app writes it (src/aep/write.ts). `expressions` evaluates them in the app's own
+     * engine where the library was built with them.
+     */
+    @PluginMethod
+    public void openProject(PluginCall call) {
+        String encoded = call.getString("project");
+        if (encoded == null) {
+            call.reject("no project");
+            return;
+        }
+        byte[] project = Base64.decode(encoded, Base64.DEFAULT);
+        boolean expressions = Boolean.TRUE.equals(call.getBoolean("expressions", false));
+        withEngine(call, (h) -> {
+            String comps = NativeEngine.nativeOpenProject(h, project, expressions, CACHE_BYTES);
+            if (comps == null) {
+                call.reject(NativeEngine.nativeError(h));
+                return;
+            }
+            JSObject result = new JSObject();
+            result.put("comps", new JSArray(comps));
+            call.resolve(result);
+        });
+    }
+
+    @PluginMethod
+    public void closeProject(PluginCall call) {
+        withEngine(call, (h) -> {
+            NativeEngine.nativeCloseProject(h);
+            call.resolve();
+        });
+    }
+
+    /** Shows comp `id` paused at its first frame, at 1/`resolution` of its size (1 Full to 4 Quarter). */
+    @PluginMethod
+    public void selectComp(PluginCall call) {
+        Integer id = call.getInt("id");
+        int resolution = call.getInt("resolution", 1);
+        if (id == null) {
+            call.reject("no comp id");
+            return;
+        }
+        withEngine(call, (h) -> {
+            if (NativeEngine.nativeSelectComp(h, id, resolution)) call.resolve();
+            else call.reject(NativeEngine.nativeError(h));
+        });
+    }
+
+    @PluginMethod
+    public void setResolution(PluginCall call) {
+        int resolution = call.getInt("resolution", 1);
+        withEngine(call, (h) -> {
+            NativeEngine.nativeSetResolution(h, resolution);
+            call.resolve();
+        });
+    }
+
+    @PluginMethod
+    public void setPlaying(PluginCall call) {
+        boolean playing = Boolean.TRUE.equals(call.getBoolean("playing", true));
+        withEngine(call, (h) -> {
+            NativeEngine.nativeSetPlaying(h, playing);
+            call.resolve();
+        });
+    }
+
+    /** Moves the playhead to `time` seconds of comp time. */
+    @PluginMethod
+    public void seek(PluginCall call) {
+        double time = call.getDouble("time", 0.0);
+        withEngine(call, (h) -> {
+            NativeEngine.nativeSeek(h, time);
+            call.resolve();
+        });
+    }
+
+    /** Where playback is and what it costs; {open: false} with no project open. */
+    @PluginMethod
+    public void playbackState(PluginCall call) {
+        withEngine(call, (h) -> {
+            double[] state = NativeEngine.nativePlaybackState(h);
+            JSObject result = new JSObject();
+            result.put("open", state != null);
+            if (state != null) {
+                String[] names = { "time", "frame", "frameCount", "playing", "shown", "dropped", "unsupported", "planMs", "renderMs", "expressionStartupMs" };
+                for (int i = 0; i < names.length; i++) result.put(names[i], state[i]);
+                result.put("playing", state[3] != 0);
+            }
+            call.resolve(result);
+        });
+    }
+
     @Override
     protected void handleOnDestroy() {
         getContext().unregisterComponentCallbacks(memory);

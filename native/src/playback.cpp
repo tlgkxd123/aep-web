@@ -58,8 +58,14 @@ Player::Player(Engine& engine, size_t cacheBytes, size_t maxQueued) : engine_(en
 Player::~Player() { cache_.invalidate(); }
 
 bool Player::queue(const std::string& view, int64_t frame, const uint8_t* plan, size_t size, std::string& error) {
-  Queued q{view, frame, Plan()};
-  if (!decodePlan(plan, size, q.plan, error)) return false;
+  Plan decoded;
+  if (!decodePlan(plan, size, decoded, error)) return false;
+  queue(view, frame, std::move(decoded));
+  return true;
+}
+
+void Player::queue(const std::string& view, int64_t frame, Plan&& plan) {
+  Queued q{view, frame, std::move(plan)};
   auto old = index_.find({view, frame});
   if (old != index_.end()) {
     queue_.erase(old->second);
@@ -73,7 +79,6 @@ bool Player::queue(const std::string& view, int64_t frame, const uint8_t* plan, 
     index_.erase({queue_.front().view, queue_.front().frame});
     queue_.pop_front();
   }
-  return true;
 }
 
 bool Player::queued(const std::string& view, int64_t frame) const { return index_.count({view, frame}) > 0; }
