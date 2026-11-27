@@ -4,6 +4,9 @@
 #   cmake -S native -B native/build -DCMAKE_BUILD_TYPE=Release && cmake --build native/build && ctest --test-dir native/build
 #
 # Android builds it through android/app/build.gradle (externalNativeBuild), with the NDK's Vulkan headers.
+#
+# aepcore (native/core) is the project side in C++: it parses .aep files, evaluates properties and builds the plans the
+# engine draws, with no GPU dependency (docs/native-port.md, milestone M1).
 cmake_minimum_required(VERSION 3.18)
 project(aevk LANGUAGES CXX)
 
@@ -53,6 +56,23 @@ else()
   target_compile_options(aevk PRIVATE -Wall -Wextra -Wno-missing-field-initializers)
 endif()
 
+add_library(aepcore STATIC
+  core/evaluate.cpp
+  core/model.cpp
+  core/parse.cpp
+  core/planner.cpp
+  core/riff.cpp
+  core/shapes.cpp
+  core/transform.cpp
+  core/wire.cpp
+)
+target_include_directories(aepcore PUBLIC core)
+if(MSVC)
+  target_compile_options(aepcore PRIVATE /W4)
+else()
+  target_compile_options(aepcore PRIVATE -Wall -Wextra -Wno-missing-field-initializers)
+endif()
+
 if(ANDROID)
   add_library(aevk_jni SHARED android/aevk_jni.cpp)
   target_link_libraries(aevk_jni PRIVATE aevk)
@@ -64,6 +84,14 @@ endif()
 if(AEVK_TOOLS)
   add_executable(aevk-render tools/aevk_render.cpp)
   target_link_libraries(aevk-render PRIVATE aevk)
+
+  # Plans built in C++ for a list of jobs, for the parity check against the TypeScript planner.
+  add_executable(aep-plan tools/aep_plan.cpp)
+  target_link_libraries(aep-plan PRIVATE aepcore)
+
+  # A comp parsed, planned and rendered end to end, with the time each stage takes.
+  add_executable(aep-play tools/aep_play.cpp)
+  target_link_libraries(aep-play PRIVATE aepcore aevk)
 
   enable_testing()
   add_executable(aevk-tests tests/main.cpp tests/plan_test.cpp tests/playback_test.cpp tests/render_test.cpp)

@@ -1,0 +1,149 @@
+# Native C++ port
+
+The goal: the app running as native C++ on desktop (Linux, Windows) and mobile (Android first), with phones playing
+projects at close to desktop speed.
+
+## Where things stand
+
+| Area | Web app (`src/`) | Native today (`native/`) |
+| --- | --- | --- |
+| Project parsing (`.aep` RIFX) | `aep/` 3.7k lines | `native/core` (M1) |
+| Property evaluation (keyframes, eases, motion paths, parenting, cameras) | `aep/evaluate.ts`, `aep/transform.ts` | `native/core` (M1) |
+| Expressions | `expressions/` 3.2k lines on acorn | none |
+| Compositing (solids, precomps, shapes, masks, mattes, blend modes, 3D) | `render/renderer.ts` (WebGL2) | `native/src` (Vulkan), from a plan |
+| Shape layers | `render/shapes.ts` | geometry in `native/core` (M1), raster in `native/src`; no dashes yet |
+| Text layers | `render/` + fonts | none |
+| Footage (images, video, audio) | `media/` 3.7k lines | none |
+| Effects (54 files, built-in and third-party look-alikes) | `render/effects/` ~15k lines | none |
+| Editing (undo, layer ops, write back to `.aep`) | `edit/` 6.2k lines | none |
+| UI | `ui/` 17k lines of React | none |
+
+Before this port, the Android app ran the whole front half in the WebView: JavaScript parsed the project, evaluated
+every property, built a frame plan, serialized it, and sent the bytes over the WebView bridge for the Vulkan engine to
+draw. On a phone that front half, not the GPU, is what keeps playback from reaching desktop speed.
+
+## The approach
+
+Move the per-frame work to C++ from the bottom up, and keep the plan (`native/src/plan.h`) as the seam between the
+project side and the compositor:
+
+```
+.aep bytes --CProjectParser--> CProject --CFramePlanner(time)--> aevk::Plan --aevk::Engine--> frame on the GPU
+```
+
+Nothing in that loop touches JavaScript, a bridge, or a serialized plan. The web UI can keep driving it (see M6), but a
+frame no longer waits on it.
+
+Every native stage is held to its TypeScript original rather than to a second spec: `scripts/reports/native-parity.ts`
+has `native/tools/aep_plan.cpp` build plans in C++ and compares them, value by value, with the plans `src/native/plan.ts`
+writes for the fixture projects.
+
+## Milestones
+
+**M1. Project core in C++** (`native/core`, library `aepcore`, no GPU dependency). Done: see "Measured" below.
+
+- RIFX reader, chunk decoders, project model, and the parser for items, comps, layers, property trees, keyframes, masks,
+  shape paths and gradients.
+- Evaluation: temporal bezier eases solved as AE does, spatial motion paths with arc-length easing, roving keys, hold
+  and linear keys, Orientation slerp, path morphing, gradient blending, separated Position, time remapping.
+- Transforms, parenting, the default and layer cameras, 3D draw order, track mattes, solo, adjustment layers.
+- Shape layers: rectangles, ellipses, stars, free paths, groups, fills, strokes, gradients, Trim Paths, Repeater.
+- `CFramePlanner` builds an `aevk::Plan` in memory; `EncodePlan` writes the same bytes as `src/native/wire.ts`.
+- Tools: `aep-plan` with `scripts/reports/native-parity.ts` (parity with the TypeScript planner), `aep-play` (parses,
+  plans and renders a comp end to end, and times each stage).
+
+Effects, text and footage make a frame unsupported, exactly as in the TypeScript planner; expressions are evaluated
+pre-expression and reported (M3).
+
+**M2. Native shells: desktop window and Android without the WebView in the frame loop**
+
+- Desktop: a window (GLFW, Vulkan surface) with playback, scrubbing and the engine's present path, which today only
+  covers Android surfaces.
+- Android: the Java side hands the project bytes to C++ once; playback, timing and presentation run in C++ on a
+  `SurfaceView`. The WebView only sends edits and the playhead.
+
+**M3. Expressions**
+
+Embed QuickJS-ng (MIT, small, runs on Android and iOS without a JIT) and port the expression API (`src/expressions/api.ts`:
+`thisComp`, `thisLayer`, `wiggle`, `loopOut`, `valueAtTime`, `linear`/`ease`, vector math, `posterizeTime`...). Expressions
+are compiled once per property and cached per frame, which keeps them off the hot path. iOS forbids a JIT, so QuickJS's
+interpreter is the one engine that behaves the same everywhere.
+
+**M4. Text and footage**
+
+- Text: FreeType for glyphs and HarfBuzz for shaping, laid out as `src/render` lays it out, drawn as shape paints.
+- Images: stb_image (PNG, JPEG, TGA...), with the decoded frames uploaded once and kept in the engine's pool.
+- Video: Android `AMediaCodec` straight into a hardware buffer the engine imports, FFmpeg on desktop. This is where
+  phones gain the most over a WebView, which copies every decoded frame at least twice.
+
+**M5. Effects**
+
+Port the effect shaders to Vulkan, most used first: blurs, color correction, glow, keying, distort, then the
+third-party look-alikes. Each one gets a parity check against its WebGL version in the pixel reports.
+
+**M6. Editing and UI**
+
+Two ways, and the recommendation is the first:
+
+1. Keep the React UI as the editor (Electron on desktop, the Capacitor WebView on Android) over the native core:
+   project edits go to C++ as small commands, frames never come back through JavaScript. The 17k lines of UI and the
+   6k lines of edit logic keep working, and playback runs at native speed.
+2. A fully native UI (Dear ImGui) and a C++ port of `src/edit`. It only pays off if the app has to run without any web
+   runtime.
+
+## Mobile speed
+
+What makes a phone slower than a desktop here, and what each milestone does about it:
+
+- **JavaScript evaluation and plan building per frame.** Gone after M1 + M2. `aep-play` measures it.
+- **The bridge.** Plans and frames crossing the WebView channel (base64 on older WebViews) cost a copy each way. Gone
+  after M2: frames are presented from the GPU.
+- **Video decode copies.** Gone after M4 with hardware buffers imported into Vulkan.
+- **GPU work.** Already native. Reduced resolution (Half, Third, Quarter) is in the plan, and the engine pools render
+  targets.
+
+Phone numbers are not measured yet: only desktop and Mesa's software Vulkan (lavapipe) are measured in this repo.
+
+## Measured (M1)
+
+On a 4-core Xeon at 2.1 GHz with Mesa lavapipe (software Vulkan, no GPU), November 2026:
+
+```
+cmake -S native -B native/build -DCMAKE_BUILD_TYPE=Release && cmake --build native/build
+node scripts/reports/native-parity.ts             # the frames the suites' manifests list
+node scripts/reports/native-parity.ts --sweep 12  # every comp of every fixture project at 12 times
+native/build/aep-play --frames 30 --wire refs/fixtures/transitions2.aep
+```
+
+- **Parity.** All 2,579 manifest frames and all 9,540 sweep frames match the TypeScript planner: 2,402 complete plans
+  field by field (float tolerance 1e-3), the rest on the same list of what neither side can render yet. Half and other
+  scales match too. Both sides leave expressions out until M3.
+- **Parsing** a fixture project: 1.4 to 17 ms in C++ against 3 to 52 ms in Node once its JIT is warm (up to 116 ms
+  cold), about 3 to 4 times faster.
+- **Planning** a frame: 0.01 to 0.13 ms in C++ against 0.02 to 0.21 ms in warm Node, 2 to 3 times faster. Either way it
+  is a small part of a frame on desktop; on a phone the JavaScript side runs in the WebView's engine and its plan crosses
+  the bridge, which is what the in-memory path removes.
+- **Wire format.** Encoding and decoding a plan costs 0.01 ms or less, so the bridge's cost is the copy across the
+  WebView, not the format.
+- **Rendering** on lavapipe: about 1 ms for the 160x120 fixtures, 22 ms for 48 layers at 160x120 and 640 ms for the
+  same at 1920x1440, all GPU time rasterized on the CPU. Real GPUs, desktop or phone, are not in this environment.
+
+
+## iOS
+
+The core (`aepcore`) is plain C++17 and builds for iOS as is. The engine needs MoltenVK (Vulkan on Metal, Apache-2.0),
+video decode would use VideoToolbox, and the shell would be a small Swift or Objective-C++ app hosting a `CAMetalLayer`.
+Building and signing it needs a Mac with Xcode and an Apple developer account.
+
+## Code style for the new C++
+
+New native code follows Rockstar's style:
+
+- Classes `CName`, plain data structs `sName`, enums `eName` with `ALL_CAPS` values.
+- Members `m_` with a type prefix (`m_bEnabled`, `m_fTime`, `m_iIndex`, `m_uFlags`, `m_pParent`); objects and containers
+  plain (`m_Name`, `m_Layers`). Statics `s_`.
+- Functions and methods in PascalCase; braces on their own lines; tabs.
+- Fixed-size types (`s32`, `u32`, `f32`, `f64`) from `native/core/types.h`.
+- Comments are `/** */`, on every type and function a reader would look up.
+
+The existing engine in `native/src` keeps its own style; it is not reformatted.
