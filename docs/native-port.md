@@ -71,10 +71,31 @@ for properties that have an expression (`CurrentValue` in `evaluate.cpp`, `CExpr
 an expression gives the same result as in the web app, sandbox and error messages included, and everything else stays
 in C++. iOS forbids a JIT, so QuickJS's interpreter is the one engine that behaves the same everywhere.
 
-Status: written, and the bundle runs and evaluates the fixture expressions in an isolated JavaScript context. Building
-with `-DAEP_EXPRESSIONS=ON` fetches QuickJS-ng v0.18.0; the parity check with `--expressions` is next. Once it passes,
-the expression API's hottest calls (a referenced property's value, `toComp`, `wiggle`) can move to C++ natives, since an
-interpreter evaluates them more slowly than the JIT in a desktop browser.
+Status: done. Build with `-DAEP_EXPRESSIONS=ON` (it fetches QuickJS-ng v0.18.0 at configure time, so it stays off by
+default to keep the base build offline) and check with `node scripts/reports/native-parity.ts --expressions --tool
+<build>/aep-plan`.
+
+Measured (M3, cloud x86-64, Release):
+
+- Parity with expressions on: 2,579/2,579 manifest frames and 9,540/9,540 sweep frames match the TypeScript planner
+  with its expression engine installed. On the three expression fixtures, 176 of 240 swept frames differ from the
+  same frames with expressions off, so the comparison does exercise them.
+- Startup, per project (evaluating the 419 KiB script and re-parsing the project in it): 60 ms (expr_legacy, 14
+  expressions), 270-330 ms (expr_random, 144), 450-480 ms (expr, 262).
+- Plan time, averaged over four passes of every comp at 12 times, against warm Node with the same engine:
+
+  | Fixture | C++ + QuickJS | Node (JIT) |
+  | --- | --- | --- |
+  | expr_legacy | 0.38 ms a frame | 0.15 ms |
+  | expr | 1.5 ms | 0.65 ms |
+  | expr_random | 8.9 ms | 2.5 ms |
+
+  Frames without expressions are unchanged (0.01-0.13 ms). The interpreter is 2-4 times slower than a JIT on
+  expression-heavy frames, which a phone's slower cores will multiply.
+
+Next, in order of payoff: compile the script to QuickJS bytecode at build time (`qjsc`) so startup skips parsing it;
+let the script take the C++ core's parsed project instead of re-parsing the file; and move the expression API's hottest
+calls (a referenced property's value, `toComp`, `wiggle`, the noise behind `random`) to C++ natives.
 
 **M4. Text and footage**
 
