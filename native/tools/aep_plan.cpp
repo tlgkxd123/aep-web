@@ -1,12 +1,12 @@
 /**
  * Plans built in C++ for a list of jobs, for the parity check against the TypeScript planner (scripts/native-parity.ts).
  *
- *   aep-plan jobs.tsv outdir
+ *   aep-plan [--expressions] jobs.tsv outdir
  *
  * Each line of jobs.tsv is a job: project path, comp id, composition time and scale, separated by tabs. For job i, the
  * tool writes outdir/i.aevp (the plan in the engine's wire format) and outdir/i.txt (what the plan cannot render, one
  * item a line). A project is parsed once for all its jobs in a row. The last line on stdout is a JSON summary with the
- * time parsing and planning took.
+ * time parsing and planning took. --expressions applies expressions (a build with AEP_EXPRESSIONS).
  */
 #include <chrono>
 #include <cstdio>
@@ -20,6 +20,9 @@
 #include "parse.h"
 #include "planner.h"
 #include "wire.h"
+#if AEP_EXPRESSIONS
+#include "expressions.h"
+#endif
 
 namespace
 {
@@ -77,18 +80,42 @@ bool ReadJobs(const std::string& path, std::vector<sJob>& jobs)
 
 int main(int argc, char** argv)
 {
-	if (argc < 3)
+	std::vector<std::string> positional;
+	bool expressions = false;
+	for (s32 i = 1; i < argc; i++)
 	{
-		std::fprintf(stderr, "usage: aep-plan jobs.tsv outdir\n");
+		if (std::string(argv[i]) == "--expressions")
+		{
+			expressions = true;
+		}
+		else
+		{
+			positional.push_back(argv[i]);
+		}
+	}
+	if (positional.size() < 2)
+	{
+		std::fprintf(stderr, "usage: aep-plan [--expressions] jobs.tsv outdir\n");
 		return 2;
 	}
+#if !AEP_EXPRESSIONS
+	if (expressions)
+	{
+		std::fprintf(stderr, "this build has no expressions (configure with -DAEP_EXPRESSIONS=ON)\n");
+		return 2;
+	}
+#endif
 	std::vector<sJob> jobs;
-	if (!ReadJobs(argv[1], jobs))
+	if (!ReadJobs(positional[0], jobs))
 	{
-		std::fprintf(stderr, "cannot read %s\n", argv[1]);
+		std::fprintf(stderr, "cannot read %s\n", positional[0].c_str());
 		return 2;
 	}
-	const std::string outDir = argv[2];
+	const std::string outDir = positional[1];
+#if AEP_EXPRESSIONS
+	std::unique_ptr<aep::CExpressionEngine> engine;
+	f64 startupMs = 0;
+#endif
 
 	std::unique_ptr<aep::CProject> project;
 	std::string loaded;
@@ -113,6 +140,21 @@ int main(int argc, char** argv)
 				std::printf("{\"project\":\"%s\",\"error\":\"%s\"}\n", job.m_Project.c_str(), error.c_str());
 				project.reset();
 			}
+#if AEP_EXPRESSIONS
+			engine.reset();
+			if (ok && expressions)
+			{
+				engine = aep::CExpressionEngine::Create(*project, error);
+				if (!engine)
+				{
+					std::printf("{\"project\":\"%s\",\"error\":\"%s\"}\n", job.m_Project.c_str(), error.c_str());
+				}
+				else
+				{
+					startupMs += engine->StartupMs();
+				}
+			}
+#endif
 		}
 		const aep::CItem* comp = project ? project->Item(job.m_uCompId) : nullptr;
 		if (!comp || comp->m_eKind != aep::ITEM_COMP)
@@ -123,6 +165,9 @@ int main(int argc, char** argv)
 		}
 		const tClock::time_point start = tClock::now();
 		aep::CFramePlanner planner(*project);
+#if AEP_EXPRESSIONS
+		planner.SetExpressions(engine.get());
+#endif
 		const aep::sFramePlan plan = planner.Build(*comp, job.m_fTime, job.m_fScale);
 		planMs += MsSince(start);
 
@@ -137,7 +182,11 @@ int main(int argc, char** argv)
 			std::ofstream(base + ".aevp", std::ios::binary).write(reinterpret_cast<const char*>(bytes.data()), std::streamsize(bytes.size()));
 		}
 	}
-	std::printf("{\"jobs\":%zu,\"projects\":%d,\"failures\":%d,\"parseMs\":%.3f,\"planMs\":%.3f}\n", jobs.size(), projects, failures,
-		parseMs, planMs);
+	f64 expressionStartupMs = 0;
+#if AEP_EXPRESSIONS
+	expressionStartupMs = startupMs;
+#endif
+	std::printf("{\"jobs\":%zu,\"projects\":%d,\"failures\":%d,\"parseMs\":%.3f,\"planMs\":%.3f,\"expressionStartupMs\":%.3f}\n",
+		jobs.size(), projects, failures, parseMs, planMs, expressionStartupMs);
 	return failures ? 1 : 0;
 }

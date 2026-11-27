@@ -146,7 +146,7 @@ f64 NumberAt(const CPropertyNode* prop, f64 time, const CLayer& layer, f64 fallb
 	{
 		return fallback;
 	}
-	const CValue v = ValueAtTime(*prop, time, layer);
+	const CValue v = CurrentValue(*prop, time, layer);
 	if (v.IsNumber())
 	{
 		return v.m_V[0];
@@ -229,7 +229,18 @@ sFramePlan CFramePlanner::Build(const CItem& comp, f64 time, f64 scale)
 {
 	sFramePlan out;
 	m_pOut = &out;
+	IExpressionEvaluator* previous = nullptr;
+	if (m_pExpressions)
+	{
+		m_pExpressions->BeginFrame();
+		previous = SetExpressionEvaluator(m_pExpressions);
+	}
 	PlanComp(comp, time, 0, scale, out.m_Plan.root);
+	if (m_pExpressions)
+	{
+		SetExpressionEvaluator(previous);
+		m_pExpressions->TakeWarnings(out.m_Warnings);
+	}
 	m_pOut = nullptr;
 	return out;
 }
@@ -252,7 +263,7 @@ void CFramePlanner::Warn(const std::string& what)
 
 void CFramePlanner::NoteExpressions(const CLayer& layer)
 {
-	if (HasExpressions(layer.m_Properties) &&
+	if (!m_pExpressions && HasExpressions(layer.m_Properties) &&
 		std::find(m_pOut->m_Expressions.begin(), m_pOut->m_Expressions.end(), layer.m_Name) == m_pOut->m_Expressions.end())
 	{
 		m_pOut->m_Expressions.push_back(layer.m_Name);
@@ -415,7 +426,7 @@ bool CFramePlanner::Content(const CLayer& layer, f64 time, s32 depth, f64 scale,
 		{
 			if (const CPropertyNode* remap = layer.m_Properties.FindProperty("ADBE Time Remapping"))
 			{
-				const CValue value = ValueAtTime(*remap, time, layer);
+				const CValue value = CurrentValue(*remap, time, layer);
 				if (value.IsNumber())
 				{
 					sourceTime = value.m_V[0];
@@ -454,9 +465,9 @@ void CFramePlanner::Masks(const CLayer& layer, f64 time, f64 scale, std::vector<
 		}
 		aevk::Mask m;
 		const CPropertyNode* shapeProp = mask.FindProperty("ADBE Mask Shape");
-		const CValue shape = shapeProp ? ValueAtTime(*shapeProp, time, layer) : CValue();
+		const CValue shape = shapeProp ? CurrentValue(*shapeProp, time, layer) : CValue();
 		const CPropertyNode* featherProp = mask.FindProperty("ADBE Mask Feather");
-		const CValue feather = featherProp ? ValueAtTime(*featherProp, time, layer) : CValue();
+		const CValue feather = featherProp ? CurrentValue(*featherProp, time, layer) : CValue();
 		if (shape.IsShape())
 		{
 			const sShape& s = *shape.m_pShape;

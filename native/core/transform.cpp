@@ -36,7 +36,7 @@ CValue TransformValue(const CLayer& layer, const char* matchName, f64 time)
 	{
 		return CValue();
 	}
-	return ValueAtTime(*prop, time, layer, transform);
+	return CurrentValue(*prop, time, layer, transform);
 }
 
 sVec3 Vec3(const CValue& v)
@@ -282,7 +282,7 @@ sCamera CameraAt(const CItem& comp, f64 time, const CLayer* cameraLayer)
 	const CPropertyNode* zoomProp = options ? options->FindProperty("ADBE Camera Zoom") : nullptr;
 	if (zoomProp)
 	{
-		camera.m_fZoom = Scalar(ValueAtTime(*zoomProp, time, *cameraLayer));
+		camera.m_fZoom = Scalar(CurrentValue(*zoomProp, time, *cameraLayer));
 	}
 	else
 	{

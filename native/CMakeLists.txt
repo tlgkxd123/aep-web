@@ -67,6 +67,35 @@ add_library(aepcore STATIC
   core/wire.cpp
 )
 target_include_directories(aepcore PUBLIC core)
+
+# Expressions run the app's own expression engine (native/core/expressions/bundle.js, built from src/ by
+# scripts/native/build-expressions.ts) in an embedded QuickJS-ng (MIT), fetched at configure time.
+option(AEP_EXPRESSIONS "Evaluate expressions in the native core (embeds QuickJS-ng)" OFF)
+if(AEP_EXPRESSIONS)
+  include(FetchContent)
+  FetchContent_Declare(quickjs
+    GIT_REPOSITORY https://github.com/quickjs-ng/quickjs.git
+    GIT_TAG d7215b0ad3fc2c562e8317fd9bca058fd4863804 # v0.18.0
+  )
+  FetchContent_GetProperties(quickjs)
+  if(NOT quickjs_POPULATED)
+    FetchContent_Populate(quickjs)
+    set(QJS_ENABLE_INSTALL OFF CACHE BOOL "" FORCE)
+    add_subdirectory(${quickjs_SOURCE_DIR} ${quickjs_BINARY_DIR} EXCLUDE_FROM_ALL)
+  endif()
+  set(AEP_BUNDLE ${CMAKE_CURRENT_SOURCE_DIR}/core/expressions/bundle.js)
+  set(AEP_BUNDLE_CPP ${CMAKE_CURRENT_BINARY_DIR}/expression_bundle.cpp)
+  add_custom_command(
+    OUTPUT ${AEP_BUNDLE_CPP}
+    COMMAND ${CMAKE_COMMAND} -DINPUT=${AEP_BUNDLE} -DOUTPUT=${AEP_BUNDLE_CPP} -DNAME=g_ExpressionBundle
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/embed.cmake
+    DEPENDS ${AEP_BUNDLE} ${CMAKE_CURRENT_SOURCE_DIR}/cmake/embed.cmake
+    COMMENT "Embedding the expression script"
+  )
+  target_sources(aepcore PRIVATE core/expressions.cpp ${AEP_BUNDLE_CPP})
+  target_link_libraries(aepcore PUBLIC qjs)
+  target_compile_definitions(aepcore PUBLIC AEP_EXPRESSIONS=1)
+endif()
 if(MSVC)
   target_compile_options(aepcore PRIVATE /W4)
 else()

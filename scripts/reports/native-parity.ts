@@ -3,12 +3,13 @@
 // time each side takes to parse the projects and plan the frames.
 //
 //   cmake -S native -B native/build -DCMAKE_BUILD_TYPE=Release && cmake --build native/build
-//   node scripts/reports/native-parity.ts [--suite name] [--scale s] [--sweep n] [--tool path] [--verbose] [--require]
+//   node scripts/reports/native-parity.ts [--suite name] [--scale s] [--sweep n] [--expressions] [--tool path]
+//                                         [--verbose] [--require]
 //
 // By default it plans the frames the suites' manifests list. --sweep plans every comp of every fixture project at n
 // times spread over its duration instead, which covers far more layers than the manifests do.
-// Expressions are left out on both sides (the TypeScript side does not install its evaluator), since the C++ core
-// evaluates properties pre-expression until it embeds an engine (docs/native-port.md, M3).
+// Expressions are left out on both sides unless --expressions is given; that needs a native build configured with
+// -DAEP_EXPRESSIONS=ON (docs/native-port.md, M3), and checks first that its expression bundle is current.
 // --require fails when any frame differs.
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
@@ -28,10 +29,16 @@ const option = (name: string) => {
 const verbose = args.includes("--verbose");
 const scale = Number(option("--scale") ?? 1);
 const sweep = Number(option("--sweep") ?? 0);
+const expressions = args.includes("--expressions");
 const tool = resolve(option("--tool") ?? "native/build/aep-plan");
 if (!existsSync(tool)) {
   console.error(`${tool} is missing: build native/ first (cmake -S native -B native/build && cmake --build native/build)`);
   process.exit(2);
+}
+
+if (expressions) {
+  execFileSync(process.execPath, ["scripts/native/build-expressions.ts", "--check"], { stdio: "inherit" });
+  await import("../../src/expressions/install.ts");
 }
 
 interface Job {
@@ -93,7 +100,7 @@ const dir = mkdtempSync(join(tmpdir(), "aep-parity-"));
 writeFileSync(join(dir, "jobs.tsv"), jobs.map((j) => `${j.project}\t${j.compId}\t${j.time}\t${scale}\n`).join(""));
 let native: { parseMs: number; planMs: number; projects: number } = { parseMs: 0, planMs: 0, projects: 0 };
 try {
-  const out = execFileSync(tool, [join(dir, "jobs.tsv"), dir], { encoding: "utf8", maxBuffer: 1 << 26 });
+  const out = execFileSync(tool, [...(expressions ? ["--expressions"] : []), join(dir, "jobs.tsv"), dir], { encoding: "utf8", maxBuffer: 1 << 26 });
   native = JSON.parse(out.trim().split("\n").at(-1)!);
 } catch (e: any) {
   const lines = String(e.stdout ?? "").trim().split("\n");

@@ -2,11 +2,12 @@
  * A comp parsed, planned and rendered end to end in C++, with the time each stage takes: the path an app takes on a
  * phone with no JavaScript, WebView bridge or wire format in between.
  *
- *   aep-play [--comp name] [--frames n] [--scale s] [--wire] project.aep
+ *   aep-play [--comp name] [--frames n] [--scale s] [--wire] [--expressions] project.aep
  *
  * It parses the project, then plans and renders n frames spread over the comp's duration (60 by default) and prints
  * one JSON line with the median milliseconds of each stage. --wire also encodes and decodes each plan as the bridge
- * does today, to show what the in-memory path saves. Without --comp it plays the first comp that renders completely.
+ * does today, to show what the in-memory path saves. --expressions applies expressions (a build with
+ * AEP_EXPRESSIONS) and reports how long their engine took to start. Without --comp it plays the first comp that renders completely.
  */
 #include <algorithm>
 #include <chrono>
@@ -21,6 +22,9 @@
 #include "parse.h"
 #include "planner.h"
 #include "wire.h"
+#if AEP_EXPRESSIONS
+#include "expressions.h"
+#endif
 
 namespace
 {
@@ -66,6 +70,7 @@ int main(int argc, char** argv)
 	s32 frames = 60;
 	f64 scale = 1;
 	bool wire = false;
+	bool expressions = false;
 	for (s32 i = 1; i < argc; i++)
 	{
 		if (!std::strcmp(argv[i], "--comp") && i + 1 < argc)
@@ -83,6 +88,10 @@ int main(int argc, char** argv)
 		else if (!std::strcmp(argv[i], "--wire"))
 		{
 			wire = true;
+		}
+		else if (!std::strcmp(argv[i], "--expressions"))
+		{
+			expressions = true;
 		}
 		else
 		{
@@ -105,6 +114,28 @@ int main(int argc, char** argv)
 		return 1;
 	}
 	const f64 parseMs = MsSince(parseStart);
+	aep::IExpressionEvaluator* evaluator = nullptr;
+	f64 expressionStartupMs = 0;
+#if AEP_EXPRESSIONS
+	std::unique_ptr<aep::CExpressionEngine> engineJs;
+	if (expressions)
+	{
+		engineJs = aep::CExpressionEngine::Create(project, error);
+		if (!engineJs)
+		{
+			std::printf("{\"error\":\"%s\"}\n", error.c_str());
+			return 1;
+		}
+		evaluator = engineJs.get();
+		expressionStartupMs = engineJs->StartupMs();
+	}
+#else
+	if (expressions)
+	{
+		std::fprintf(stderr, "this build has no expressions (configure with -DAEP_EXPRESSIONS=ON)\n");
+		return 2;
+	}
+#endif
 
 	const aep::CItem* comp = nullptr;
 	for (const auto& entry : project.m_Items)
@@ -141,6 +172,7 @@ int main(int argc, char** argv)
 		const f64 time = i < 0 ? 0 : comp->m_fDuration * f64(i) / f64(frames);
 		tClock::time_point start = tClock::now();
 		aep::CFramePlanner planner(project);
+		planner.SetExpressions(evaluator);
 		aep::sFramePlan framePlan = planner.Build(*comp, time, scale);
 		const f64 planned = MsSince(start);
 		if (!framePlan.m_Unsupported.empty())
@@ -190,6 +222,10 @@ int main(int argc, char** argv)
 		"\"device\":\"%s\",\"software\":%s,\"parseMs\":%.3f,\"planMs\":%.3f,\"planMaxMs\":%.3f,",
 		path.c_str(), comp->m_Name.c_str(), aep::ScaledSize(comp->m_fWidth, scale), aep::ScaledSize(comp->m_fHeight, scale),
 		comp->m_Layers.size(), frames, unsupported, device.name.c_str(), device.software ? "true" : "false", parseMs, Median(plan), Max(plan));
+	if (evaluator)
+	{
+		std::printf("\"expressionStartupMs\":%.3f,", expressionStartupMs);
+	}
 	if (wire)
 	{
 		std::printf("\"encodeMs\":%.3f,\"decodeMs\":%.3f,", Median(encode), Median(decode));

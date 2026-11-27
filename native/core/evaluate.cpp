@@ -1228,4 +1228,54 @@ CValue ValueAtTime(const CPropertyNode& prop, f64 compTime, const CLayer& layer,
 	return Interpolate(Prepare(prop, layer), prop.m_Keyframes, LayerTimeAt(layer, compTime));
 }
 
+namespace
+{
+thread_local IExpressionEvaluator* s_pExpressionEvaluator = nullptr;
+} /** namespace */
+
+IExpressionEvaluator* SetExpressionEvaluator(IExpressionEvaluator* evaluator)
+{
+	IExpressionEvaluator* previous = s_pExpressionEvaluator;
+	s_pExpressionEvaluator = evaluator;
+	return previous;
+}
+
+CValue CurrentValue(const CPropertyNode& prop, f64 compTime, const CLayer& layer, const CPropertyNode* siblings)
+{
+	IExpressionEvaluator* evaluator = s_pExpressionEvaluator;
+	if (!evaluator)
+	{
+		return ValueAtTime(prop, compTime, layer, siblings);
+	}
+	/** A separated Position is its dimensions' values, each after its own expression. */
+	if (siblings && prop.m_bDimensionsSeparated && prop.m_MatchName == "ADBE Position")
+	{
+		const char* names[3] = { "ADBE Position_0", "ADBE Position_1", "ADBE Position_2" };
+		const CPropertyNode* followers[3];
+		bool all = true;
+		for (s32 i = 0; i < 3; i++)
+		{
+			followers[i] = siblings->FindProperty(names[i]);
+			all = all && followers[i];
+		}
+		if (all)
+		{
+			f64 parts[3];
+			bool numbers = true;
+			for (s32 i = 0; i < 3 && numbers; i++)
+			{
+				const CValue v = CurrentValue(*followers[i], compTime, layer);
+				numbers = v.IsNumber();
+				parts[i] = v.m_V[0];
+			}
+			if (numbers)
+			{
+				return CValue::Vector(parts, 3);
+			}
+		}
+	}
+	const CValue value = ValueAtTime(prop, compTime, layer, siblings);
+	return prop.m_bExpressionEnabled ? evaluator->Evaluate(prop, compTime, layer, value) : value;
+}
+
 } /** namespace aep */

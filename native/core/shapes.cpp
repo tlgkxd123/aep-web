@@ -158,7 +158,7 @@ public:
 		{
 			return fallback;
 		}
-		const CValue v = ValueAtTime(*p, m_fTime, m_Layer);
+		const CValue v = CurrentValue(*p, m_fTime, m_Layer);
 		if (v.IsNumber())
 		{
 			return v.m_V[0];
@@ -176,7 +176,7 @@ public:
 		sVecValue out;
 		if (p)
 		{
-			const CValue v = ValueAtTime(*p, m_fTime, m_Layer);
+			const CValue v = CurrentValue(*p, m_fTime, m_Layer);
 			if (v.IsVector())
 			{
 				out.m_uCount = v.m_uCount;
@@ -201,7 +201,7 @@ public:
 		{
 			return nullptr;
 		}
-		const CValue v = ValueAtTime(*p, m_fTime, m_Layer);
+		const CValue v = CurrentValue(*p, m_fTime, m_Layer);
 		return v.IsShape() ? v.m_pShape : nullptr;
 	}
 
@@ -212,7 +212,7 @@ public:
 		{
 			return nullptr;
 		}
-		const CValue v = ValueAtTime(*p, m_fTime, m_Layer);
+		const CValue v = CurrentValue(*p, m_fTime, m_Layer);
 		return v.IsGradient() ? v.m_pGradient : nullptr;
 	}
 

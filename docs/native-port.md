@@ -64,10 +64,17 @@ pre-expression and reported (M3).
 
 **M3. Expressions**
 
-Embed QuickJS-ng (MIT, small, runs on Android and iOS without a JIT) and port the expression API (`src/expressions/api.ts`:
-`thisComp`, `thisLayer`, `wiggle`, `loopOut`, `valueAtTime`, `linear`/`ease`, vector math, `posterizeTime`...). Expressions
-are compiled once per property and cached per frame, which keeps them off the hot path. iOS forbids a JIT, so QuickJS's
-interpreter is the one engine that behaves the same everywhere.
+Embed QuickJS-ng (MIT, small, runs on Android and iOS without a JIT) and run the app's own expression engine in it:
+`scripts/native/build-expressions.ts` bundles `src/native/qjs/entry.ts` with `src/expressions` and the parser and
+evaluator they use into `native/core/expressions/bundle.js`, which the build embeds. The C++ planner calls into it only
+for properties that have an expression (`CurrentValue` in `evaluate.cpp`, `CExpressionEngine` in `expressions.cpp`), so
+an expression gives the same result as in the web app, sandbox and error messages included, and everything else stays
+in C++. iOS forbids a JIT, so QuickJS's interpreter is the one engine that behaves the same everywhere.
+
+Status: written, and the bundle runs and evaluates the fixture expressions in an isolated JavaScript context. Building
+with `-DAEP_EXPRESSIONS=ON` fetches QuickJS-ng v0.18.0; the parity check with `--expressions` is next. Once it passes,
+the expression API's hottest calls (a referenced property's value, `toComp`, `wiggle`) can move to C++ natives, since an
+interpreter evaluates them more slowly than the JIT in a desktop browser.
 
 **M4. Text and footage**
 
