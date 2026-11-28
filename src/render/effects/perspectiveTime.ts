@@ -532,6 +532,34 @@ const GLASSES_MENU = ["SBS", "OU", "Interlaced", "Difference", "(-", "RG", "RB",
 /** The share of the right view's luminance After Effects writes to green in Red Green and Red Blue LR. */
 const GLASSES_GREEN = { [GlassesView.RED_GREEN]: 0.8025, [GlassesView.RED_BLUE]: 0.549 } as const;
 
+/** 3D Glasses' pass, with the squeezed views' box test or the others' (also embedded by the native engine). */
+export const GLASSES_DECLS = "uniform vec2 u_shift; uniform vec4 u_box; uniform vec4 u_rects[2]; uniform int u_view; uniform vec2 u_half; uniform float u_green;";
+export const glassesBody = (squeezed: boolean): string => `  vec2 ql = p, qr = p;
+  bool inLeft = true, inRight = true;
+  if (u_view == ${GlassesView.SIDE_BY_SIDE}) { inLeft = p.x < u_half.x; inRight = !inLeft; ql.x = 2.0 * p.x; qr.x = 2.0 * (p.x - u_half.x); }
+  else if (u_view == ${GlassesView.OVER_UNDER}) { inLeft = p.y < u_half.y; inRight = !inLeft; ql.y = 2.0 * p.y; qr.y = 2.0 * (p.y - u_half.y); }
+  bool inBox = ${squeezed ? "true" : "all(greaterThanEqual(p, u_box.xy)) && all(lessThan(p, u_box.zw))"};
+  ql -= u_shift;
+  qr += u_shift;
+  bool repeat = u_view == ${GlassesView.INTERLACED} || u_view >= ${GlassesView.RED_GREEN};
+  if (repeat) {
+    ql = clamp(ql, u_rects[0].xy + 0.5, u_rects[0].zw - 0.5);
+    qr = clamp(qr, u_rects[1].xy + 0.5, u_rects[1].zw - 0.5);
+  }
+  bool okLeft = inLeft && (${squeezed ? "all(greaterThanEqual(ql + u_shift, u_box.xy)) && all(lessThan(ql + u_shift, u_box.zw))" : "inBox"});
+  bool okRight = inRight && (${squeezed ? "all(greaterThanEqual(qr - u_shift, u_box.xy)) && all(lessThan(qr - u_shift, u_box.zw))" : "inBox"});
+  vec4 l = okLeft ? at(0, ql) : vec4(0.0);
+  vec4 r = okRight ? at(1, qr) : vec4(0.0);
+  if (u_view == ${GlassesView.SIDE_BY_SIDE} || u_view == ${GlassesView.OVER_UNDER}) outColor = inLeft ? l : r;
+  else if (u_view == ${GlassesView.INTERLACED}) outColor = mod(floor(p.y - u_box.y), 2.0) < 0.5 ? l : r;
+  else if (u_view == ${GlassesView.DIFFERENCE}) outColor = vec4(abs(l.rgb - r.rgb), max(l.a, r.a));
+  else {
+    float a = 0.5 * (l.a + r.a);
+    float yl = luma(straight(l));
+    float yr = luma(straight(r));
+    outColor = vec4(yl, u_green * yr, u_view == ${GlassesView.RED_GREEN} ? 0.0 : yr, 1.0) * a;
+  }`;
+
 // 3D Glasses: Left View moved right by Scene Convergence and down by Vertical Alignment, Right View the other way,
 // over the box from the later of their starts to the later of their ends. Side by side and over-under squeeze each
 // view into its half of the layer; Interlaced alternates rows (left on even ones); Difference subtracts them; the
@@ -579,32 +607,8 @@ registerStock(
       ctx,
       rect,
       views,
-      "uniform vec2 u_shift; uniform vec4 u_box; uniform vec4 u_rects[2]; uniform int u_view; uniform vec2 u_half; uniform float u_green;",
-      `  vec2 ql = p, qr = p;
-  bool inLeft = true, inRight = true;
-  if (u_view == ${GlassesView.SIDE_BY_SIDE}) { inLeft = p.x < u_half.x; inRight = !inLeft; ql.x = 2.0 * p.x; qr.x = 2.0 * (p.x - u_half.x); }
-  else if (u_view == ${GlassesView.OVER_UNDER}) { inLeft = p.y < u_half.y; inRight = !inLeft; ql.y = 2.0 * p.y; qr.y = 2.0 * (p.y - u_half.y); }
-  bool inBox = ${squeezed ? "true" : "all(greaterThanEqual(p, u_box.xy)) && all(lessThan(p, u_box.zw))"};
-  ql -= u_shift;
-  qr += u_shift;
-  bool repeat = u_view == ${GlassesView.INTERLACED} || u_view >= ${GlassesView.RED_GREEN};
-  if (repeat) {
-    ql = clamp(ql, u_rects[0].xy + 0.5, u_rects[0].zw - 0.5);
-    qr = clamp(qr, u_rects[1].xy + 0.5, u_rects[1].zw - 0.5);
-  }
-  bool okLeft = inLeft && (${squeezed ? "all(greaterThanEqual(ql + u_shift, u_box.xy)) && all(lessThan(ql + u_shift, u_box.zw))" : "inBox"});
-  bool okRight = inRight && (${squeezed ? "all(greaterThanEqual(qr - u_shift, u_box.xy)) && all(lessThan(qr - u_shift, u_box.zw))" : "inBox"});
-  vec4 l = okLeft ? at(0, ql) : vec4(0.0);
-  vec4 r = okRight ? at(1, qr) : vec4(0.0);
-  if (u_view == ${GlassesView.SIDE_BY_SIDE} || u_view == ${GlassesView.OVER_UNDER}) outColor = inLeft ? l : r;
-  else if (u_view == ${GlassesView.INTERLACED}) outColor = mod(floor(p.y - u_box.y), 2.0) < 0.5 ? l : r;
-  else if (u_view == ${GlassesView.DIFFERENCE}) outColor = vec4(abs(l.rgb - r.rgb), max(l.a, r.a));
-  else {
-    float a = 0.5 * (l.a + r.a);
-    float yl = luma(straight(l));
-    float yr = luma(straight(r));
-    outColor = vec4(yl, u_green * yr, u_view == ${GlassesView.RED_GREEN} ? 0.0 : yr, 1.0) * a;
-  }`,
+      GLASSES_DECLS,
+      glassesBody(squeezed),
       (u) => {
         const gl = ctx.gl;
         gl.uniform2f(u("u_shift"), convergence, alignment);

@@ -1,9 +1,10 @@
 /**
- * Radial Shadow and CC Spotlight, ported from src/render/effects/perspectiveTime.ts with the same shaders.
+ * Radial Shadow, CC Spotlight and 3D Glasses, ported from src/render/effects/perspectiveTime.ts with the same shaders.
  */
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <utility>
 #include <vector>
 
 #include "effects.h"
@@ -97,9 +98,94 @@ FxImage spotlight(FxImage input, const Effect& effect, const EffectLayer& layer,
   return out;
 }
 
+/** 3D Glasses' 3D View choices. */
+enum GlassesView : int32_t {
+  kSideBySide = 1,
+  kOverUnder = 2,
+  kInterlaced = 3,
+  kDifference = 4,
+  kRedGreen = 5,
+  kRedBlue = 6,
+  kBalancedRedGreen = 7,
+  kBalancedRedBlue = 8,
+  kBalancedBlueRed = 9,
+};
+#define GLASSES_MENU {"SBS", "OU", "Interlaced", "Difference", "(-", "RG", "RB", "(-", "BRG", "BRB", "(-", "BCBR"}
+
+/** The share of the right view's luminance After Effects writes to green in Red Green and Red Blue LR. */
+float glassesGreen(int32_t view) { return view == kRedGreen ? 0.8025f : view == kRedBlue ? 0.549f : 0.0f; }
+
+/** The view layer parameter `param` names, or none (`image.target` unset). */
+FxImage glassesView(FxContext& ctx, const Effect& effect, uint32_t param) {
+  FxImage image;
+  EffectLayer other;
+  if (ctx.source(effect, param, image, other) != FxSource::Image) image.target = nullptr;
+  return image;
+}
+
+/**
+ * 3D Glasses: Left View moved right by Scene Convergence and down by Vertical Alignment, Right View the other way, over
+ * the box from the later of their starts to the later of their ends. Side by side and over-under squeeze each view
+ * into its half of the layer; Interlaced alternates rows (left on even ones); Difference subtracts them; the anaglyphs
+ * write the left view's luminance to red and the right view's to green or blue, at the views' mean alpha, each view
+ * repeating its edge pixels. The Balanced views render as their plain anaglyphs.
+ */
+FxImage glasses(FxImage input, const Effect& effect, const EffectLayer& layer, FxContext& ctx) {
+  const FxParams p(effect);
+  const double scale = input.scale;
+  FxImage left = glassesView(ctx, effect, 1), right = glassesView(ctx, effect, 2);
+  if (p.flag(4, false)) std::swap(left, right);
+  const bool percent = p.choice(8, 1) == 2;
+  const double convergence = p.num(3, 0) * (percent ? layer.width / 100.0 : 1) * scale;
+  const double alignment = p.num(7, 0) * (percent ? layer.height / 100.0 : 1) * scale;
+  int32_t view = p.choice(5, kRedBlue, GLASSES_MENU);
+  if (view == kBalancedRedGreen) view = kRedGreen;
+  if (view == kBalancedRedBlue || view == kBalancedBlueRed) view = kRedBlue;
+  if (!left.target && !right.target) return input;
+  if (!left.target) left = layerPass(ctx, imageRect(right), {}, fx::blank, {}, right.scale);
+  if (!right.target) right = layerPass(ctx, imageRect(left), {}, fx::blank, {}, left.scale);
+  const FxImage views[2] = {left, right};
+  FxRect shifted[2];
+  for (int i = 0; i < 2; i++) {
+    shifted[i] = imageRect(views[i]);
+    const double sign = i == 0 ? 1 : -1;
+    shifted[i].x += sign * convergence;
+    shifted[i].y += sign * alignment;
+  }
+  const double bx = std::max(shifted[0].x, shifted[1].x), by = std::max(shifted[0].y, shifted[1].y);
+  const FxRect box = {bx, by, std::max(shifted[0].x + shifted[0].width, shifted[1].x + shifted[1].width) - bx,
+                      std::max(shifted[0].y + shifted[0].height, shifted[1].y + shifted[1].height) - by};
+  const bool squeezed = view == kSideBySide || view == kOverUnder;
+  const double half[2] = {layer.width * scale / 2, layer.height * scale / 2};
+  const FxRect rect = clampRect(view == kSideBySide  ? FxRect{0, box.y, layer.width * scale, box.height}
+                                : view == kOverUnder ? FxRect{box.x, 0, box.width, layer.height * scale}
+                                                     : box);
+  float rects[8];
+  for (int i = 0; i < 2; i++) {
+    const FxRect r = imageRect(views[i]);
+    rects[4 * i] = float(r.x);
+    rects[4 * i + 1] = float(r.y);
+    rects[4 * i + 2] = float(r.x + r.width);
+    rects[4 * i + 3] = float(r.y + r.height);
+  }
+  FxImage out = layerPass(ctx, rect, {left, right}, squeezed ? fx::glasses_squeezed : fx::glasses, [&](FxUniforms& u) {
+    u.f("u_shift", float(convergence), float(alignment));
+    u.f("u_box", float(box.x), float(box.y), float(box.x + box.width), float(box.y + box.height));
+    u.fv("u_rects", rects, 2, 4);
+    u.i("u_view", view);
+    u.f("u_half", float(half[0]), float(half[1]));
+    u.f("u_green", glassesGreen(view));
+  });
+  ctx.release(left.target);
+  ctx.release(right.target);
+  ctx.release(input.target);
+  return out;
+}
+
 }  // namespace
 
 FxRenderer radialShadowRenderer() { return radialShadow; }
 FxRenderer spotlightRenderer() { return spotlight; }
+FxRenderer glassesRenderer() { return glasses; }
 
 }  // namespace aevk

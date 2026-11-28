@@ -56,6 +56,7 @@ export const NATIVE_EFFECTS: ReadonlyMap<string, NativeEffect> = new Map([
   ["ADBE Set Matte3", effect(true)],
   ["ADBE Remove Color Matting", effect(true)],
   ["ADBE Difference Matte2", effect(true)],
+  ["ADBE 3D Glasses2", effect(true)],
   ["ADBE Linear Color Key2", effect(true)],
   ["ADBE Color Key", effect(true)],
   ["ADBE Luma Key", effect(true)],

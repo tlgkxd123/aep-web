@@ -57,6 +57,7 @@ FxRenderer fxRenderer(const std::string& matchName) {
       {"ADBE Set Matte3", setMatteRenderer},
       {"ADBE Remove Color Matting", removeColorMattingRenderer},
       {"ADBE Difference Matte2", differenceMatteRenderer},
+      {"ADBE 3D Glasses2", glassesRenderer},
       {"ADBE Linear Color Key2", linearColorKeyRenderer},
       {"ADBE Color Key", colorKeyRenderer},
       {"ADBE Luma Key", lumaKeyRenderer},

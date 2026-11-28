@@ -62,6 +62,7 @@ FxRenderer texturizeRenderer();
 FxRenderer setMatteRenderer();
 FxRenderer removeColorMattingRenderer();
 FxRenderer differenceMatteRenderer();
+FxRenderer glassesRenderer();
 FxRenderer linearColorKeyRenderer();
 FxRenderer colorKeyRenderer();
 FxRenderer lumaKeyRenderer();

@@ -230,6 +230,8 @@ export const FX_SHADERS: FxShaderSource[] = [
   layerPass("radial_shadow", 1, ref("perspectiveTime.ts", "RADIAL_SHADOW_DECLS"), ref("perspectiveTime.ts", "RADIAL_SHADOW_BODY")),
   layerPass("shadow_under", 2, ref("perspectiveTime.ts", "SHADOW_UNDER_DECLS"), ref("perspectiveTime.ts", "SHADOW_UNDER_BODY")),
   layerPass("cc_spotlight", 1, ref("perspectiveTime.ts", "SPOTLIGHT_DECLS"), ref("perspectiveTime.ts", "SPOTLIGHT_BODY")),
+  layerPass("glasses_squeezed", 2, ref("perspectiveTime.ts", "GLASSES_DECLS"), ref("perspectiveTime.ts", "glassesBody", true)),
+  layerPass("glasses", 2, ref("perspectiveTime.ts", "GLASSES_DECLS"), ref("perspectiveTime.ts", "glassesBody", false)),
   stylize("texturize", 2, "TEXTURIZE"),
   layerPass("set_matte", 2, ref("matte.ts", "SET_MATTE_DECLS"), ref("matte.ts", "SET_MATTE_BODY")),
   layerPass("difference_matte", 3, ref("keying.ts", "DIFFERENCE_MATTE_DECLS"), ref("keying.ts", "DIFFERENCE_MATTE_BODY")),
