@@ -33,6 +33,32 @@ registerStock("ADBE Fill", (input, p, ctx) => {
 /** Set Matte's Use For Matte popup. */
 const MatteChannel = { RED: 1, GREEN: 2, BLUE: 3, ALPHA: 4, LUMINANCE: 5, HUE: 6, LIGHTNESS: 7, SATURATION: 8, FULL: 9, OFF: 10 } as const;
 
+/** Set Matte's pass (also embedded by the native engine). */
+export const SET_MATTE_DECLS = `uniform int u_channel;
+uniform int u_hasMatte;
+uniform int u_invert;
+uniform int u_composite;
+uniform int u_premultiply;
+uniform vec2 u_scale;
+uniform vec2 u_offset;`;
+export const SET_MATTE_BODY = `  vec4 c = at(0, p);
+  vec4 m = u_hasMatte == 1 ? at(1, p * u_scale + u_offset) : vec4(0.0);
+  vec3 s = u_premultiply == 1 ? m.rgb : straight(m);
+  vec3 hsl = rgb2hsl(straight(m));
+  float v;
+  if (u_channel == 1) v = s.r;
+  else if (u_channel == 2) v = s.g;
+  else if (u_channel == 3) v = s.b;
+  else if (u_channel == 4) v = m.a;
+  else if (u_channel == 5) v = luma(s);
+  else if (u_channel == 6) v = hsl.x;
+  else if (u_channel == 7) v = hsl.z;
+  else if (u_channel == 8) v = hsl.y;
+  else v = 1.0;
+  if (u_invert == 1) v = 1.0 - v;
+  float a = u_composite == 1 ? c.a * v : v;
+  outColor = vec4(straight(c) * a, a);`;
+
 // Set Matte: the layer's alpha from a channel of another layer's source (the layer itself when none is chosen),
 // stretched over the layer's box or centred on it, optionally inverted, times the layer's own alpha with Composite
 // Matte with Original; Premultiply Matte Layer reads the matte layer's colour premultiplied.
@@ -58,30 +84,8 @@ registerStock("ADBE Set Matte3", (input, p, ctx, layer, time) => {
     ctx,
     imageRect(input),
     matte ? [input, matte] : [input],
-    `uniform int u_channel;
-uniform int u_hasMatte;
-uniform int u_invert;
-uniform int u_composite;
-uniform int u_premultiply;
-uniform vec2 u_scale;
-uniform vec2 u_offset;`,
-    `  vec4 c = at(0, p);
-  vec4 m = u_hasMatte == 1 ? at(1, p * u_scale + u_offset) : vec4(0.0);
-  vec3 s = u_premultiply == 1 ? m.rgb : straight(m);
-  vec3 hsl = rgb2hsl(straight(m));
-  float v;
-  if (u_channel == 1) v = s.r;
-  else if (u_channel == 2) v = s.g;
-  else if (u_channel == 3) v = s.b;
-  else if (u_channel == 4) v = m.a;
-  else if (u_channel == 5) v = luma(s);
-  else if (u_channel == 6) v = hsl.x;
-  else if (u_channel == 7) v = hsl.z;
-  else if (u_channel == 8) v = hsl.y;
-  else v = 1.0;
-  if (u_invert == 1) v = 1.0 - v;
-  float a = u_composite == 1 ? c.a * v : v;
-  outColor = vec4(straight(c) * a, a);`,
+    SET_MATTE_DECLS,
+    SET_MATTE_BODY,
     (u) => {
       const gl = ctx.gl;
       gl.uniform1i(u("u_channel"), channel);

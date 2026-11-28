@@ -1,8 +1,9 @@
 /**
- * One-pass effects, ported with the same shaders: Fill (matte.ts), Polar Coordinates (polar.ts), Mirror and Gradient
- * Ramp (mirrorRamp.ts).
+ * One-pass effects, ported with the same shaders: Fill and Set Matte (matte.ts), Remove Color Matting
+ * (removeColorMatting.ts), Polar Coordinates (polar.ts), Mirror and Gradient Ramp (mirrorRamp.ts).
  */
 #include <algorithm>
+#include <array>
 #include <cmath>
 
 #include "effects.h"
@@ -81,11 +82,68 @@ FxImage ramp(FxImage input, const Effect& effect, const EffectLayer& layer, FxCo
   });
 }
 
+/** Set Matte's Use For Matte choices. */
+enum MatteChannel : int32_t { kMatteAlpha = 4, kMatteOff = 10 };
+
+/**
+ * Set Matte: the layer's alpha from a channel of another layer's source (the layer itself when none is chosen),
+ * stretched over the layer's box or centred on it, optionally inverted, times the layer's own alpha with Composite
+ * Matte with Original; Premultiply Matte Layer reads the matte layer's colour premultiplied.
+ */
+FxImage setMatte(FxImage input, const Effect& effect, const EffectLayer& layer, FxContext& ctx) {
+  const FxParams p(effect);
+  const int32_t channel = int32_t(p.num(2, kMatteAlpha));
+  if (channel == kMatteOff) return input;
+  const double k = input.scale;
+  FxImage matte;
+  EffectLayer other;
+  const FxSource found = ctx.source(effect, 1, matte, other);
+  const bool own = found == FxSource::None;
+  const bool hasMatte = own || (found == FxSource::Image && matte.target);
+  const FxRect rect = layerRect(layer, input);
+  /** Matte layer point = scale * layer point + offset, per axis. */
+  double scale[2] = {1, 1}, offset[2] = {0, 0};
+  if (hasMatte && !own) {
+    const double mk = matte.scale;
+    const FxRect mrect = layerRect(other, matte);
+    if (p.flag(4, true)) {
+      scale[0] = mrect.width / rect.width;
+      scale[1] = mrect.height / rect.height;
+    } else {
+      scale[0] = scale[1] = mk / k;
+    }
+    offset[0] = mrect.x + mrect.width / 2 - (rect.x + rect.width / 2) * scale[0];
+    offset[1] = mrect.y + mrect.height / 2 - (rect.y + rect.height / 2) * scale[1];
+  }
+  const FxImage second = hasMatte && !own ? matte : input;
+  FxImage out = layerPass(ctx, imageRect(input), {input, second}, fx::set_matte, [&](FxUniforms& u) {
+    u.i("u_channel", channel);
+    u.i("u_hasMatte", hasMatte ? 1 : 0);
+    u.i("u_invert", p.flag(3, false) ? 1 : 0);
+    u.i("u_composite", p.flag(5, true) ? 1 : 0);
+    u.i("u_premultiply", p.flag(6, true) ? 1 : 0);
+    u.f("u_scale", float(scale[0]), float(scale[1]));
+    u.f("u_offset", float(offset[0]), float(offset[1]));
+  }, input.scale);
+  if (hasMatte && !own) ctx.release(matte.target);
+  ctx.release(input.target);
+  return out;
+}
+
+/** Remove Color Matting: colours un-matted from Background Color, straight out = (straight - bg (1 - a)) / a. */
+FxImage removeColorMatting(FxImage input, const Effect& effect, const EffectLayer&, FxContext& ctx) {
+  const FxParams p(effect);
+  const std::array<float, 3> bg = p.rgb(1, {0, 0, 0});
+  return mapPass(ctx, input, fx::remove_color_matting, [&](FxUniforms& u) { u.f("u_background", bg[0], bg[1], bg[2]); });
+}
+
 }  // namespace
 
 FxRenderer fillRenderer() { return fill; }
 FxRenderer polarRenderer() { return polar; }
 FxRenderer mirrorRenderer() { return mirror; }
 FxRenderer rampRenderer() { return ramp; }
+FxRenderer setMatteRenderer() { return setMatte; }
+FxRenderer removeColorMattingRenderer() { return removeColorMatting; }
 
 }  // namespace aevk

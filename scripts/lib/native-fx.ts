@@ -231,6 +231,9 @@ export const FX_SHADERS: FxShaderSource[] = [
   layerPass("shadow_under", 2, ref("perspectiveTime.ts", "SHADOW_UNDER_DECLS"), ref("perspectiveTime.ts", "SHADOW_UNDER_BODY")),
   layerPass("cc_spotlight", 1, ref("perspectiveTime.ts", "SPOTLIGHT_DECLS"), ref("perspectiveTime.ts", "SPOTLIGHT_BODY")),
   stylize("texturize", 2, "TEXTURIZE"),
+  layerPass("set_matte", 2, ref("matte.ts", "SET_MATTE_DECLS"), ref("matte.ts", "SET_MATTE_BODY")),
+  layerPass("difference_matte", 3, ref("keying.ts", "DIFFERENCE_MATTE_DECLS"), ref("keying.ts", "DIFFERENCE_MATTE_BODY")),
+  shader("remove_color_matting", "removeColorMatting.ts", "RCM_FS"),
   layerPass("mosaic", 1, ref("stylize.ts", "MOSAIC_DECLS"), ref("stylize.ts", "MOSAIC_BODY")),
   layerPass("noise", 1, ref("stylize.ts", "NOISE_DECLS"), ref("stylize.ts", "NOISE_BODY")),
 ];

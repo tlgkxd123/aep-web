@@ -245,6 +245,59 @@ FxImage advancedSpillSuppressor(FxImage input, const Effect& effect, const Effec
   return keyPass(ctx, input, fx::key_spill2, kViewFinal, [&](FxUniforms& u) { u.f("u_amount", float(amount)); });
 }
 
+/** Difference Matte's Difference Layer placement choice that stretches it over the layer. */
+constexpr int32_t kStretchToFit = 2;
+
+/**
+ * Difference Matte: the pixels whose colour matches the Difference Layer's source (centred on the layer, or stretched
+ * over it) within Matching Tolerance are keyed out, softened over Matching Softness (a ramp of the squared distance);
+ * both are blurred first by Blur Before Difference.
+ */
+FxImage differenceMatte(FxImage input, const Effect& effect, const EffectLayer& layer, FxContext& ctx) {
+  const FxParams p(effect);
+  const int32_t view = int32_t(p.num(1, kViewFinal));
+  if (view == kViewSource) return input;
+  FxImage plate;
+  EffectLayer other;
+  const bool hasPlate = ctx.source(effect, 2, plate, other) == FxSource::Image && plate.target;
+  const double k = input.scale;
+  const double blur = p.num(6, 0);
+  FxImage source = input;
+  bool ownSource = false;
+  if (blur > 0) {
+    source = featherMatte(ctx, copyImage(ctx, input), blur * k);
+    ownSource = true;
+    if (hasPlate) plate = featherMatte(ctx, plate, blur * k);
+  }
+  const FxRect rect = layerRect(layer, input);
+  double scale[2] = {1, 1}, offset[2] = {0, 0};
+  if (hasPlate) {
+    const double mk = plate.scale;
+    const FxRect mrect = layerRect(other, plate);
+    if (p.num(3, 1) == kStretchToFit) {
+      scale[0] = mrect.width / rect.width;
+      scale[1] = mrect.height / rect.height;
+    } else {
+      scale[0] = scale[1] = mk / k;
+    }
+    offset[0] = mrect.x + mrect.width / 2 - (rect.x + rect.width / 2) * scale[0];
+    offset[1] = mrect.y + mrect.height / 2 - (rect.y + rect.height / 2) * scale[1];
+  }
+  FxImage out = layerPass(ctx, imageRect(input), {input, source, hasPlate ? plate : source}, fx::difference_matte, [&](FxUniforms& u) {
+    u.i("u_view", view);
+    u.i("u_hasPlate", hasPlate ? 1 : 0);
+    /** Fitted to keying_dmatte: the premultiplied RGB distance in 8-bit steps against the tolerance, its square ramped over the softness. */
+    u.f("u_tolerance", float(p.num(4, 15) * 4.37));
+    u.f("u_softness", float(p.num(5, 0) * 1302.6));
+    u.f("u_scale", float(scale[0]), float(scale[1]));
+    u.f("u_offset", float(offset[0]), float(offset[1]));
+  }, input.scale);
+  if (hasPlate) ctx.release(plate.target);
+  if (ownSource) ctx.release(source.target);
+  ctx.release(input.target);
+  return out;
+}
+
 }  // namespace
 
 FxRenderer linearColorKeyRenderer() { return linearColorKey; }
@@ -255,5 +308,6 @@ FxRenderer colorRangeRenderer() { return colorRange; }
 FxRenderer matteChokerRenderer() { return matteChoker; }
 FxRenderer spillSuppressorRenderer() { return spillSuppressor; }
 FxRenderer advancedSpillSuppressorRenderer() { return advancedSpillSuppressor; }
+FxRenderer differenceMatteRenderer() { return differenceMatte; }
 
 }  // namespace aevk

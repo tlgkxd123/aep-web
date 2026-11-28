@@ -364,6 +364,22 @@ registerStock("ADBE Color Range", (input, p, ctx) =>
   ),
 );
 
+/** Difference Matte's pass (also embedded by the native engine). */
+export const DIFFERENCE_MATTE_DECLS = `uniform int u_view;
+uniform int u_hasPlate;
+uniform float u_tolerance;
+uniform float u_softness;
+uniform vec2 u_scale;
+uniform vec2 u_offset;`;
+export const DIFFERENCE_MATTE_BODY = `  vec4 c = at(0, p);
+  vec4 b = at(1, p);
+  vec4 o = u_hasPlate == 1 ? at(2, p * u_scale + u_offset) : vec4(0.0);
+  vec3 d3 = (b.rgb - o.rgb) * 255.0;
+  float e = dot(d3, d3) - u_tolerance * u_tolerance;
+  float m = u_softness > 0.0 ? clamp(e / u_softness, 0.0, 1.0) : (e > 0.0 ? 1.0 : 0.0);
+  float a = c.a * m;
+  outColor = u_view == 3 ? vec4(vec3(a), 1.0) : vec4(straight(c) * a, a);`;
+
 // Difference Matte: the pixels whose colour matches the Difference Layer's source (centred on the layer, or stretched
 // over it) within Matching Tolerance are keyed out, softened over Matching Softness (a ramp of the squared distance,
 // as Linear Color Key's); both are blurred first by Blur Before Difference. It reads another layer, so it is drawn
@@ -398,20 +414,8 @@ registerStock(
       ctx,
       imageRect(input),
       sources,
-      `uniform int u_view;
-uniform int u_hasPlate;
-uniform float u_tolerance;
-uniform float u_softness;
-uniform vec2 u_scale;
-uniform vec2 u_offset;`,
-      `  vec4 c = at(0, p);
-  vec4 b = at(1, p);
-  vec4 o = u_hasPlate == 1 ? at(2, p * u_scale + u_offset) : vec4(0.0);
-  vec3 d3 = (b.rgb - o.rgb) * 255.0;
-  float e = dot(d3, d3) - u_tolerance * u_tolerance;
-  float m = u_softness > 0.0 ? clamp(e / u_softness, 0.0, 1.0) : (e > 0.0 ? 1.0 : 0.0);
-  float a = c.a * m;
-  outColor = u_view == 3 ? vec4(vec3(a), 1.0) : vec4(straight(c) * a, a);`,
+      DIFFERENCE_MATTE_DECLS,
+      DIFFERENCE_MATTE_BODY,
       (u) => {
         ctx.gl.uniform1i(u("u_view"), view);
         ctx.gl.uniform1i(u("u_hasPlate"), plate ? 1 : 0);
