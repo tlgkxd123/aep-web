@@ -83,6 +83,8 @@ sShape TransformShape(const sShape& shape, const sAffine& m)
 	sShape out;
 	out.m_bClosed = shape.m_bClosed;
 	out.m_Vertices.reserve(shape.m_Vertices.size());
+	out.m_InTangents.reserve(shape.m_InTangents.size());
+	out.m_OutTangents.reserve(shape.m_OutTangents.size());
 	for (const sVec2& v : shape.m_Vertices)
 	{
 		out.m_Vertices.push_back(ApplyPoint(m, v));
@@ -337,6 +339,7 @@ std::vector<sCubic> Segments(const sShape& shape)
 	const s64 n = s64(shape.m_Vertices.size());
 	const s64 count = shape.m_bClosed ? n : n - 1;
 	std::vector<sCubic> out;
+	out.reserve(size_t(std::max<s64>(0, count)));
 	for (s64 i = 0; i < count; i++)
 	{
 		const size_t j = size_t((i + 1) % n);

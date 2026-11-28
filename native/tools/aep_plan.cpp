@@ -142,7 +142,7 @@ int main(int argc, char** argv)
 			}
 #if AEP_EXPRESSIONS
 			engine.reset();
-			if (ok && expressions)
+			if (ok && expressions && aep::ProjectHasExpressions(*project))
 			{
 				engine = aep::CExpressionEngine::Create(*project, error);
 				if (!engine)

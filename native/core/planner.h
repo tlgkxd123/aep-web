@@ -70,4 +70,11 @@ private:
 /** Pixels of a comp dimension rendered at `scale` (1/3 of 1920 is 640, not 641). */
 f64 ScaledSize(f64 size, f64 scale);
 
+/**
+ * Whether any layer in `project` has an expression turned on. Without one the expression engine is never asked, so it
+ * need not start: its startup (the script, and the project read a second time in JavaScript) is most of opening a big
+ * project, and its copy of the model can be ten times the file's size.
+ */
+bool ProjectHasExpressions(const CProject& project);
+
 } /** namespace aep */

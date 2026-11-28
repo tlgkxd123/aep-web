@@ -251,6 +251,24 @@ native/build/aep-play --frames 30 --wire refs/fixtures/transitions2.aep
   same at 1920x1440, all GPU time rasterized on the CPU. Real GPUs, desktop or phone, are not in this environment.
 
 
+## Measured (before the pull request)
+
+Same machine, November 28, 2026, with every effect ported so far and expressions built in (`-DAEP_EXPRESSIONS=ON`):
+
+- **Parity.** All 2,579 manifest frames match the TypeScript planner, with and without expressions (2,507 complete
+  plans field by field, 72 on the same list of what neither side renders).
+- **Parsing** averages 47 ms a project in C++ against 133 to 141 ms in Node; **planning** 0.20 ms a frame against
+  1.23 ms (0.63 against 1.35 with expressions). The heaviest shape layer here (`keying_src_palette`) plans in about
+  5 ms against 40 ms in Node; most of that is memory being allocated and freed for each shape.
+- **Opening a project.** The expression engine starts only when a layer has an expression turned on. Before this
+  change every project paid for it: 0.8 to 2 s for the fixtures, about 10 s and 700 MB for the 70 MB
+  `particular.aep`, which failed outright against the engine's 512 MB limit (the limit now grows with the file).
+  A project with expressions still pays about 0.5 s for a small one and 1.6 s for `fxextra.aep`: QuickJS reads the
+  project a second time with the web app's parser, about 20 times slower than the C++ parse. Handing the C++ model to
+  the script instead would remove that; it is not done yet.
+- **Rendering** on lavapipe is unchanged in kind: GPU time rasterized on the CPU, from 1 ms for small comps to 350 ms
+  for `keying_src_palette`. No phone or desktop GPU has been measured here.
+
 ## iOS
 
 The core (`aepcore`) is plain C++17 and builds for iOS as is. The engine needs MoltenVK (Vulkan on Metal, Apache-2.0),

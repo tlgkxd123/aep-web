@@ -63,7 +63,8 @@ std::unique_ptr<CPlaybackSession> CPlaybackSession::Create(aevk::Engine& engine,
 		return nullptr;
 	}
 	session->m_pPlanner = std::make_unique<CFramePlanner>(*session->m_pProject);
-	if (expressions)
+	/** A project with no expressions plans the same without the engine, and opens far sooner and smaller. */
+	if (expressions && ProjectHasExpressions(*session->m_pProject))
 	{
 #if AEP_EXPRESSIONS
 		const tClock::time_point start = tClock::now();

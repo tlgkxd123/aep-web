@@ -119,7 +119,7 @@ int main(int argc, char** argv)
 	f64 expressionStartupMs = 0;
 #if AEP_EXPRESSIONS
 	std::unique_ptr<aep::CExpressionEngine> engineJs;
-	if (expressions)
+	if (expressions && aep::ProjectHasExpressions(project))
 	{
 		engineJs = aep::CExpressionEngine::Create(project, error);
 		if (!engineJs)

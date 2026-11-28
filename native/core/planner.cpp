@@ -554,6 +554,21 @@ bool HasExpressions(const CPropertyNode& node)
 
 } /** namespace */
 
+bool ProjectHasExpressions(const CProject& project)
+{
+	for (const auto& entry : project.m_Items)
+	{
+		for (const auto& layer : entry.second->m_Layers)
+		{
+			if (HasExpressions(layer->m_Properties))
+			{
+				return true;
+			}
+		}
+	}
+	return false;
+}
+
 f64 ScaledSize(f64 size, f64 scale)
 {
 	return scale == 1 ? size : std::max(1.0, std::ceil(size * scale - 1e-6));
