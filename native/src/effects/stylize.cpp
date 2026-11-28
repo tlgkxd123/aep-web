@@ -1,6 +1,6 @@
 /**
  * Stylize effects, ported from src/render/effects/stylizeExtra.ts with the same shaders: CC Threshold, CC Threshold RGB,
- * Strobe Light, Find Edges, Emboss, Color Emboss, CC RepeTile, CC Kaleida, CS HexTile and CS BlockLoad.
+ * Strobe Light, Find Edges, Emboss, Color Emboss, CC RepeTile, CC Kaleida, CS HexTile, CS BlockLoad and Texturize.
  */
 #include <algorithm>
 #include <cmath>
@@ -260,6 +260,37 @@ FxImage blockLoad(FxImage input, const Effect& effect, const EffectLayer& layer,
   });
 }
 
+/** Texturize's Texture Placement choices. */
+enum TexturePlacement : int32_t { kTextureTile = 1 };
+
+/**
+ * Texturize: the layer's straight colour plus Texture Contrast times the relief of the texture layer, channel by
+ * channel: the difference of its colour one texture pixel either way along Light Direction (bilinear), taken at its
+ * pixels and interpolated between them. The texture is tiled from the layer's top left corner, stretched over the
+ * layer (and wrapping at its edges), or placed once centred on it (transparent around).
+ */
+FxImage texturize(FxImage input, const Effect& effect, const EffectLayer& layer, FxContext& ctx) {
+  const FxParams p(effect);
+  FxImage texture;
+  EffectLayer other;
+  if (ctx.source(effect, 1, texture, other) != FxSource::Image || !texture.target) return input;
+  const double k = input.scale;
+  const FxRect box = layerRect(layer, input);
+  const FxRect textureBox = layerRect(other, texture);
+  const int32_t placement = p.choice(4, kTextureTile);
+  const std::array<double, 2> light = directionVector(p.num(2, 135));
+  FxImage out = layerPass(ctx, imageRect(input), {input, texture}, fx::texturize, [&](FxUniforms& u) {
+    u.f("u_box", float(box.x), float(box.y), float(box.width), float(box.height));
+    u.f("u_texture", float(textureBox.x), float(textureBox.y), float(textureBox.width), float(textureBox.height));
+    u.i("u_placement", placement);
+    u.f("u_light", float(light[0] * k), float(light[1] * k));
+    u.f("u_contrast", float(std::max(0.0, p.num(3, 1))));
+  }, input.scale);
+  ctx.release(input.target);
+  ctx.release(texture.target);
+  return out;
+}
+
 }  // namespace
 
 FxRenderer thresholdRenderer() { return threshold; }
@@ -276,5 +307,6 @@ FxRenderer kaleidaRenderer() { return kaleida; }
 FxRenderer hexTileRenderer() { return hexTile; }
 FxRenderer blockLoadRenderer() { return blockLoad; }
 FxRenderer strobeRenderer() { return strobe; }
+FxRenderer texturizeRenderer() { return texturize; }
 
 }  // namespace aevk

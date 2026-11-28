@@ -604,6 +604,24 @@ registerStock("CS BlockLoad", (input, p, ctx, layer) => {
 /** Texturize's Texture Placement popup. */
 const TexturePlacement = { TILE: 1, CENTER: 2, STRETCH: 3 } as const;
 
+/** Texturize's relief pass (also embedded by the native engine). */
+export const TEXTURIZE_DECLS = `uniform vec4 u_box;
+uniform vec4 u_texture;
+uniform int u_placement;
+uniform vec2 u_light;
+uniform float u_contrast;
+#define TEXEL(q) at(1, u_texture.xy + (u_placement == ${TexturePlacement.CENTER} ? q : mod(q, u_texture.zw)) + 0.5)
+#define TEXTURE_AT(s) mix(mix(TEXEL(floor(s)), TEXEL(floor(s) + vec2(1.0, 0.0)), fract(s).x), mix(TEXEL(floor(s) + vec2(0.0, 1.0)), TEXEL(floor(s) + 1.0), fract(s).x), fract(s).y)
+#define RELIEF(i) (TEXTURE_AT((i) + u_light) - TEXTURE_AT((i) - u_light))
+#define BILINEAR(F, s) mix(mix(F(floor(s)), F(floor(s) + vec2(1.0, 0.0)), fract(s).x), mix(F(floor(s) + vec2(0.0, 1.0)), F(floor(s) + 1.0), fract(s).x), fract(s).y)`;
+export const TEXTURIZE_BODY = `  vec4 c = at(0, p);
+  if (c.a <= 0.0) { outColor = vec4(0.0); return; }
+  vec2 s = p - u_box.xy - 0.5;
+  if (u_placement == ${TexturePlacement.CENTER}) s -= floor((u_box.zw - u_texture.zw) * 0.5);
+  else if (u_placement == ${TexturePlacement.STRETCH}) s *= u_texture.zw / u_box.zw;
+  vec3 relief = BILINEAR(RELIEF, s).rgb;
+  outColor = vec4(clamp(straight(c) + u_contrast * relief, 0.0, 1.0) * c.a, c.a);`;
+
 // Texturize: the layer's straight colour plus Texture Contrast times the relief of the texture layer, channel by
 // channel: the difference of its colour one texture pixel either way along Light Direction (bilinear), taken at its
 // pixels and interpolated between them. The texture is tiled from the layer's top left corner, stretched over the
@@ -624,22 +642,8 @@ registerStock(
     const out = pixelPass(
       ctx,
       input,
-      `uniform vec4 u_box;
-uniform vec4 u_texture;
-uniform int u_placement;
-uniform vec2 u_light;
-uniform float u_contrast;
-#define TEXEL(q) at(1, u_texture.xy + (u_placement == ${TexturePlacement.CENTER} ? q : mod(q, u_texture.zw)) + 0.5)
-#define TEXTURE_AT(s) mix(mix(TEXEL(floor(s)), TEXEL(floor(s) + vec2(1.0, 0.0)), fract(s).x), mix(TEXEL(floor(s) + vec2(0.0, 1.0)), TEXEL(floor(s) + 1.0), fract(s).x), fract(s).y)
-#define RELIEF(i) (TEXTURE_AT((i) + u_light) - TEXTURE_AT((i) - u_light))
-#define BILINEAR(F, s) mix(mix(F(floor(s)), F(floor(s) + vec2(1.0, 0.0)), fract(s).x), mix(F(floor(s) + vec2(0.0, 1.0)), F(floor(s) + 1.0), fract(s).x), fract(s).y)`,
-      `  vec4 c = at(0, p);
-  if (c.a <= 0.0) { outColor = vec4(0.0); return; }
-  vec2 s = p - u_box.xy - 0.5;
-  if (u_placement == ${TexturePlacement.CENTER}) s -= floor((u_box.zw - u_texture.zw) * 0.5);
-  else if (u_placement == ${TexturePlacement.STRETCH}) s *= u_texture.zw / u_box.zw;
-  vec3 relief = BILINEAR(RELIEF, s).rgb;
-  outColor = vec4(clamp(straight(c) + u_contrast * relief, 0.0, 1.0) * c.a, c.a);`,
+      TEXTURIZE_DECLS,
+      TEXTURIZE_BODY,
       (u) => {
         const gl = ctx.gl;
         gl.uniform4f(u("u_box"), box.x, box.y, box.width, box.height);

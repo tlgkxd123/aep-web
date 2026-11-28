@@ -58,6 +58,7 @@ FxRenderer keylightRenderer();
 FxRenderer eyedropperFillRenderer();
 FxRenderer radialShadowRenderer();
 FxRenderer spotlightRenderer();
+FxRenderer texturizeRenderer();
 FxRenderer linearColorKeyRenderer();
 FxRenderer colorKeyRenderer();
 FxRenderer lumaKeyRenderer();

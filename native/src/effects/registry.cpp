@@ -53,6 +53,7 @@ FxRenderer fxRenderer(const std::string& matchName) {
       {"ADBE Eyedropper Fill", eyedropperFillRenderer},
       {"ADBE Radial Shadow", radialShadowRenderer},
       {"CC Spotlight", spotlightRenderer},
+      {"ADBE Texturize", texturizeRenderer},
       {"ADBE Linear Color Key2", linearColorKeyRenderer},
       {"ADBE Color Key", colorKeyRenderer},
       {"ADBE Luma Key", lumaKeyRenderer},
