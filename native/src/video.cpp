@@ -281,6 +281,88 @@ std::unique_ptr<VideoReader> openVideo(const std::string& path, std::string& err
   return reader;
 }
 
+bool decodeStill(const std::string& path, uint32_t& width, uint32_t& height, std::vector<uint8_t>& rgba, std::string& error) {
+  AVFormatContext* format = nullptr;
+  int code = avformat_open_input(&format, path.c_str(), nullptr, nullptr);
+  if (code < 0) {
+    error = "the file cannot be opened: " + ffError(code);
+    return false;
+  }
+  AVCodecContext* codec = nullptr;
+  AVPacket* packet = av_packet_alloc();
+  AVFrame* frame = av_frame_alloc();
+  bool decoded = false;
+  const auto finish = [&](bool ok) {
+    av_frame_free(&frame);
+    av_packet_free(&packet);
+    avcodec_free_context(&codec);
+    avformat_close_input(&format);
+    return ok;
+  };
+  if (avformat_find_stream_info(format, nullptr) < 0) {
+    error = "the file holds no picture";
+    return finish(false);
+  }
+  const AVCodec* decoder = nullptr;
+  const int stream = av_find_best_stream(format, AVMEDIA_TYPE_VIDEO, -1, -1, &decoder, 0);
+  if (stream < 0 || !decoder) {
+    error = "the file holds no picture this build decodes";
+    return finish(false);
+  }
+  codec = avcodec_alloc_context3(decoder);
+  if (!codec || avcodec_parameters_to_context(codec, format->streams[stream]->codecpar) < 0 || avcodec_open2(codec, decoder, nullptr) < 0) {
+    error = "the picture's decoder cannot be opened";
+    return finish(false);
+  }
+  /** Packets until the first picture, then the decoder flushed for a picture it holds back. */
+  bool flushed = false;
+  while (!decoded) {
+    if (!flushed) {
+      code = av_read_frame(format, packet);
+      if (code < 0) {
+        avcodec_send_packet(codec, nullptr);
+        flushed = true;
+      } else {
+        if (packet->stream_index == stream) avcodec_send_packet(codec, packet);
+        av_packet_unref(packet);
+      }
+    }
+    code = avcodec_receive_frame(codec, frame);
+    if (code == 0) decoded = true;
+    else if (flushed && code != AVERROR(EAGAIN)) break;
+  }
+  if (!decoded) {
+    error = "the file's picture cannot be decoded";
+    return finish(false);
+  }
+  width = uint32_t(frame->width);
+  height = uint32_t(frame->height);
+  AVPixelFormat pixels = AVPixelFormat(frame->format);
+  /** JPEG's full-range Y'CbCr, as browsers decode it. */
+  bool full = codec->color_range == AVCOL_RANGE_JPEG;
+  switch (pixels) {
+    case AV_PIX_FMT_YUVJ420P: pixels = AV_PIX_FMT_YUV420P; full = true; break;
+    case AV_PIX_FMT_YUVJ422P: pixels = AV_PIX_FMT_YUV422P; full = true; break;
+    case AV_PIX_FMT_YUVJ444P: pixels = AV_PIX_FMT_YUV444P; full = true; break;
+    case AV_PIX_FMT_YUVJ440P: pixels = AV_PIX_FMT_YUV440P; full = true; break;
+    default: break;
+  }
+  SwsContext* sws = sws_getContext(int(width), int(height), pixels, int(width), int(height), AV_PIX_FMT_RGBA, SWS_BILINEAR | SWS_ACCURATE_RND | SWS_FULL_CHR_H_INT, nullptr, nullptr, nullptr);
+  if (!sws) {
+    error = "the picture's pixel format cannot be converted";
+    return finish(false);
+  }
+  const AVPixFmtDescriptor* desc = av_pix_fmt_desc_get(pixels);
+  if (desc && !(desc->flags & AV_PIX_FMT_FLAG_RGB))
+    sws_setColorspaceDetails(sws, sws_getCoefficients(SWS_CS_ITU601), full ? 1 : 0, sws_getCoefficients(SWS_CS_DEFAULT), 1, 0, 1 << 16, 1 << 16);
+  rgba.assign(size_t(width) * height * 4, 0);
+  uint8_t* dst[4] = {rgba.data(), nullptr, nullptr, nullptr};
+  int dstStride[4] = {int(width * 4), 0, 0, 0};
+  sws_scale(sws, frame->data, frame->linesize, 0, int(height), dst, dstStride);
+  sws_freeContext(sws);
+  return finish(true);
+}
+
 #else
 
 bool canDecodeVideo() { return false; }
@@ -288,6 +370,11 @@ bool canDecodeVideo() { return false; }
 std::unique_ptr<VideoReader> openVideo(const std::string&, std::string& error) {
   error = "this build has no video decoder";
   return nullptr;
+}
+
+bool decodeStill(const std::string&, uint32_t&, uint32_t&, std::vector<uint8_t>&, std::string& error) {
+  error = "this build decodes PNG, BMP and TIFF stills only";
+  return false;
 }
 
 #endif

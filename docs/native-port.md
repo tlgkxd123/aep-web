@@ -13,7 +13,7 @@ projects at close to desktop speed.
 | Compositing (solids, precomps, shapes, masks, mattes, blend modes, 3D) | `render/renderer.ts` (WebGL2) | `native/src` (Vulkan), from a plan |
 | Shape layers | `render/shapes.ts` | geometry in `native/core` (M1), raster in `native/src`; no dashes yet |
 | Text layers | `render/` + fonts | none |
-| Footage (images, video, audio) | `media/` 3.7k lines | stills and image sequences (PNG, BMP, TIFF) in `native/src/image.cpp`; video through FFmpeg on desktop (`native/src/video.cpp`); WAV for Audio Spectrum; no JPEG yet, no video on Android yet |
+| Footage (images, video, audio) | `media/` 3.7k lines | stills and image sequences (PNG, BMP, TIFF) in `native/src/image.cpp`; video through FFmpeg on desktop (`native/src/video.cpp`); JPEG stills through FFmpeg on desktop; WAV for Audio Spectrum; no JPEG or video on Android yet |
 | Effects (54 files, built-in and third-party look-alikes) | `render/effects/` ~15k lines | none |
 | Editing (undo, layer ops, write back to `.aep`) | `edit/` 6.2k lines | none |
 | UI | `ui/` 17k lines of React | none |
@@ -133,7 +133,8 @@ calls (a referenced property's value, `toComp`, `wiggle`, the noise behind `rand
   (`shaders/footage.frag`, a port of `INTERPRET_FS`, reduced-resolution averaging included). Every PNG, BMP and
   sequence fixture passes; `footage_tiff` and `footage_tiff_assoc` fail exactly as the WebGL renderer does on master.
   The web app's own native bridge (`src/native/engine.ts`) leaves footage frames to WebGL, because there the files
-  belong to the browser. JPEG is still left to WebGL (a baseline decoder would need to match the browser's IDCT).
+  belong to the browser. JPEG stills decode through FFmpeg on desktop (`decodeStill` in `native/src/video.cpp`, full-range
+  BT.601 as browsers decode JFIF); the three JPEG fixtures pass. Android has no JPEG decoder yet.
 - Video (done on desktop): plan v6 adds the seconds of the file's own time whose picture shows (the frame index over
   the file's native rate, as `footageStore.videoFrame` reads it). `native/src/video.cpp` opens the file with FFmpeg
   (when CMake finds libavformat, libavcodec and libswscale; `-DAEVK_FFMPEG=OFF` leaves it out), lists the samples'

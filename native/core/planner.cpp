@@ -331,11 +331,14 @@ std::string FileExtension(const std::string& file)
 	return ext;
 }
 
-/** Footage files the engine decodes itself (native/src/image.cpp): PNG, BMP and TIFF, by extension (plan.ts NATIVE_IMAGE). */
+/**
+ * Footage files the engine decodes itself, by extension (plan.ts NATIVE_IMAGE): PNG, BMP and TIFF (native/src/image.cpp)
+ * and JPEG (native/src/video.cpp's decodeStill).
+ */
 bool IsNativeImage(const std::string& file)
 {
 	const std::string ext = FileExtension(file);
-	return ext == "png" || ext == "bmp" || ext == "tif" || ext == "tiff";
+	return ext == "png" || ext == "bmp" || ext == "tif" || ext == "tiff" || ext == "jpg" || ext == "jpeg";
 }
 
 /** Video files the engine decodes itself (native/src/video.cpp), by extension (plan.ts NATIVE_VIDEO). */

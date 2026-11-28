@@ -14,8 +14,8 @@ import { MatteMode } from "../render/shaders.ts";
 import { planShapeLayer, type ShapePaintPlan } from "../render/shapes.ts";
 import { nativeEffect } from "./effects.ts";
 
-/** Footage files the engine decodes itself (native/src/image.cpp); other files and video are left to WebGL. */
-const NATIVE_IMAGE = /\.(png|bmp|tiff?)$/i;
+/** Footage stills the engine decodes itself (PNG, BMP and TIFF in native/src/image.cpp, JPEG through FFmpeg in native/src/video.cpp). */
+const NATIVE_IMAGE = /\.(png|bmp|tiff?|jpe?g)$/i;
 /** Video files the engine decodes itself (native/src/video.cpp, with FFmpeg on desktop and the system decoder on Android). */
 const NATIVE_VIDEO = /\.(mp4|mov|m4v|webm|mkv|avi)$/i;
 

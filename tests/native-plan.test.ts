@@ -128,8 +128,10 @@ describe("native render plan", () => {
     expect(video.unsupported).toEqual([]);
     const clip = video.root.layers.map((l) => l.content).find((c) => c?.kind === "footage");
     expect(clip?.kind === "footage" && clip.videoTime).toBeGreaterThan(0);
-    // JPEG stays with the WebGL renderer.
-    expect(buildFramePlan(project, comp("footage_jpeg"), 0).unsupported).toEqual(['footage ("photo.jpg")']);
+    // JPEG stills go to the engine too (decoded through FFmpeg).
+    const jpeg = buildFramePlan(project, comp("footage_jpeg"), 0);
+    expect(jpeg.unsupported).toEqual([]);
+    expect(jpeg.root.layers.map((l) => l.content).find((c) => c?.kind === "footage")).toMatchObject({ kind: "footage", videoTime: -1 });
   });
 
   it("refuses truncated or foreign bytes", () => {

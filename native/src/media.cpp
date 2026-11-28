@@ -226,7 +226,9 @@ std::shared_ptr<const ImageData> MediaLibrary::image(const std::string& recorded
   if (!in.good() && !in.eof()) {
     error = "the file cannot be read";
   } else if (!decodeImage(bytes.data(), bytes.size(), *data, error)) {
-    data.reset();
+    /** JPEG and the other stills the image decoder leaves to the video decoder. */
+    std::string still;
+    if (!decodeStill(path, data->width, data->height, data->pixels, still)) data.reset();
   }
   if (!data) {
     imageErrors_[path] = error;

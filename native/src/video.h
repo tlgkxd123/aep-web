@@ -50,6 +50,12 @@ bool canDecodeVideo();
 /** Opens the video file at `path`; null with `error` set when it cannot be read or holds no video this build decodes. */
 std::unique_ptr<VideoReader> openVideo(const std::string& path, std::string& error);
 
+/**
+ * A still image file the image decoder does not read (JPEG, WebP, a GIF's first frame) decoded by the video decoder:
+ * straight RGBA8 rows, top row first. False with `error` set when it cannot (always, without a video decoder).
+ */
+bool decodeStill(const std::string& path, uint32_t& width, uint32_t& height, std::vector<uint8_t>& rgba, std::string& error);
+
 /** The index of the last of `times` (ascending) at or before `time` + 1e-4, 0 before the first (indexAtTimes in video.ts). */
 size_t indexAtTimes(const std::vector<double>& times, double time);
 
