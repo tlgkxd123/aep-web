@@ -31,8 +31,10 @@ struct EngineOptions {
   size_t poolBudget = size_t(256) << 20;
   /** Enables VK_LAYER_KHRONOS_validation when it is installed (also with the AEVK_VALIDATION environment variable). */
   bool validation = false;
-  /** Asks for the window extensions (Android), so frames can be presented. */
+  /** Asks for the window extensions (Android, Windows, Linux with xcb), so frames can be presented. */
   bool presentation = false;
+  /** Presents in step with the display (FIFO); off shows frames as soon as they are drawn, for measuring. */
+  bool vsync = true;
 };
 
 class Engine;
@@ -89,8 +91,14 @@ class Engine {
 #if defined(__ANDROID__)
   /** Presents into `window` from now on (replacing an earlier one); the engine must be created with `presentation`. */
   bool attachWindow(ANativeWindow* window, std::string& error);
-  void detachWindow();
+#else
+  /**
+   * Presents into a desktop window from now on (replacing an earlier one): an xcb_connection_t* and xcb_window_t on
+   * Linux, an HINSTANCE and HWND on Windows. The engine must be created with `presentation`.
+   */
+  bool attachDesktopWindow(void* display, uint64_t window, std::string& error);
 #endif
+  void detachWindow();
   /** Whether a window is attached. */
   bool hasWindow() const;
   /** Draws a frame into the attached window over `background` (straight RGB) and shows it. */

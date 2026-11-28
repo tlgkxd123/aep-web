@@ -1,5 +1,6 @@
 // The engine for the Android app's NativeEnginePlugin (android/app/src/main/java/.../NativeEngine.java): one engine and
-// player per handle, behind a mutex, since the plugin's calls and the surface's callbacks come on different threads.
+// player per handle (jni_session.h), behind a mutex, since the plugin's calls and the surface's callbacks come on
+// different threads. aep_player_jni.cpp adds the project playing in C++ on the same handle.
 #include <android/log.h>
 #include <android/native_window_jni.h>
 #include <jni.h>
@@ -11,18 +12,10 @@
 #include <vector>
 
 #include "engine.h"
+#include "jni_session.h"
 #include "playback.h"
 
 namespace {
-
-struct Session {
-  std::mutex lock;
-  std::unique_ptr<aevk::Engine> engine;
-  std::unique_ptr<aevk::Player> player;
-  /** The frame nativeRenderFrame rendered, until nativeReadFrame or nativeWriteFrame takes its pixels. */
-  std::shared_ptr<aevk::Frame> frame;
-  std::string error;
-};
 
 std::mutex createLock;
 std::string createError;
@@ -82,6 +75,7 @@ JNIEXPORT jstring JNICALL Java_com_zionschxma_aev3_NativeEngine_nativeCreateErro
 JNIEXPORT void JNICALL Java_com_zionschxma_aev3_NativeEngine_nativeDestroy(JNIEnv*, jclass, jlong handle) {
   Session* s = session(handle);
   if (!s) return;
+  StopPlayback(*s);
   {
     std::lock_guard<std::mutex> guard(s->lock);
     s->frame.reset();

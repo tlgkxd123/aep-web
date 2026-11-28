@@ -4,6 +4,10 @@
 #   cmake -S native -B native/build -DCMAKE_BUILD_TYPE=Release && cmake --build native/build && ctest --test-dir native/build
 #
 # Android builds it through android/app/build.gradle (externalNativeBuild), with the NDK's Vulkan headers.
+#
+# aepcore (native/core) is the project side in C++: it parses .aep files, evaluates properties and builds the plans the
+# engine draws, with no GPU dependency (docs/native-port.md, milestone M1). aepplayer (native/app) plays a project in a
+# native window on both, for the desktop viewer (aep-viewer) and the Android app (milestone M2).
 cmake_minimum_required(VERSION 3.18)
 project(aevk LANGUAGES CXX)
 
@@ -42,6 +46,19 @@ else()
   if(UNIX)
     target_link_libraries(aevk PUBLIC ${CMAKE_DL_LIBS})
   endif()
+  # Desktop windows: Win32 always, xcb on Linux when its headers are installed (libxcb1-dev).
+  set(AEVK_DESKTOP_WINDOW OFF)
+  if(WIN32)
+    set(AEVK_DESKTOP_WINDOW ON)
+  elseif(UNIX AND NOT APPLE)
+    find_path(AEVK_XCB_INCLUDE_DIR xcb/xcb.h)
+    find_library(AEVK_XCB_LIBRARY xcb)
+    if(AEVK_XCB_INCLUDE_DIR AND AEVK_XCB_LIBRARY)
+      target_compile_definitions(aevk PRIVATE AEVK_XCB=1)
+      target_include_directories(aevk PRIVATE ${AEVK_XCB_INCLUDE_DIR})
+      set(AEVK_DESKTOP_WINDOW ON)
+    endif()
+  endif()
 endif()
 
 if(MSVC)
@@ -53,10 +70,67 @@ else()
   target_compile_options(aevk PRIVATE -Wall -Wextra -Wno-missing-field-initializers)
 endif()
 
+add_library(aepcore STATIC
+  core/evaluate.cpp
+  core/model.cpp
+  core/parse.cpp
+  core/planner.cpp
+  core/riff.cpp
+  core/shapes.cpp
+  core/transform.cpp
+  core/wire.cpp
+)
+target_include_directories(aepcore PUBLIC core)
+
+# Expressions run the app's own expression engine (native/core/expressions/bundle.js, built from src/ by
+# scripts/native/build-expressions.ts) in an embedded QuickJS-ng (MIT), fetched at configure time.
+option(AEP_EXPRESSIONS "Evaluate expressions in the native core (embeds QuickJS-ng)" OFF)
+if(AEP_EXPRESSIONS)
+  include(FetchContent)
+  FetchContent_Declare(quickjs
+    GIT_REPOSITORY https://github.com/quickjs-ng/quickjs.git
+    GIT_TAG d7215b0ad3fc2c562e8317fd9bca058fd4863804 # v0.18.0
+  )
+  FetchContent_GetProperties(quickjs)
+  if(NOT quickjs_POPULATED)
+    FetchContent_Populate(quickjs)
+    set(QJS_ENABLE_INSTALL OFF CACHE BOOL "" FORCE)
+    add_subdirectory(${quickjs_SOURCE_DIR} ${quickjs_BINARY_DIR} EXCLUDE_FROM_ALL)
+  endif()
+  set(AEP_BUNDLE ${CMAKE_CURRENT_SOURCE_DIR}/core/expressions/bundle.js)
+  set(AEP_BUNDLE_CPP ${CMAKE_CURRENT_BINARY_DIR}/expression_bundle.cpp)
+  add_custom_command(
+    OUTPUT ${AEP_BUNDLE_CPP}
+    COMMAND ${CMAKE_COMMAND} -DINPUT=${AEP_BUNDLE} -DOUTPUT=${AEP_BUNDLE_CPP} -DNAME=g_ExpressionBundle
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/embed.cmake
+    DEPENDS ${AEP_BUNDLE} ${CMAKE_CURRENT_SOURCE_DIR}/cmake/embed.cmake
+    COMMENT "Embedding the expression script"
+  )
+  target_sources(aepcore PRIVATE core/expressions.cpp ${AEP_BUNDLE_CPP})
+  target_link_libraries(aepcore PUBLIC qjs)
+  target_compile_definitions(aepcore PUBLIC AEP_EXPRESSIONS=1)
+endif()
+if(MSVC)
+  target_compile_options(aepcore PRIVATE /W4)
+else()
+  target_compile_options(aepcore PRIVATE -Wall -Wextra -Wno-missing-field-initializers)
+endif()
+
+# A project playing in a native window (native/app): the shared loop of the desktop viewer and the Android player
+# (docs/native-port.md, milestone M2).
+add_library(aepplayer STATIC app/session.cpp)
+target_include_directories(aepplayer PUBLIC app)
+target_link_libraries(aepplayer PUBLIC aepcore aevk)
+if(MSVC)
+  target_compile_options(aepplayer PRIVATE /W4)
+else()
+  target_compile_options(aepplayer PRIVATE -Wall -Wextra -Wno-missing-field-initializers)
+endif()
+
 if(ANDROID)
-  add_library(aevk_jni SHARED android/aevk_jni.cpp)
-  target_link_libraries(aevk_jni PRIVATE aevk)
-  set_target_properties(aevk aevk_jni PROPERTIES CXX_VISIBILITY_PRESET hidden VISIBILITY_INLINES_HIDDEN ON)
+  add_library(aevk_jni SHARED android/aevk_jni.cpp android/aep_player_jni.cpp)
+  target_link_libraries(aevk_jni PRIVATE aevk aepplayer)
+  set_target_properties(aevk aepcore aepplayer aevk_jni PROPERTIES CXX_VISIBILITY_PRESET hidden VISIBILITY_INLINES_HIDDEN ON)
   # 16 KB pages: Android 15 devices may use them, and Google Play requires libraries aligned for them.
   target_link_options(aevk_jni PRIVATE -Wl,--exclude-libs,ALL -Wl,--gc-sections -Wl,-z,max-page-size=16384)
 endif()
@@ -64,6 +138,26 @@ endif()
 if(AEVK_TOOLS)
   add_executable(aevk-render tools/aevk_render.cpp)
   target_link_libraries(aevk-render PRIVATE aevk)
+
+  # Plans built in C++ for a list of jobs, for the parity check against the TypeScript planner.
+  add_executable(aep-plan tools/aep_plan.cpp)
+  target_link_libraries(aep-plan PRIVATE aepcore)
+
+  # A comp parsed, planned and rendered end to end, with the time each stage takes.
+  add_executable(aep-play tools/aep_play.cpp)
+  target_link_libraries(aep-play PRIVATE aepcore aevk)
+
+  # The desktop player: a window that plays a project's comps on the C++ core.
+  if(AEVK_DESKTOP_WINDOW)
+    add_executable(aep-viewer tools/aep_viewer.cpp)
+    target_link_libraries(aep-viewer PRIVATE aepplayer)
+    if(WIN32)
+      set_target_properties(aep-viewer PROPERTIES WIN32_EXECUTABLE OFF)
+    else()
+      target_include_directories(aep-viewer PRIVATE ${AEVK_XCB_INCLUDE_DIR})
+      target_link_libraries(aep-viewer PRIVATE ${AEVK_XCB_LIBRARY})
+    endif()
+  endif()
 
   enable_testing()
   add_executable(aevk-tests tests/main.cpp tests/plan_test.cpp tests/playback_test.cpp tests/render_test.cpp)

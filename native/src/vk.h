@@ -8,6 +8,23 @@
 #if defined(__ANDROID__) && !defined(VK_USE_PLATFORM_ANDROID_KHR)
 #define VK_USE_PLATFORM_ANDROID_KHR
 #endif
+#if defined(_WIN32) && !defined(__ANDROID__)
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#ifndef VK_USE_PLATFORM_WIN32_KHR
+#define VK_USE_PLATFORM_WIN32_KHR
+#endif
+#define AEVK_DESKTOP_WINDOWS 1
+#elif defined(AEVK_XCB) && !defined(__ANDROID__)
+#ifndef VK_USE_PLATFORM_XCB_KHR
+#define VK_USE_PLATFORM_XCB_KHR
+#endif
+#define AEVK_DESKTOP_WINDOWS 1
+#endif
 #include <vulkan/vulkan.h>
 
 #define AEVK_GLOBAL_FUNCTIONS(X) \
@@ -27,10 +44,15 @@
   X(vkDestroySurfaceKHR)                          \
   X(vkGetPhysicalDeviceSurfaceSupportKHR)         \
   X(vkGetPhysicalDeviceSurfaceCapabilitiesKHR)    \
-  X(vkGetPhysicalDeviceSurfaceFormatsKHR)
+  X(vkGetPhysicalDeviceSurfaceFormatsKHR)          \
+  X(vkGetPhysicalDeviceSurfacePresentModesKHR)
 
 #if defined(__ANDROID__)
 #define AEVK_PLATFORM_INSTANCE_FUNCTIONS(X) X(vkCreateAndroidSurfaceKHR)
+#elif defined(VK_USE_PLATFORM_WIN32_KHR)
+#define AEVK_PLATFORM_INSTANCE_FUNCTIONS(X) X(vkCreateWin32SurfaceKHR)
+#elif defined(VK_USE_PLATFORM_XCB_KHR)
+#define AEVK_PLATFORM_INSTANCE_FUNCTIONS(X) X(vkCreateXcbSurfaceKHR)
 #else
 #define AEVK_PLATFORM_INSTANCE_FUNCTIONS(X)
 #endif

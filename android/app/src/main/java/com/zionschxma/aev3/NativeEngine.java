@@ -62,4 +62,22 @@ final class NativeEngine {
     static native boolean nativeShow(long handle, String view, long frame, float[] rect, float[] background);
     static native void nativeInvalidate(long handle, String view);
     static native void nativeTrim(long handle, long poolBytes, long cacheBytes);
+
+    // The project playing in C++ (native/android/aep_player_jni.cpp): parsed, planned, rendered and presented in the
+    // attached surface on the display's frame clock, with no WebView in the frame loop.
+
+    /**
+     * Opens an .aep file's bytes for playback, replacing an earlier project, and starts the frame clock; its comps as
+     * JSON ([{id, name, width, height, duration, frameRate, playable}]), or null ({@link #nativeError} says why).
+     */
+    static native String nativeOpenProject(long handle, byte[] project, boolean expressions, long cacheBytes);
+    static native void nativeCloseProject(long handle);
+    /** Shows a comp paused at its first frame, at 1/divisor of its resolution. */
+    static native boolean nativeSelectComp(long handle, int id, int divisor);
+    static native void nativeSetResolution(long handle, int divisor);
+    static native void nativeSetPlaying(long handle, boolean playing);
+    /** Moves the playhead to `time` seconds of comp time. */
+    static native void nativeSeek(long handle, double time);
+    /** {time, frame, frameCount, playing, shown, dropped, unsupported, planMs, renderMs, expressionStartupMs}, or null. */
+    static native double[] nativePlaybackState(long handle);
 }
