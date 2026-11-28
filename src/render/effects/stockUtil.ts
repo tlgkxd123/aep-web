@@ -160,6 +160,30 @@ export function layerCenter(layer: Layer, input: LayerImage): [number, number] {
   return [(input.origin[0] + input.width / 2) / k, (input.origin[1] + input.height / 2) / k];
 }
 
+/** The fragment shader layerPass runs for `count` sources (also embedded by the native engine: scripts/lib/native-fx.ts). */
+export function layerPassFragment(count: number, decls: string, body: string): string {
+  const indices = Array.from({ length: count }, (_, i) => i);
+  const samplers = indices.map((i) => `uniform sampler2D u_src${i};\n${imageUniforms(`u_img${i}`)}`).join("");
+  const cases = indices
+    .map((i) => `  if (i == ${i}) { vec2 uv = uvIn(q, u_img${i}Origin, u_img${i}Height, u_img${i}Target); vec2 t = uv * u_img${i}Target;
+    if (t.x < u_pad || t.y < u_pad || t.x > u_img${i}Target.x - u_pad || t.y > u_img${i}Target.y - u_pad) return vec4(0.0);
+    return texture(u_src${i}, uv); }`)
+    .join("\n");
+  return `#version 300 es
+precision highp float;
+out vec4 outColor;
+${COORDS}${COLOR_LIB}${samplers}${decls}
+vec4 at(int i, vec2 q) {
+${cases}
+  return vec4(0.0);
+}
+void main() {
+  if (!insideContent()) { outColor = vec4(0.0); return; }
+  vec2 p = layerPoint();
+${body}
+}`;
+}
+
 /** A new padded image covering `rect`. */
 function acquireRect(ctx: RenderContext, rect: Rect, clear = false): LayerImage {
   const width = Math.max(1, Math.round(rect.width));
@@ -184,25 +208,7 @@ const imageUniforms = (name: string) => `uniform vec2 ${name}Origin;\nuniform fl
  */
 export function layerPass(ctx: RenderContext, rect: Rect, sources: LayerImage[], decls: string, body: string, setUniforms?: Uniforms, scale?: number): LayerImage {
   const out = acquireRect(ctx, rect);
-  const samplers = sources.map((_, i) => `uniform sampler2D u_src${i};\n${imageUniforms(`u_img${i}`)}`).join("");
-  const cases = sources
-    .map((_, i) => `  if (i == ${i}) { vec2 uv = uvIn(q, u_img${i}Origin, u_img${i}Height, u_img${i}Target); vec2 t = uv * u_img${i}Target;
-    if (t.x < u_pad || t.y < u_pad || t.x > u_img${i}Target.x - u_pad || t.y > u_img${i}Target.y - u_pad) return vec4(0.0);
-    return texture(u_src${i}, uv); }`)
-    .join("\n");
-  const fragment = `#version 300 es
-precision highp float;
-out vec4 outColor;
-${COORDS}${COLOR_LIB}${samplers}${decls}
-vec4 at(int i, vec2 q) {
-${cases}
-  return vec4(0.0);
-}
-void main() {
-  if (!insideContent()) { outColor = vec4(0.0); return; }
-  vec2 p = layerPoint();
-${body}
-}`;
+  const fragment = layerPassFragment(sources.length, decls, body);
   ctx.pass(ctx.program(fragment), out.target, sources.map((s) => s.target), (u) => {
     const gl = ctx.gl;
     gl.uniform2f(u("u_size"), out.target.width, out.target.height);

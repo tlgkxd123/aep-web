@@ -93,7 +93,7 @@ out vec4 outColor;
  * (Chrominance) or on the Rec. 709 luma (Luminance). In Chrominance mode Saturation Bias b mixes in the same
  * gate applied to the HSV saturation (b > 0) or to 1 - saturation (b < 0): (1 - |b|) gate + |b| saturationGate.
  */
-const INPUT_FS = `${HEADER}
+export const INPUT_FS = `${HEADER}
 uniform sampler2D u_source;
 uniform ivec2 u_offset;
 uniform ivec2 u_size;
@@ -125,7 +125,7 @@ void main() {
 }`;
 
 /** 2x box reduction (transparent outside). */
-const DOWN_FS = `${HEADER}
+export const DOWN_FS = `${HEADER}
 uniform sampler2D u_src;
 uniform ivec2 u_srcSize;
 vec4 at(ivec2 p) { return any(greaterThanEqual(p, u_srcSize)) ? vec4(0.0) : texelFetch(u_src, p, 0); }
@@ -135,7 +135,7 @@ void main() {
 }`;
 
 /** One separable Gaussian pass along u_dir (texels per step), linearly sampled, normalized over its taps. */
-const BLUR_FS = `${HEADER}
+export const BLUR_FS = `${HEADER}
 uniform sampler2D u_src;
 uniform vec2 u_size;
 uniform vec2 u_dir;
@@ -159,7 +159,7 @@ void main() {
  * Adds a weighted blurred level (bilinearly upsampled from its pyramid scale) to the accumulator, each channel
  * read at its own offset (Pixel Aberration, in full-size texels).
  */
-const ACCUMULATE_FS = `${HEADER}
+export const ACCUMULATE_FS = `${HEADER}
 uniform sampler2D u_acc;
 uniform sampler2D u_level;
 uniform vec2 u_levelSize;
@@ -180,7 +180,7 @@ void main() {
  * The glow over the source: Screen or Add in gamma space (channel c of the glow from u_glow[c], whose radii
  * differ under Glow Aberration); alpha is the brightest of the source alpha and the colour channels.
  */
-const COMPOSITE_FS = `${HEADER}
+export const COMPOSITE_FS = `${HEADER}
 uniform sampler2D u_source;
 uniform sampler2D u_glowR;
 uniform sampler2D u_glowG;

@@ -108,19 +108,8 @@ export function strobeOn(t: number, duration: number, period: number): boolean {
   return (t * STROBE_TICKS) % p < p - Math.round(duration * STROBE_TICKS);
 }
 
-// Strobe Light: during each strobe the layer's colour combined with Strobe Color by Strobe Operator (or the layer
-// made transparent), mixed with the layer by Blend With Original. Time-based, so drawn every frame.
-registerStock(
-  "ADBE Strobe",
-  (input, p, ctx, layer, time) => {
-    const t = time - layer.startTime;
-    if (p.num(5, 0) > 0) ctx.warn("Strobe Light: Random Strobe Probability is not rendered");
-    if (!strobeOn(t, p.num(3, 0.5), p.num(4, 1))) return input;
-    const blend = Math.min(1, Math.max(0, p.num(2, 0) / 100));
-    return pixelPass(
-      ctx,
-      input,
-      `uniform vec3 u_color;
+/** Strobe Light's shader (layerPass); also embedded by the native engine (scripts/lib/native-fx.ts). */
+export const STROBE_DECLS = `uniform vec3 u_color;
 uniform int u_kind;
 uniform int u_op;
 uniform float u_blend;
@@ -130,8 +119,8 @@ vec3 bits(vec3 a, vec3 b, int op) {
   ivec3 y = ivec3(floor(b * 255.0 + 0.5));
   ivec3 r = op == ${StrobeOperator.AND} ? (x & y) : op == ${StrobeOperator.OR} ? (x | y) : (x ^ y);
   return vec3(r) / 255.0;
-}`,
-      `  vec4 c = at(0, p);
+}`;
+export const STROBE_BODY = `  vec4 c = at(0, p);
   if (u_kind == ${StrobeKind.TRANSPARENT}) { outColor = c * u_blend; return; }
   if (c.a <= 0.0) { outColor = vec4(0.0); return; }
   vec3 s = straight(c);
@@ -149,7 +138,22 @@ vec3 bits(vec3 a, vec3 b, int op) {
   else if (u_op == ${StrobeOperator.SCREEN}) r = s + k - s * k;
   else r = k;
   r = mix(clamp(r, 0.0, 1.0), s, u_blend);
-  outColor = vec4(r * c.a, c.a);`,
+  outColor = vec4(r * c.a, c.a);`;
+
+// Strobe Light: during each strobe the layer's colour combined with Strobe Color by Strobe Operator (or the layer
+// made transparent), mixed with the layer by Blend With Original. Time-based, so drawn every frame.
+registerStock(
+  "ADBE Strobe",
+  (input, p, ctx, layer, time) => {
+    const t = time - layer.startTime;
+    if (p.num(5, 0) > 0) ctx.warn("Strobe Light: Random Strobe Probability is not rendered");
+    if (!strobeOn(t, p.num(3, 0.5), p.num(4, 1))) return input;
+    const blend = Math.min(1, Math.max(0, p.num(2, 0) / 100));
+    return pixelPass(
+      ctx,
+      input,
+      STROBE_DECLS,
+      STROBE_BODY,
       (u) => {
         ctx.gl.uniform3fv(u("u_color"), p.rgb(1, [1, 1, 1]));
         ctx.gl.uniform1i(u("u_kind"), p.choice(6, StrobeKind.COLOR));

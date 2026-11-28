@@ -558,7 +558,15 @@ bool CFramePlanner::Content(const CLayer& layer, f64 time, s32 depth, f64 scale,
 	}
 	if (source && source->m_eKind == ITEM_FOOTAGE)
 	{
-		Unsupported("footage (\"" + source->m_Name + "\")");
+		/** As the WebGL renderer: a placeholder and footage without video (audio) draw nothing. */
+		if (source->m_eSource == SOURCE_PLACEHOLDER)
+		{
+			Warn("placeholder \"" + source->m_Name + "\" has no footage; After Effects refuses to render it");
+		}
+		else if (source->m_fWidth > 0)
+		{
+			Unsupported("footage (\"" + source->m_Name + "\")");
+		}
 	}
 	return false;
 }

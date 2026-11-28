@@ -4,6 +4,8 @@
  * names starting "Pseudo/" (presets' parameter sets) count as pass-through too.
  */
 AEVK_EFFECT("ADBE Box Blur2", true, false)
+AEVK_EFFECT("ADBE Strobe", true, false)
+AEVK_EFFECT("PEDG2", true, false)
 AEVK_EFFECT("ADBE Slider Control", true, true)
 AEVK_EFFECT("ADBE Point Control", true, true)
 AEVK_EFFECT("ADBE Point3D Control", true, true)

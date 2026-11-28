@@ -2,7 +2,7 @@
 #include <cstring>
 
 #include "../fx.h"
-#include "box_blur.h"
+#include "effects.h"
 
 namespace aevk {
 
@@ -13,6 +13,8 @@ FxRenderer fxRenderer(const std::string& matchName) {
   };
   static const Entry entries[] = {
       {"ADBE Box Blur2", boxBlurRenderer},
+      {"ADBE Strobe", strobeRenderer},
+      {"PEDG2", deepGlowRenderer},
   };
   for (const Entry& e : entries)
     if (matchName == e.matchName) return e.renderer();

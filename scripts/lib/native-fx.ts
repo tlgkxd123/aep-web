@@ -13,8 +13,19 @@ export interface FxShaderSource {
   module: string;
   /** Export holding the shader source, or a function returning it. */
   export: string;
+  /** Arguments of the function; `{ ref: "module#export" }` stands for another module's export. */
   args?: unknown[];
 }
+
+const STOCK = "src/render/effects/stockUtil.ts";
+const ref = (module: string, name: string) => ({ ref: `src/render/effects/${module}#${name}` });
+/** A layerPass shader (stockUtil.ts) over `count` sources, from a module's exported declarations and body. */
+const layerPass = (name: string, count: number, module: string, decls: string, body: string): FxShaderSource => ({
+  name,
+  module: STOCK,
+  export: "layerPassFragment",
+  args: [count, ref(module, decls), ref(module, body)],
+});
 
 export const FX_SHADERS: FxShaderSource[] = [
   { name: "box_load", module: "src/render/effects/boxBlur.ts", export: "LOAD_FS" },
@@ -22,13 +33,33 @@ export const FX_SHADERS: FxShaderSource[] = [
   { name: "box_accumulate", module: "src/render/effects/boxBlur.ts", export: "ACCUMULATE_FS" },
   { name: "box_finish", module: "src/render/effects/boxBlur.ts", export: "FINISH_FS" },
   { name: "box_store", module: "src/render/effects/boxBlur.ts", export: "STORE_FS" },
+  { name: "glow_input", module: "src/render/effects/deepGlow.ts", export: "INPUT_FS" },
+  { name: "glow_down", module: "src/render/effects/deepGlow.ts", export: "DOWN_FS" },
+  { name: "glow_blur", module: "src/render/effects/deepGlow.ts", export: "BLUR_FS" },
+  { name: "glow_accumulate", module: "src/render/effects/deepGlow.ts", export: "ACCUMULATE_FS" },
+  { name: "glow_composite", module: "src/render/effects/deepGlow.ts", export: "COMPOSITE_FS" },
+  layerPass("strobe", 1, "stylizeExtra.ts", "STROBE_DECLS", "STROBE_BODY"),
 ];
+
+async function load(module: string): Promise<Record<string, unknown>> {
+  return (await import(pathToFileURL(resolve(module)).href)) as Record<string, unknown>;
+}
 
 /** The GLSL ES source of an entry, as the TypeScript effect compiles it. */
 export async function fxSource(entry: FxShaderSource): Promise<string> {
-  const module = (await import(pathToFileURL(resolve(entry.module)).href)) as Record<string, unknown>;
-  const value = module[entry.export];
-  const source = typeof value === "function" ? (value as (...args: unknown[]) => unknown)(...(entry.args ?? [])) : value;
+  const value = (await load(entry.module))[entry.export];
+  const args: unknown[] = [];
+  for (const arg of entry.args ?? []) {
+    if (!arg || typeof arg !== "object" || !("ref" in arg)) {
+      args.push(arg);
+      continue;
+    }
+    const [module, name] = String(arg.ref).split("#");
+    const resolved = (await load(module))[name];
+    if (resolved === undefined) throw new Error(`${module} does not export ${name}`);
+    args.push(resolved);
+  }
+  const source = typeof value === "function" ? (value as (...args: unknown[]) => unknown)(...args) : value;
   if (typeof source !== "string") throw new Error(`${entry.module} does not export a shader as ${entry.export}`);
   return source;
 }

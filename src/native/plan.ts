@@ -284,7 +284,11 @@ class Planner {
       const comp = this.comp(source, sourceTime, depth + 1, scale);
       return { kind: "comp", width: comp.width, height: comp.height, origin: [0, 0], scale, comp };
     }
-    if (source?.kind === "footage") this.unsupported.add(`footage ("${source.name}")`);
+    if (source?.kind === "footage") {
+      // As the WebGL renderer: a placeholder and footage without video (audio) draw nothing.
+      if (source.mainSource.sourceType === "PlaceholderSource") this.warnings.add(`placeholder "${source.name}" has no footage; After Effects refuses to render it`);
+      else if (source.hasVideo) this.unsupported.add(`footage ("${source.name}")`);
+    }
     return null;
   }
 
