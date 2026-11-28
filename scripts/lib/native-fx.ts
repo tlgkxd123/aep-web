@@ -172,6 +172,12 @@ export const FX_SHADERS: FxShaderSource[] = [
   layerPass("radial_blur", 1, ref("blurSharpen.ts", "RADIAL_BLUR_DECLS"), ref("blurSharpen.ts", "RADIAL_BLUR_BODY")),
   shader("sharpen", "blurSharpen.ts", "SHARPEN_FS"),
   shader("unsharp", "blurSharpen.ts", "UNSHARP_FS"),
+  layerPass("drop_shadow", 1, ref("stylize.ts", "DROP_SHADOW_DECLS"), ref("stylize.ts", "DROP_SHADOW_BODY")),
+  layerPass("drop_shadow_composite", 2, "uniform int u_only;", ref("stylize.ts", "DROP_SHADOW_COMPOSITE_BODY")),
+  layerPass("stock_glow_bright", 1, ref("stylize.ts", "GLOW_BRIGHT_DECLS"), ref("stylize.ts", "GLOW_BRIGHT_BODY")),
+  layerPass("stock_glow_composite", 2, ref("stylize.ts", "GLOW_COMPOSITE_DECLS"), ref("stylize.ts", "GLOW_COMPOSITE_BODY")),
+  layerPass("mosaic", 1, ref("stylize.ts", "MOSAIC_DECLS"), ref("stylize.ts", "MOSAIC_BODY")),
+  layerPass("noise", 1, ref("stylize.ts", "NOISE_DECLS"), ref("stylize.ts", "NOISE_BODY")),
 ];
 
 async function value(arg: FxArg): Promise<unknown> {

@@ -7,6 +7,21 @@ import { blurAxes, gaussian, growRect, imageRect, layerPass, layerRect, register
 
 // Drop Shadow: the layer's alpha in Shadow Color at Opacity (stored 0..255), moved Distance along Direction and
 // softened, behind the layer (or alone, with Shadow Only).
+/** Also embedded by the native engine. */
+export const DROP_SHADOW_DECLS = `uniform vec2 u_offset;
+uniform vec3 u_color;
+uniform float u_opacity;`;
+
+/** Also embedded by the native engine. */
+export const DROP_SHADOW_BODY = `  float a = at(0, p - u_offset).a * u_opacity;
+  outColor = vec4(u_color * a, a);`;
+
+/** Also embedded by the native engine. */
+export const DROP_SHADOW_COMPOSITE_BODY = `  vec4 s = at(1, p);
+  if (u_only == 1) { outColor = s; return; }
+  vec4 o = at(0, p);
+  outColor = o + s * (1.0 - o.a);`;
+
 registerStock("ADBE Drop Shadow", (input, p, ctx) => {
   const k = input.scale ?? 1;
   const color = p.rgb(1, [0, 0, 0]);
@@ -22,11 +37,8 @@ registerStock("ADBE Drop Shadow", (input, p, ctx) => {
     ctx,
     moved,
     [input],
-    `uniform vec2 u_offset;
-uniform vec3 u_color;
-uniform float u_opacity;`,
-    `  float a = at(0, p - u_offset).a * u_opacity;
-  outColor = vec4(u_color * a, a);`,
+    DROP_SHADOW_DECLS,
+    DROP_SHADOW_BODY,
     (u) => {
       ctx.gl.uniform2f(u("u_offset"), dx, dy);
       ctx.gl.uniform3fv(u("u_color"), color);
@@ -39,10 +51,7 @@ uniform float u_opacity;`,
     shadowOnly ? imageRect(shadow) : unionRect(imageRect(shadow), source),
     [input, shadow],
     "uniform int u_only;",
-    `  vec4 s = at(1, p);
-  if (u_only == 1) { outColor = s; return; }
-  vec4 o = at(0, p);
-  outColor = o + s * (1.0 - o.a);`,
+    DROP_SHADOW_COMPOSITE_BODY,
     (u) => ctx.gl.uniform1i(u("u_only"), shadowOnly ? 1 : 0),
     input.scale,
   );
@@ -60,6 +69,45 @@ const SUPPORTED_OPERATIONS = new Set<number>(Object.values(Operation));
 // Glow: the parts of the layer above Glow Threshold (in its brightest colour channel, or its alpha), blurred by
 // Glow Radius, times Glow Intensity, in their own colours or ramped from Color B to Color A, then blended with the
 // layer by Glow Operation (Behind), placed under it (On Top) or alone (None).
+/** Also embedded by the native engine. */
+export const GLOW_BRIGHT_DECLS = `uniform float u_threshold;
+uniform int u_alpha;`;
+
+/** Also embedded by the native engine. */
+export const GLOW_BRIGHT_BODY = `  vec4 c = at(0, p);
+  vec3 s = straight(c);
+  float level = u_alpha == 1 ? c.a : max(s.r, max(s.g, s.b));
+  float m = clamp((level - u_threshold) / max(1.0 - u_threshold, 1e-3), 0.0, 1.0);
+  outColor = c * m;`;
+
+/** Also embedded by the native engine. */
+export const GLOW_COMPOSITE_DECLS = `uniform float u_intensity;
+uniform int u_composite;
+uniform int u_operation;
+uniform int u_ab;
+uniform vec3 u_colorA;
+uniform vec3 u_colorB;`;
+
+/** Also embedded by the native engine. */
+export const GLOW_COMPOSITE_BODY = `  vec4 o = at(0, p);
+  vec4 g = at(1, p);
+  if (u_ab == 1) g = vec4(mix(u_colorB, u_colorA, g.a) * g.a, g.a);
+  g = clamp(g * u_intensity, 0.0, 1.0);
+  g.rgb = min(g.rgb, vec3(g.a));
+  if (u_composite == 3) { outColor = g; return; }
+  if (u_composite == 1) { outColor = o + g * (1.0 - o.a); return; }
+  float a = o.a + g.a - o.a * g.a;
+  vec3 c;
+  if (u_operation == 1) { outColor = o; return; }
+  else if (u_operation == 2) c = g.rgb + o.rgb * (1.0 - g.a);
+  else if (u_operation == 3) { c = o.rgb + g.rgb; a = min(1.0, o.a + g.a); }
+  else if (u_operation == 4) c = o.rgb * g.rgb + o.rgb * (1.0 - g.a) + g.rgb * (1.0 - o.a);
+  else if (u_operation == 6) c = o.rgb + g.rgb - o.rgb * g.rgb;
+  else if (u_operation == 10) c = min(o.rgb * g.a, g.rgb * o.a) + o.rgb * (1.0 - g.a) + g.rgb * (1.0 - o.a);
+  else if (u_operation == 11) c = max(o.rgb * g.a, g.rgb * o.a) + o.rgb * (1.0 - g.a) + g.rgb * (1.0 - o.a);
+  else c = abs(o.rgb * g.a - g.rgb * o.a) + o.rgb * (1.0 - g.a) + g.rgb * (1.0 - o.a);
+  outColor = vec4(min(clamp(c, 0.0, 1.0), vec3(a)), a);`;
+
 registerStock("ADBE Glo2", (input, p, ctx) => {
   const k = input.scale ?? 1;
   const basedOnAlpha = p.num(1, 2) === 1;
@@ -79,13 +127,8 @@ registerStock("ADBE Glo2", (input, p, ctx) => {
     ctx,
     imageRect(input),
     [input],
-    `uniform float u_threshold;
-uniform int u_alpha;`,
-    `  vec4 c = at(0, p);
-  vec3 s = straight(c);
-  float level = u_alpha == 1 ? c.a : max(s.r, max(s.g, s.b));
-  float m = clamp((level - u_threshold) / max(1.0 - u_threshold, 1e-3), 0.0, 1.0);
-  outColor = c * m;`,
+    GLOW_BRIGHT_DECLS,
+    GLOW_BRIGHT_BODY,
     (u) => {
       ctx.gl.uniform1f(u("u_threshold"), threshold);
       ctx.gl.uniform1i(u("u_alpha"), basedOnAlpha ? 1 : 0);
@@ -96,30 +139,8 @@ uniform int u_alpha;`,
     ctx,
     composite === Composite.NONE ? imageRect(glow) : unionRect(imageRect(glow), imageRect(input)),
     [input, glow],
-    `uniform float u_intensity;
-uniform int u_composite;
-uniform int u_operation;
-uniform int u_ab;
-uniform vec3 u_colorA;
-uniform vec3 u_colorB;`,
-    `  vec4 o = at(0, p);
-  vec4 g = at(1, p);
-  if (u_ab == 1) g = vec4(mix(u_colorB, u_colorA, g.a) * g.a, g.a);
-  g = clamp(g * u_intensity, 0.0, 1.0);
-  g.rgb = min(g.rgb, vec3(g.a));
-  if (u_composite == 3) { outColor = g; return; }
-  if (u_composite == 1) { outColor = o + g * (1.0 - o.a); return; }
-  float a = o.a + g.a - o.a * g.a;
-  vec3 c;
-  if (u_operation == 1) { outColor = o; return; }
-  else if (u_operation == 2) c = g.rgb + o.rgb * (1.0 - g.a);
-  else if (u_operation == 3) { c = o.rgb + g.rgb; a = min(1.0, o.a + g.a); }
-  else if (u_operation == 4) c = o.rgb * g.rgb + o.rgb * (1.0 - g.a) + g.rgb * (1.0 - o.a);
-  else if (u_operation == 6) c = o.rgb + g.rgb - o.rgb * g.rgb;
-  else if (u_operation == 10) c = min(o.rgb * g.a, g.rgb * o.a) + o.rgb * (1.0 - g.a) + g.rgb * (1.0 - o.a);
-  else if (u_operation == 11) c = max(o.rgb * g.a, g.rgb * o.a) + o.rgb * (1.0 - g.a) + g.rgb * (1.0 - o.a);
-  else c = abs(o.rgb * g.a - g.rgb * o.a) + o.rgb * (1.0 - g.a) + g.rgb * (1.0 - o.a);
-  outColor = vec4(min(clamp(c, 0.0, 1.0), vec3(a)), a);`,
+    GLOW_COMPOSITE_DECLS,
+    GLOW_COMPOSITE_BODY,
     (u) => {
       const gl = ctx.gl;
       gl.uniform1f(u("u_intensity"), intensity);
@@ -141,6 +162,23 @@ const MOSAIC_SAMPLES = 16;
 
 // Mosaic: the layer's box split into Horizontal x Vertical Blocks, each filled with its average colour (or, with
 // Sharp Colors, the colour at its centre).
+/** Also embedded by the native engine. */
+export const MOSAIC_DECLS = `uniform vec4 u_rect;
+uniform vec2 u_block;
+uniform ivec2 u_samples;
+uniform int u_sharp;`;
+
+/** Also embedded by the native engine. */
+export const MOSAIC_BODY = `  vec2 local = p - u_rect.xy;
+  if (local.x < 0.0 || local.y < 0.0 || local.x >= u_rect.z || local.y >= u_rect.w) { outColor = at(0, p); return; }
+  vec2 cell = u_rect.xy + floor(local / u_block) * u_block;
+  if (u_sharp == 1) { outColor = at(0, cell + 0.5 * u_block); return; }
+  vec4 sum = vec4(0.0);
+  for (int j = 0; j < u_samples.y; j++)
+    for (int i = 0; i < u_samples.x; i++)
+      sum += at(0, cell + (vec2(i, j) + 0.5) / vec2(u_samples) * u_block);
+  outColor = sum / float(u_samples.x * u_samples.y);`;
+
 registerStock("ADBE Mosaic", (input, p, ctx, layer) => {
   const rect = layerRect(layer, input);
   const blocks = [Math.max(1, Math.round(p.num(1, 10))), Math.max(1, Math.round(p.num(2, 10)))];
@@ -149,19 +187,8 @@ registerStock("ADBE Mosaic", (input, p, ctx, layer) => {
     ctx,
     imageRect(input),
     [input],
-    `uniform vec4 u_rect;
-uniform vec2 u_block;
-uniform ivec2 u_samples;
-uniform int u_sharp;`,
-    `  vec2 local = p - u_rect.xy;
-  if (local.x < 0.0 || local.y < 0.0 || local.x >= u_rect.z || local.y >= u_rect.w) { outColor = at(0, p); return; }
-  vec2 cell = u_rect.xy + floor(local / u_block) * u_block;
-  if (u_sharp == 1) { outColor = at(0, cell + 0.5 * u_block); return; }
-  vec4 sum = vec4(0.0);
-  for (int j = 0; j < u_samples.y; j++)
-    for (int i = 0; i < u_samples.x; i++)
-      sum += at(0, cell + (vec2(i, j) + 0.5) / vec2(u_samples) * u_block);
-  outColor = sum / float(u_samples.x * u_samples.y);`,
+    MOSAIC_DECLS,
+    MOSAIC_BODY,
     (u) => {
       ctx.gl.uniform4f(u("u_rect"), rect.x, rect.y, rect.width, rect.height);
       ctx.gl.uniform2f(u("u_block"), size[0], size[1]);
@@ -176,6 +203,22 @@ uniform int u_sharp;`,
 
 // Noise: every pixel's straight colour moved by up to half Amount of Noise, the same in all channels unless Use
 // Color Noise; values past the range clip, or wrap around when Clipping is off. New noise every frame.
+/** Also embedded by the native engine. */
+export const NOISE_DECLS = `uniform float u_amount;
+uniform float u_seed;
+uniform int u_color;
+uniform int u_clip;
+float hash(vec2 q, float s) { return fract(sin(dot(q, vec2(12.9898, 78.233)) + s * 43.7) * 43758.5453); }`;
+
+/** Also embedded by the native engine. */
+export const NOISE_BODY = `  vec4 c = at(0, p);
+  if (c.a <= 0.0) { outColor = c; return; }
+  vec2 q = floor(p);
+  vec3 n = u_color == 1 ? vec3(hash(q, u_seed), hash(q, u_seed + 1.0), hash(q, u_seed + 2.0)) : vec3(hash(q, u_seed));
+  vec3 s = straight(c) + (n - 0.5) * u_amount;
+  s = u_clip == 1 ? clamp(s, 0.0, 1.0) : fract(s);
+  outColor = vec4(s * c.a, c.a);`;
+
 registerStock(
   "ADBE Noise2",
   (input, p, ctx, _layer, time) => {
@@ -185,18 +228,8 @@ registerStock(
       ctx,
       imageRect(input),
       [input],
-      `uniform float u_amount;
-uniform float u_seed;
-uniform int u_color;
-uniform int u_clip;
-float hash(vec2 q, float s) { return fract(sin(dot(q, vec2(12.9898, 78.233)) + s * 43.7) * 43758.5453); }`,
-      `  vec4 c = at(0, p);
-  if (c.a <= 0.0) { outColor = c; return; }
-  vec2 q = floor(p);
-  vec3 n = u_color == 1 ? vec3(hash(q, u_seed), hash(q, u_seed + 1.0), hash(q, u_seed + 2.0)) : vec3(hash(q, u_seed));
-  vec3 s = straight(c) + (n - 0.5) * u_amount;
-  s = u_clip == 1 ? clamp(s, 0.0, 1.0) : fract(s);
-  outColor = vec4(s * c.a, c.a);`,
+      NOISE_DECLS,
+      NOISE_BODY,
       (u) => {
         ctx.gl.uniform1f(u("u_amount"), amount);
         ctx.gl.uniform1f(u("u_seed"), (Math.round(time * 1000) % 9973) / 7.0);

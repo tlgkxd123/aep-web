@@ -23,6 +23,7 @@ add_library(aevk STATIC
   src/effects/audio_spectrum.cpp
   src/effects/blur.cpp
   src/effects/blur_sharpen.cpp
+    src/effects/stylize_stock.cpp
   src/effects/transitions.cpp
   src/effects/box_blur.cpp
   src/effects/channel.cpp

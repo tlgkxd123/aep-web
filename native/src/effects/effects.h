@@ -27,6 +27,10 @@ FxRenderer directionalBlurRenderer();
 FxRenderer radialBlurRenderer();
 FxRenderer sharpenRenderer();
 FxRenderer unsharpMaskRenderer();
+FxRenderer dropShadowRenderer();
+FxRenderer glowRenderer();
+FxRenderer mosaicRenderer();
+FxRenderer noiseRenderer();
 /** box_blur.cpp */
 FxRenderer boxBlurRenderer();
 /** channel.cpp */
