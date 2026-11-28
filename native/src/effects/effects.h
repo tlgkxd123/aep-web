@@ -52,6 +52,8 @@ FxRenderer ccRadialFastBlurRenderer();
 FxRenderer ccRadialBlurRenderer();
 FxRenderer noiseHlsRenderer();
 FxRenderer noiseHlsAutoRenderer();
+FxRenderer vignetteRenderer();
+FxRenderer minimaxRenderer();
 FxRenderer linearColorKeyRenderer();
 FxRenderer colorKeyRenderer();
 FxRenderer lumaKeyRenderer();

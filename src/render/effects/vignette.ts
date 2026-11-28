@@ -4,7 +4,8 @@ import { effectNumber, effectVector } from "../effectParams.ts";
 import { registerEffect } from "../registry.ts";
 import { mapPass, PASS_HEADER } from "./fxextraUtil.ts";
 
-const VIGNETTE_FS = `${PASS_HEADER}
+/** Also embedded by the native engine. */
+export const VIGNETTE_FS = `${PASS_HEADER}
 uniform vec2 u_size;
 uniform float u_pad;
 uniform vec2 u_center;

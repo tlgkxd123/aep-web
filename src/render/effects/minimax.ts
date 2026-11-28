@@ -5,23 +5,46 @@ import { effectNumber } from "../effectParams.ts";
 import { registerEffect, type LayerImage, type RenderContext } from "../registry.ts";
 import { grown, mapPass, PASS_HEADER } from "./fxextraUtil.ts";
 
-const UNPREMULTIPLY_FS = `${PASS_HEADER}
+/** Also embedded by the native engine. */
+export const UNPREMULTIPLY_FS = `${PASS_HEADER}
 uniform vec2 u_size;
 uniform float u_pad;
+bool outside(vec2 px) {
+  return px.x < u_pad || px.y < u_pad || px.x > u_size.x - u_pad || px.y > u_size.y - u_pad;
+}
 void main() {
-  vec4 c = texture(u_source, v_uv);
   vec2 px = v_uv * u_size;
-  if (px.x < u_pad || px.y < u_pad || px.x > u_size.x - u_pad || px.y > u_size.y - u_pad) c = vec4(0.0);
-  outColor = vec4(c.a > 0.0 ? c.rgb / c.a : vec3(0.0), c.a);
+  vec4 c = outside(px) ? vec4(0.0) : texture(u_source, v_uv);
+  if (c.a <= 0.0) {
+    outColor = vec4(0.0);
+    return;
+  }
+  // An 8-bit premultiplied pixel only bounds its straight colour, loosely at a faint edge, where rounding alone can
+  // brighten a channel to full (After Effects keeps straight colour, without that error). Take the colour of the
+  // most opaque neighbour that fits those bounds, else the nearest bound.
+  vec3 lo = clamp((c.rgb - 0.5 / 255.0) / c.a, 0.0, 1.0);
+  vec3 hi = clamp((c.rgb + 0.5 / 255.0) / c.a, 0.0, 1.0);
+  vec4 best = c;
+  for (int y = -1; y <= 1; y++) {
+    for (int x = -1; x <= 1; x++) {
+      vec2 q = px + vec2(x, y);
+      if (outside(q)) continue;
+      vec4 n = texture(u_source, q / u_size);
+      if (n.a > best.a) best = n;
+    }
+  }
+  outColor = vec4(clamp(best.rgb / best.a, lo, hi), c.a);
 }`;
 
-const PREMULTIPLY_FS = `${PASS_HEADER}
+/** Also embedded by the native engine. */
+export const PREMULTIPLY_FS = `${PASS_HEADER}
 void main() {
   vec4 c = texture(u_source, v_uv);
   outColor = vec4(c.rgb * c.a, c.a);
 }`;
 
-const MINMAX_FS = `${PASS_HEADER}
+/** Also embedded by the native engine. */
+export const MINMAX_FS = `${PASS_HEADER}
 uniform vec2 u_size;
 uniform float u_pad;
 uniform vec2 u_dir;

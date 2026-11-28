@@ -46,6 +46,8 @@ export const NATIVE_EFFECTS: ReadonlyMap<string, NativeEffect> = new Map([
   ["CC Radial Blur", effect(true)],
   ["ADBE Noise HLS2", effect(true)],
   ["ADBE Noise HLS Auto2", effect(true)],
+  ["CS Vignette", effect(false)],
+  ["ADBE Minimax", effect(false)],
   ["ADBE Linear Color Key2", effect(true)],
   ["ADBE Color Key", effect(true)],
   ["ADBE Luma Key", effect(true)],

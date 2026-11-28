@@ -220,6 +220,10 @@ export const FX_SHADERS: FxShaderSource[] = [
   layerPass("noise_hls", 1, ref("blurNoise.ts", "NOISE_HLS_DECLS"), ref("blurNoise.ts", "NOISE_HLS_BODY")),
   shader("median_step", "blurNoise.ts", "MEDIAN_STEP_FS"),
   shader("median_store", "blurNoise.ts", "MEDIAN_STORE_FS"),
+  shader("cs_vignette", "vignette.ts", "VIGNETTE_FS"),
+  shader("minimax_unpremultiply", "minimax.ts", "UNPREMULTIPLY_FS"),
+  shader("minimax_premultiply", "minimax.ts", "PREMULTIPLY_FS"),
+  shader("minimax", "minimax.ts", "MINMAX_FS"),
   layerPass("mosaic", 1, ref("stylize.ts", "MOSAIC_DECLS"), ref("stylize.ts", "MOSAIC_BODY")),
   layerPass("noise", 1, ref("stylize.ts", "NOISE_DECLS"), ref("stylize.ts", "NOISE_BODY")),
 ];

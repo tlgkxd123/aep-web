@@ -47,6 +47,8 @@ FxRenderer fxRenderer(const std::string& matchName) {
       {"CC Radial Blur", ccRadialBlurRenderer},
       {"ADBE Noise HLS2", noiseHlsRenderer},
       {"ADBE Noise HLS Auto2", noiseHlsAutoRenderer},
+      {"CS Vignette", vignetteRenderer},
+      {"ADBE Minimax", minimaxRenderer},
       {"ADBE Linear Color Key2", linearColorKeyRenderer},
       {"ADBE Color Key", colorKeyRenderer},
       {"ADBE Luma Key", lumaKeyRenderer},
