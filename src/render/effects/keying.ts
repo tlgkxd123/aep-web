@@ -12,7 +12,7 @@ import { COLOR_LIB, compOf, gaussian, imageRect, layerPass, layerRect, registerS
  * share of the pixel's alpha kept, and may change `s`. With `restore` set, `m` is instead the share of the missing
  * alpha left missing (Keep Colors).
  */
-function keyShader(decls: string, body: string): string {
+export function keyShader(decls: string, body: string): string {
   return `${PASS_HEADER}${COLOR_LIB}
 uniform vec2 u_size;
 uniform float u_pad;
@@ -77,7 +77,8 @@ function keyWithEdges(ctx: RenderContext, input: LayerImage, decls: string, body
   return withMatte(ctx, input, matte, View.FINAL, true);
 }
 
-const FEATHER_FS = `${PASS_HEADER}
+/** Also embedded by the native engine. */
+export const FEATHER_FS = `${PASS_HEADER}
 uniform vec2 u_size;
 uniform float u_pad;
 uniform vec2 u_dir;
@@ -115,7 +116,8 @@ function featherMatte(ctx: RenderContext, image: LayerImage, feather: number): L
   return matte;
 }
 
-const MORPH_FS = `${PASS_HEADER}
+/** Also embedded by the native engine. */
+export const MORPH_FS = `${PASS_HEADER}
 uniform vec2 u_size;
 uniform float u_pad;
 uniform vec2 u_dir;
@@ -150,7 +152,8 @@ export function morph(ctx: RenderContext, matte: LayerImage, radius: number): La
   return matte;
 }
 
-const COMBINE_FS = `${PASS_HEADER}
+/** Also embedded by the native engine. */
+export const COMBINE_FS = `${PASS_HEADER}
 uniform sampler2D u_extra0;
 uniform int u_view;
 uniform int u_multiply;
@@ -175,16 +178,8 @@ export function withMatte(ctx: RenderContext, colour: LayerImage, matte: LayerIm
 const uniform3 = (ctx: RenderContext, location: WebGLUniformLocation | null, v: number[]) => ctx.gl.uniform3f(location, v[0], v[1], v[2]);
 
 // Linear Color Key (keyingMath.linearKey, linearKeyAlpha).
-registerStock("ADBE Linear Color Key2", (input, p, ctx) => {
-  const key = p.rgb(3, [0, 0, 1]);
-  const match = Math.round(p.num(4, MatchColors.RGB));
-  const tolerance = p.num(5, 0) / 100;
-  const softness = p.num(6, 10) / 100;
-  const t = tolerance * (LINEAR_TOLERANCE[match] ?? 1) + (match === MatchColors.HUE && softness <= 0 ? 1 / 255 : 0);
-  return keyPass(
-    ctx,
-    input,
-    `uniform vec3 u_key;
+/** Also embedded by the native engine. */
+export const LINEAR_KEY_DECLS = `uniform vec3 u_key;
 uniform float u_keyHue;
 uniform int u_match;
 uniform vec3 u_chroma;
@@ -203,10 +198,24 @@ float distance2(vec3 s) {
     return dot(u_chroma, pairs * pairs);
   }
   return dot(d, d) / 3.0;
-}`,
-    `  float e = distance2(clamp(s, 0.0, 1.0)) - u_tolerance2;
+}`;
+
+/** Also embedded by the native engine. */
+export const LINEAR_KEY_BODY = `  float e = distance2(clamp(s, 0.0, 1.0)) - u_tolerance2;
   m = u_ramp > 0.0 ? e / u_ramp : (e > 0.0 ? 1.0 : 0.0);
-  restore = u_keep == 1;`,
+  restore = u_keep == 1;`;
+
+registerStock("ADBE Linear Color Key2", (input, p, ctx) => {
+  const key = p.rgb(3, [0, 0, 1]);
+  const match = Math.round(p.num(4, MatchColors.RGB));
+  const tolerance = p.num(5, 0) / 100;
+  const softness = p.num(6, 10) / 100;
+  const t = tolerance * (LINEAR_TOLERANCE[match] ?? 1) + (match === MatchColors.HUE && softness <= 0 ? 1 / 255 : 0);
+  return keyPass(
+    ctx,
+    input,
+    LINEAR_KEY_DECLS,
+    LINEAR_KEY_BODY,
     p.num(2, View.FINAL),
     (u) => {
       uniform3(ctx, u("u_key"), key);
@@ -221,15 +230,21 @@ float distance2(vec3 s) {
 });
 
 // Color Key (keyingMath.colorKey).
+/** Also embedded by the native engine. */
+export const COLOR_KEY_DECLS = `uniform vec3 u_key;
+uniform float u_tolerance;`;
+
+/** Also embedded by the native engine. */
+export const COLOR_KEY_BODY = `  float spread = c.a < 1.0 ? 0.5 / c.a : 0.0;
+  vec3 d = max(abs(s - u_key) * 255.0 - spread, 0.0);
+  m = length(d) <= u_tolerance + 1e-3 ? 0.0 : 1.0;`;
+
 registerStock("ADBE Color Key", (input, p, ctx) =>
   keyWithEdges(
     ctx,
     input,
-    `uniform vec3 u_key;
-uniform float u_tolerance;`,
-    `  float spread = c.a < 1.0 ? 0.5 / c.a : 0.0;
-  vec3 d = max(abs(s - u_key) * 255.0 - spread, 0.0);
-  m = length(d) <= u_tolerance + 1e-3 ? 0.0 : 1.0;`,
+    COLOR_KEY_DECLS,
+    COLOR_KEY_BODY,
     p.num(3, 0),
     p.num(4, 0),
     (u) => {
@@ -240,20 +255,26 @@ uniform float u_tolerance;`,
 );
 
 // Luma Key (keyingMath.lumaKey).
-registerStock("ADBE Luma Key", (input, p, ctx) =>
-  keyWithEdges(
-    ctx,
-    input,
-    `uniform int u_type;
+/** Also embedded by the native engine. */
+export const LUMA_KEY_DECLS = `uniform int u_type;
 uniform float u_threshold;
-uniform float u_tolerance;`,
-    `  float l = dot(floor(clamp(s, 0.0, 1.0) * 255.0 + 0.5), vec3(30.0, 59.0, 11.0));
+uniform float u_tolerance;`;
+
+/** Also embedded by the native engine. */
+export const LUMA_KEY_BODY = `  float l = dot(floor(clamp(s, 0.0, 1.0) * 255.0 + 0.5), vec3(30.0, 59.0, 11.0));
   float d = abs(l - u_threshold);
   if (u_type == 1) m = l > u_threshold ? 0.0 : 1.0;
   else if (u_type == 2) m = l < u_threshold ? 0.0 : 1.0;
   else if (u_type == 3) m = d < u_tolerance ? 0.0 : 1.0;
   else m = d > u_tolerance ? 0.0 : 1.0;
-  keyClear = true;`,
+  keyClear = true;`;
+
+registerStock("ADBE Luma Key", (input, p, ctx) =>
+  keyWithEdges(
+    ctx,
+    input,
+    LUMA_KEY_DECLS,
+    LUMA_KEY_BODY,
     p.num(4, 0),
     p.num(5, 0),
     (u) => {
@@ -266,23 +287,29 @@ uniform float u_tolerance;`,
 );
 
 // Extract (keyingMath.extract).
-registerStock("ADBE Extract", (input, p, ctx) =>
-  keyPass(
-    ctx,
-    input,
-    `uniform int u_channel;
+/** Also embedded by the native engine. */
+export const EXTRACT_DECLS = `uniform int u_channel;
 uniform float u_black;
 uniform float u_white;
 uniform float u_blackSoftness;
 uniform float u_whiteSoftness;
-uniform int u_invert;`,
-    `  vec3 s8 = floor(clamp(s, 0.0, 1.0) * 255.0 + 0.5);
+uniform int u_invert;`;
+
+/** Also embedded by the native engine. */
+export const EXTRACT_BODY = `  vec3 s8 = floor(clamp(s, 0.0, 1.0) * 255.0 + 0.5);
   // keyingMath.luma8: Rec. 601 in 16-bit fixed point; every partial sum is a whole number below 2^24.
   float y = floor((dot(s8, vec3(19595.0, 38470.0, 7471.0)) + 32768.0) / 65536.0);
   float v = u_channel == 5 ? floor(c.a * 255.0 + 0.5) : u_channel == 1 ? y : s8[u_channel - 2];
   if (v > u_white) m = u_whiteSoftness > 0.0 ? clamp(1.0 - (v - u_white) / u_whiteSoftness, 0.0, 1.0) : 0.0;
   else if (v < u_black && v < u_white) m = u_blackSoftness > 0.0 ? clamp(1.0 - (u_black - v) / u_blackSoftness, 0.0, 1.0) : 0.0;
-  if (u_invert == 1) m = 1.0 - m;`,
+  if (u_invert == 1) m = 1.0 - m;`;
+
+registerStock("ADBE Extract", (input, p, ctx) =>
+  keyPass(
+    ctx,
+    input,
+    EXTRACT_DECLS,
+    EXTRACT_BODY,
     View.FINAL,
     (u) => {
       ctx.gl.uniform1i(u("u_channel"), p.num(2, 1));
@@ -296,11 +323,8 @@ uniform int u_invert;`,
 );
 
 // Color Range (keyingMath.colorRange).
-registerStock("ADBE Color Range", (input, p, ctx) =>
-  keyPass(
-    ctx,
-    input,
-    `uniform int u_space;
+/** Also embedded by the native engine. */
+export const COLOR_RANGE_DECLS = `uniform int u_space;
 uniform vec3 u_min;
 uniform vec3 u_max;
 uniform float u_fuzziness;
@@ -312,15 +336,24 @@ vec3 coordinates(vec3 s) {
   vec3 xyz = vec3(dot(lin, vec3(0.4124, 0.3576, 0.1805)) / 0.95047, dot(lin, vec3(0.2126, 0.7152, 0.0722)), dot(lin, vec3(0.0193, 0.1192, 0.9505)) / 1.08883);
   vec3 f = mix(7.787 * xyz + 16.0 / 116.0, pow(xyz, vec3(1.0 / 3.0)), step(vec3(0.008856), xyz));
   return vec3((116.0 * f.y - 16.0) / 100.0 * 255.0, 500.0 * (f.x - f.y) + 128.0, 200.0 * (f.y - f.z) + 128.0);
-}`,
-    `  vec3 q = coordinates(clamp(s, 0.0, 1.0));
+}`;
+
+/** Also embedded by the native engine. */
+export const COLOR_RANGE_BODY = `  vec3 q = coordinates(clamp(s, 0.0, 1.0));
   vec3 d = max(u_min - q, q - u_max);
   vec3 eased;
   if (u_fuzziness > 0.0) {
     vec3 x = clamp(d / u_fuzziness, 0.0, 1.0);
     eased = mix(2.0 * x * x, 1.0 - 2.0 * (1.0 - x) * (1.0 - x), step(0.5, x));
   } else eased = step(vec3(1e-6), d);
-  m = 1.0 - (1.0 - eased.x) * (1.0 - eased.y) * (1.0 - eased.z);`,
+  m = 1.0 - (1.0 - eased.x) * (1.0 - eased.y) * (1.0 - eased.z);`;
+
+registerStock("ADBE Color Range", (input, p, ctx) =>
+  keyPass(
+    ctx,
+    input,
+    COLOR_RANGE_DECLS,
+    COLOR_RANGE_BODY,
     View.FINAL,
     (u) => {
       ctx.gl.uniform1i(u("u_space"), p.num(3, 1));
@@ -399,7 +432,8 @@ uniform vec2 u_offset;`,
   { cacheable: false, scalable: true },
 );
 
-const LEVEL_FS = `${PASS_HEADER}
+/** Also embedded by the native engine. */
+export const LEVEL_FS = `${PASS_HEADER}
 uniform float u_threshold;
 uniform float u_width;
 void main() {
@@ -434,17 +468,23 @@ registerStock("ADBE Matte Choker", (input, p, ctx) => {
 });
 
 // Spill Suppressor (keyingMath.spillSuppress).
+/** Also embedded by the native engine. */
+export const SPILL_DECLS = `uniform int u_main;
+uniform float u_amount;`;
+
+/** Also embedded by the native engine. */
+export const SPILL_BODY = `  vec3 o = s;
+  o[u_main] = max(0.0, s[u_main] - u_amount * max(0.0, s[u_main] - s[(u_main + 2) % 3]));
+  s = o;`;
+
 registerStock("ADBE Spill Suppressor", (input, p, ctx) => {
   const key = p.rgb(1, [0, 0, 1]);
   const main = key[1] >= key[0] && key[1] >= key[2] ? 1 : key[2] >= key[0] ? 2 : 0;
   return keyPass(
     ctx,
     input,
-    `uniform int u_main;
-uniform float u_amount;`,
-    `  vec3 o = s;
-  o[u_main] = max(0.0, s[u_main] - u_amount * max(0.0, s[u_main] - s[(u_main + 2) % 3]));
-  s = o;`,
+    SPILL_DECLS,
+    SPILL_BODY,
     View.FINAL,
     (u) => {
       ctx.gl.uniform1i(u("u_main"), main);
@@ -452,6 +492,12 @@ uniform float u_amount;`,
     },
   );
 });
+
+/** Also embedded by the native engine. */
+export const SPILL2_DECLS = "uniform float u_amount;";
+
+/** Also embedded by the native engine. */
+export const SPILL2_BODY = "  s.g -= u_amount * max(0.0, s.g - (s.r + s.b) * 0.5);";
 
 // Advanced Spill Suppressor's Standard method (keyingMath.spillStandard); Suppression is parameter 1001. Its Key
 // Color belongs to the Ultra settings.
@@ -463,8 +509,8 @@ registerStock("ADBE Spill2", (input, p, ctx) => {
   return keyPass(
     ctx,
     input,
-    "uniform float u_amount;",
-    "  s.g -= u_amount * max(0.0, s.g - (s.r + s.b) * 0.5);",
+    SPILL2_DECLS,
+    SPILL2_BODY,
     View.FINAL,
     (u) => ctx.gl.uniform1f(u("u_amount"), p.num(1001, 100) / 100),
   );

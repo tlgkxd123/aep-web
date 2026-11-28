@@ -34,6 +34,8 @@ const layerPass = (name: string, count: number, decls: FxArg, body: FxArg): FxSh
 });
 /** A layerPass shader of stylizeExtra.ts from its PREFIX_DECLS and PREFIX_BODY exports. */
 const stylize = (name: string, count: number, prefix: string): FxShaderSource => layerPass(name, count, ref("stylizeExtra.ts", `${prefix}_DECLS`), ref("stylizeExtra.ts", `${prefix}_BODY`));
+/** A keying.ts keyShader of its PREFIX_DECLS and PREFIX_BODY exports. */
+const key = (name: string, prefix: string): FxShaderSource => ({ name, source: ref("keying.ts", "keyShader", ref("keying.ts", `${prefix}_DECLS`), ref("keying.ts", `${prefix}_BODY`)) });
 /** A warp shader (stockUtil.ts warp()): `decls` declares `vec2 map(vec2 p)`. */
 const warp = (name: string, decls: FxArg, post: FxArg = ""): FxShaderSource => layerPass(name, 1, decls, ref("stockUtil.ts", "warpBody", post));
 /**
@@ -184,6 +186,18 @@ export const FX_SHADERS: FxShaderSource[] = [
   layerPass("offset", 1, ref("distort.ts", "OFFSET_DECLS"), ref("distort.ts", "OFFSET_BODY")),
   warp("corner_pin", ref("distort.ts", "CORNER_PIN_DECLS")),
   warp("motion_tile", ref("distort.ts", "MOTION_TILE_DECLS")),
+  key("key_linear", "LINEAR_KEY"),
+  key("key_color", "COLOR_KEY"),
+  key("key_luma", "LUMA_KEY"),
+  key("key_extract", "EXTRACT"),
+  key("key_range", "COLOR_RANGE"),
+  key("key_spill", "SPILL"),
+  key("key_spill2", "SPILL2"),
+  { name: "key_alpha", source: ref("keying.ts", "keyShader", "", "") },
+  shader("key_feather", "keying.ts", "FEATHER_FS"),
+  shader("key_morph", "keying.ts", "MORPH_FS"),
+  shader("key_combine", "keying.ts", "COMBINE_FS"),
+  shader("key_level", "keying.ts", "LEVEL_FS"),
   layerPass("mosaic", 1, ref("stylize.ts", "MOSAIC_DECLS"), ref("stylize.ts", "MOSAIC_BODY")),
   layerPass("noise", 1, ref("stylize.ts", "NOISE_DECLS"), ref("stylize.ts", "NOISE_BODY")),
 ];
