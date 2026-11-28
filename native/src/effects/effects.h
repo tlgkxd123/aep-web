@@ -10,6 +10,16 @@ FxRenderer audioSpectrumRenderer();
 /** blur.cpp */
 FxRenderer channelBlurRenderer();
 FxRenderer crossBlurRenderer();
+/** transitions.cpp */
+FxRenderer gradientWipeRenderer();
+FxRenderer imageWipeRenderer();
+FxRenderer scaleWipeRenderer();
+FxRenderer radialScaleWipeRenderer();
+FxRenderer lightWipeRenderer();
+FxRenderer jawsRenderer();
+FxRenderer lineSweepRenderer();
+FxRenderer irisWipeRenderer();
+FxRenderer blockDissolveRenderer();
 /** box_blur.cpp */
 FxRenderer boxBlurRenderer();
 /** channel.cpp */

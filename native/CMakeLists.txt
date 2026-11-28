@@ -22,6 +22,7 @@ add_library(aevk STATIC
   src/capi.cpp
   src/effects/audio_spectrum.cpp
   src/effects/blur.cpp
+  src/effects/transitions.cpp
   src/effects/box_blur.cpp
   src/effects/channel.cpp
   src/effects/deep_glow.cpp

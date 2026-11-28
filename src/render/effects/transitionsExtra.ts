@@ -36,7 +36,7 @@ float polygonDistance(vec2 p) {
  * One axis of a feather: a Gaussian of sigma u_sigma truncated at u_radius taps over the float image u_source,
  * its content's edge pixels repeated.
  */
-const FEATHER_FS = `#version 300 es
+export const FEATHER_FS = `#version 300 es
 precision highp float;
 uniform sampler2D u_source;
 uniform ivec2 u_step;
@@ -57,6 +57,20 @@ void main() {
   outColor = sum / total;
 }`;
 
+/** keepMatte's pass without a feather, over the layer and its keep() (also embedded by the native engine). */
+export const KEEP_BODY = "  outColor = at(0, p) * keep(p);";
+/** keepMatte's last pass: the layer times the blurred matte, the second source (also embedded by the native engine). */
+export const MATTE_APPLY_BODY = "  outColor = at(0, p) * at(1, p).r;";
+
+/** keepMatte's matte: keep() at every layer point, into a float image (also embedded by the native engine). */
+export function keepMatteFragment(keep: string): string {
+  return `#version 300 es
+precision highp float;
+out vec4 outColor;
+${COORDS}${keep}
+void main() { outColor = vec4(keep(layerPoint())); }`;
+}
+
 /**
  * The layer kept where `keep` (GLSL declaring `float keep(vec2 p)` of the layer point, 1 kept, 0 cut away, its edges
  * ramping over a pixel) says, the edges blurred to fall off as a Gaussian of `sigma` image pixels (the matte drawn on
@@ -65,7 +79,7 @@ void main() {
 function keepMatte(ctx: RenderContext, input: LayerImage, keep: string, setUniforms: Uniforms, sigma: number): LayerImage {
   const blur = Math.sqrt(Math.max(0, sigma * sigma - 1 / 12));
   if (blur < 0.2) {
-    const out = layerPass(ctx, imageRect(input), [input], keep, "  outColor = at(0, p) * keep(p);", setUniforms, input.scale);
+    const out = layerPass(ctx, imageRect(input), [input], keep, KEEP_BODY, setUniforms, input.scale);
     ctx.pool.release(input.target);
     return out;
   }
@@ -74,12 +88,7 @@ function keepMatte(ctx: RenderContext, input: LayerImage, keep: string, setUnifo
   const height = input.target.height + 2 * radius;
   const origin: [number, number] = [input.origin[0] - radius, input.origin[1] - radius];
   let matte = acquireFloat(ctx, width, height);
-  const fragment = `#version 300 es
-precision highp float;
-out vec4 outColor;
-${COORDS}${keep}
-void main() { outColor = vec4(keep(layerPoint())); }`;
-  ctx.pass(ctx.program(fragment), matte, [], (u) => {
+  ctx.pass(ctx.program(keepMatteFragment(keep)), matte, [], (u) => {
     ctx.gl.uniform2f(u("u_size"), width, height);
     ctx.gl.uniform1f(u("u_pad"), ctx.pad);
     ctx.gl.uniform2f(u("u_origin"), origin[0], origin[1]);
@@ -101,7 +110,7 @@ void main() { outColor = vec4(keep(layerPoint())); }`;
     matte = next;
   }
   const blurred = { ...input, target: matte, origin, width: input.width + 2 * radius, height: input.height + 2 * radius };
-  const out = layerPass(ctx, imageRect(input), [input, blurred], "", "  outColor = at(0, p) * at(1, p).r;", undefined, input.scale);
+  const out = layerPass(ctx, imageRect(input), [input, blurred], "", MATTE_APPLY_BODY, undefined, input.scale);
   releaseFloat(ctx, matte);
   ctx.pool.release(input.target);
   return out;
@@ -142,6 +151,28 @@ function placement(layer: Layer, input: LayerImage, other: Layer, map: LayerImag
 // (L - T) / S of itself (half a level per level without softness); Invert Gradient keeps (T' - L) / S with
 // T' = floor((1 - completion) * (255 + S)). The gradient is the Gradient Layer's source (the layer itself for None),
 // placed by Gradient Placement.
+/** Gradient Wipe's uniforms (also embedded by the native engine). */
+export const GRADIENT_WIPE_DECLS = `uniform vec2 u_scale;
+uniform vec2 u_offset;
+uniform vec4 u_mapRect;
+uniform int u_mode;
+uniform int u_own;
+uniform int u_invert;
+uniform float u_threshold;
+uniform float u_soft;`;
+
+/** Gradient Wipe's pass over the layer and its gradient (also embedded by the native engine). */
+export const GRADIENT_WIPE_BODY = `  vec4 c = at(0, p);
+  vec4 g = c;
+  if (u_own == 0) {
+    vec2 q = p * u_scale + u_offset;
+    if (u_mode == ${GradientPlacement.TILE}) q = u_mapRect.xy + mod(q - u_mapRect.xy, u_mapRect.zw);
+    g = at(1, q);
+  }
+  float level = luma(g.rgb) * 255.0;
+  float keep = clamp((u_invert == 1 ? u_threshold - level : level - u_threshold) / u_soft, 0.0, 1.0);
+  outColor = c * keep;`;
+
 registerStock(
   "ADBE Gradient Wipe",
   (input, p, ctx, layer, time) => {
@@ -158,24 +189,8 @@ registerStock(
       ctx,
       imageRect(input),
       sources,
-      `uniform vec2 u_scale;
-uniform vec2 u_offset;
-uniform vec4 u_mapRect;
-uniform int u_mode;
-uniform int u_own;
-uniform int u_invert;
-uniform float u_threshold;
-uniform float u_soft;`,
-      `  vec4 c = at(0, p);
-  vec4 g = c;
-  if (u_own == 0) {
-    vec2 q = p * u_scale + u_offset;
-    if (u_mode == ${GradientPlacement.TILE}) q = u_mapRect.xy + mod(q - u_mapRect.xy, u_mapRect.zw);
-    g = at(1, q);
-  }
-  float level = luma(g.rgb) * 255.0;
-  float keep = clamp((u_invert == 1 ? u_threshold - level : level - u_threshold) / u_soft, 0.0, 1.0);
-  outColor = c * keep;`,
+      GRADIENT_WIPE_DECLS,
+      GRADIENT_WIPE_BODY,
       (u) => {
         const gl = ctx.gl;
         gl.uniform2f(u("u_scale"), place?.scale[0] ?? 1, place?.scale[1] ?? 1);
@@ -204,6 +219,34 @@ const ImageProperty = { RED: 1, GREEN: 2, BLUE: 3, ALPHA: 4, LUMINANCE: 5, LIGHT
 // is below Completion c become transparent; with Border Softness s a pixel keeps (v - c (1 + s) + s) / s' of itself,
 // s' being s in whole 8-bit levels. Inverse Gradient reads 1 - v. Luminance is Rec. 601 luma, which After Effects'
 // differs from on coloured gradients (it agrees on greys).
+/** CC Image Wipe's uniforms (also embedded by the native engine). */
+export const IMAGE_WIPE_DECLS = `uniform vec2 u_scale;
+uniform vec2 u_offset;
+uniform int u_own;
+uniform int u_property;
+uniform int u_invert;
+uniform float u_completion;
+uniform float u_soft;
+uniform float u_ramp;`;
+
+/** CC Image Wipe's pass over the layer and its gradient (also embedded by the native engine). */
+export const IMAGE_WIPE_BODY = `  vec4 c = at(0, p);
+  vec4 g = u_own == 1 ? c : at(1, p * u_scale + u_offset);
+  vec3 s = straight(g);
+  vec3 hsl = rgb2hsl(s);
+  float v;
+  if (u_property == ${ImageProperty.RED}) v = g.r;
+  else if (u_property == ${ImageProperty.GREEN}) v = g.g;
+  else if (u_property == ${ImageProperty.BLUE}) v = g.b;
+  else if (u_property == ${ImageProperty.ALPHA}) v = g.a;
+  else if (u_property == ${ImageProperty.LIGHTNESS}) v = hsl.z * g.a;
+  else if (u_property == ${ImageProperty.HUE}) v = hsl.x;
+  else if (u_property == ${ImageProperty.SATURATION}) v = hsl.y;
+  else v = luma(g.rgb);
+  if (u_invert == 1) v = 1.0 - v;
+  float keep = u_soft > 0.0 ? clamp((v - u_completion * (1.0 + u_soft) + u_soft) / u_ramp, 0.0, 1.0) : (v > u_completion ? 1.0 : 0.0);
+  outColor = c * keep;`;
+
 registerStock(
   "CC Image Wipe",
   (input, p, ctx, layer, time) => {
@@ -219,30 +262,8 @@ registerStock(
       ctx,
       imageRect(input),
       map ? [input, map] : [input],
-      `uniform vec2 u_scale;
-uniform vec2 u_offset;
-uniform int u_own;
-uniform int u_property;
-uniform int u_invert;
-uniform float u_completion;
-uniform float u_soft;
-uniform float u_ramp;`,
-      `  vec4 c = at(0, p);
-  vec4 g = u_own == 1 ? c : at(1, p * u_scale + u_offset);
-  vec3 s = straight(g);
-  vec3 hsl = rgb2hsl(s);
-  float v;
-  if (u_property == ${ImageProperty.RED}) v = g.r;
-  else if (u_property == ${ImageProperty.GREEN}) v = g.g;
-  else if (u_property == ${ImageProperty.BLUE}) v = g.b;
-  else if (u_property == ${ImageProperty.ALPHA}) v = g.a;
-  else if (u_property == ${ImageProperty.LIGHTNESS}) v = hsl.z * g.a;
-  else if (u_property == ${ImageProperty.HUE}) v = hsl.x;
-  else if (u_property == ${ImageProperty.SATURATION}) v = hsl.y;
-  else v = luma(g.rgb);
-  if (u_invert == 1) v = 1.0 - v;
-  float keep = u_soft > 0.0 ? clamp((v - u_completion * (1.0 + u_soft) + u_soft) / u_ramp, 0.0, 1.0) : (v > u_completion ? 1.0 : 0.0);
-  outColor = c * keep;`,
+      IMAGE_WIPE_DECLS,
+      IMAGE_WIPE_BODY,
       (u) => {
         const gl = ctx.gl;
         gl.uniform2f(u("u_scale"), place?.scale[0] ?? 1, place?.scale[1] ?? 1);
@@ -272,6 +293,16 @@ const ccPoint = (v: number[], k: number): [number, number] => [(v[0] + 0.5) * k,
 // CC Scale Wipe: beyond the line through Center across Direction (behind it for a negative Stretch), a point d layer
 // pixels from the line shows the point d / (1 + |Stretch| d / 100) from it, along the direction: the pixels at the
 // line smeared out.
+/** CC Scale Wipe's uniforms (also embedded by the native engine). */
+export const SCALE_WIPE_DECLS = `uniform vec2 u_center;
+uniform vec2 u_dir;
+uniform float u_rate;`;
+
+/** CC Scale Wipe's pass (also embedded by the native engine). */
+export const SCALE_WIPE_BODY = `  float d = dot(p - u_center, u_dir);
+  vec2 q = d > 0.0 ? p - u_dir * (d - d / (1.0 + u_rate * d)) : p;
+  outColor = at(0, q);`;
+
 registerStock("CC Scale Wipe", (input, p, ctx, layer) => {
   const stretch = p.num(1, 0);
   if (stretch === 0) return input;
@@ -282,12 +313,8 @@ registerStock("CC Scale Wipe", (input, p, ctx, layer) => {
     ctx,
     imageRect(input),
     [input],
-    `uniform vec2 u_center;
-uniform vec2 u_dir;
-uniform float u_rate;`,
-    `  float d = dot(p - u_center, u_dir);
-  vec2 q = d > 0.0 ? p - u_dir * (d - d / (1.0 + u_rate * d)) : p;
-  outColor = at(0, q);`,
+    SCALE_WIPE_DECLS,
+    SCALE_WIPE_BODY,
     (u) => {
       ctx.gl.uniform2f(u("u_center"), cx, cy);
       ctx.gl.uniform2f(u("u_dir"), dx, dy);
@@ -306,6 +333,26 @@ const RADIAL_EDGE = 0.72;
 // CC Radial ScaleWipe: a hole of radius R = Completion times the distance from Center to the layer's farthest corner
 // opens at Center; a point r from Center out to 1.309 R shows the point r sin(pi s / 2) from it on its ray, s = (r - R)
 // / (0.309 R), so the layer's middle is smeared around the hole (measured).
+/** CC Radial ScaleWipe's uniforms and mapping (also embedded by the native engine). */
+export const RADIAL_SCALE_WIPE_DECLS = `uniform vec2 u_center;
+uniform float u_radius;
+uniform float u_band;
+uniform float u_edge;
+vec2 shown(vec2 p) {
+  vec2 v = p - u_center;
+  return u_center + v * sin(1.5707963 * clamp((length(v) - u_radius) / u_band, 0.0, 1.0));
+}`;
+
+/** CC Radial ScaleWipe's pass (also embedded by the native engine). */
+export const RADIAL_SCALE_WIPE_BODY = `  float r = length(p - u_center);
+  vec4 c = vec4(0.0);
+  if (r < u_radius + u_band + 1.0) {
+    for (int i = 0; i < 4; i++)
+      for (int j = 0; j < 4; j++) c += at(0, shown(p + (vec2(i, j) - 1.5) / 4.0));
+    c /= 16.0;
+  } else c = at(0, p);
+  outColor = c * clamp(r - u_radius - u_edge + 0.5, 0.0, 1.0);`;
+
 registerStock("CC Radial ScaleWipe", (input, p, ctx, layer) => {
   const completion = Math.min(1, Math.max(0, p.num(1, 0)));
   if (completion <= 0) return input;
@@ -326,22 +373,8 @@ registerStock("CC Radial ScaleWipe", (input, p, ctx, layer) => {
     ctx,
     imageRect(input),
     [input],
-    `uniform vec2 u_center;
-uniform float u_radius;
-uniform float u_band;
-uniform float u_edge;
-vec2 shown(vec2 p) {
-  vec2 v = p - u_center;
-  return u_center + v * sin(1.5707963 * clamp((length(v) - u_radius) / u_band, 0.0, 1.0));
-}`,
-    `  float r = length(p - u_center);
-  vec4 c = vec4(0.0);
-  if (r < u_radius + u_band + 1.0) {
-    for (int i = 0; i < 4; i++)
-      for (int j = 0; j < 4; j++) c += at(0, shown(p + (vec2(i, j) - 1.5) / 4.0));
-    c /= 16.0;
-  } else c = at(0, p);
-  outColor = c * clamp(r - u_radius - u_edge + 0.5, 0.0, 1.0);`,
+    RADIAL_SCALE_WIPE_DECLS,
+    RADIAL_SCALE_WIPE_BODY,
     (u) => {
       ctx.gl.uniform2f(u("u_center"), center[0], center[1]);
       ctx.gl.uniform1f(u("u_radius"), radius);
@@ -365,6 +398,24 @@ const LightShape = { DOORS: 1, ROUND: 2, SQUARE: 3 } as const;
 // the doors for Doors, straight otherwise), and
 // Color times L = min(Intensity R / d, 1) is added to the pixels d away in whole levels of 254, the pixels with L over
 // 1/2 losing one level of opacity (measured).
+/** CC Light Wipe's uniforms (also embedded by the native engine). */
+export const LIGHT_WIPE_DECLS = `uniform vec2 u_center;
+uniform vec2 u_u;
+uniform int u_shape;
+uniform float u_radius;
+uniform vec3 u_light;
+uniform float u_intensity;`;
+
+/** CC Light Wipe's pass (also embedded by the native engine). */
+export const LIGHT_WIPE_BODY = `  vec2 v = p - u_center;
+  float along = dot(v, u_u);
+  float d = u_shape == ${LightShape.DOORS} ? abs(along) : u_shape == ${LightShape.SQUARE} ? max(abs(along), abs(v.x * u_u.y - v.y * u_u.x)) : length(v);
+  float keep = clamp((d - u_radius + 0.75) / ${HOLE_RAMP.toFixed(2)} + 0.5, 0.0, 1.0);
+  vec4 c = at(0, p);
+  float light = min(u_intensity * u_radius / max(d, 1e-3), 1.0);
+  vec3 lit = min(c.rgb + floor(254.0 * u_light * light) / 255.0 * c.a, vec3(c.a));
+  outColor = vec4(lit, c.a) * keep * (1.0 - (light > 0.5 ? 1.0 : 0.0) / 255.0);`;
+
 registerStock("CC Light Wipe", (input, p, ctx, layer) => {
   const completion = Math.min(1, Math.max(0, p.num(1, 0) / 100));
   if (completion <= 0) return input;
@@ -391,20 +442,8 @@ registerStock("CC Light Wipe", (input, p, ctx, layer) => {
     ctx,
     imageRect(input),
     [input],
-    `uniform vec2 u_center;
-uniform vec2 u_u;
-uniform int u_shape;
-uniform float u_radius;
-uniform vec3 u_light;
-uniform float u_intensity;`,
-    `  vec2 v = p - u_center;
-  float along = dot(v, u_u);
-  float d = u_shape == ${LightShape.DOORS} ? abs(along) : u_shape == ${LightShape.SQUARE} ? max(abs(along), abs(v.x * u_u.y - v.y * u_u.x)) : length(v);
-  float keep = clamp((d - u_radius + 0.75) / ${HOLE_RAMP.toFixed(2)} + 0.5, 0.0, 1.0);
-  vec4 c = at(0, p);
-  float light = min(u_intensity * u_radius / max(d, 1e-3), 1.0);
-  vec3 lit = min(c.rgb + floor(254.0 * u_light * light) / 255.0 * c.a, vec3(c.a));
-  outColor = vec4(lit, c.a) * keep * (1.0 - (light > 0.5 ? 1.0 : 0.0) / 255.0);`,
+    LIGHT_WIPE_DECLS,
+    LIGHT_WIPE_BODY,
     (uniform) => {
       const gl = ctx.gl;
       gl.uniform2f(uniform("u_center"), center[0], center[1]);
@@ -440,39 +479,8 @@ const BLOCK_RAMP = 1.5;
 // CC Jaws: the layer is two jaws meeting along the line through Center turned by Direction, the lower the upper turned
 // half a turn. Their teeth are Height times the layer's width tall, 2 Width / 100 of it apart, the upper one's notch
 // at Center; they part by Completion times M, M taking the upper jaw's tip past the layer's farthest edge (measured).
-registerStock("CC Jaws", (input, p, ctx, layer) => {
-  const completion = Math.min(1, Math.max(0, p.num(1, 0)));
-  if (completion <= 0) return input;
-  const k = input.scale ?? 1;
-  const center = ccPoint(p.vec(2, layerCenter(layer, input).map((v) => v - 0.5)), k);
-  const theta = (p.num(3, 0) * Math.PI) / 180;
-  const e = [Math.cos(theta), Math.sin(theta)];
-  const n = [-e[1], e[0]];
-  const shape = p.choice(6, JawShape.SPIKES);
-  const rect = layerRect(layer, input);
-  const height = Math.max(0, p.num(4, 0.2)) * rect.width;
-  const period = ((2 * Math.max(2, p.num(5, 8))) / 100) * rect.width;
-  const reach = Math.max(
-    ...[
-      [rect.x, rect.y],
-      [rect.x + rect.width, rect.y],
-      [rect.x, rect.y + rect.height],
-      [rect.x + rect.width, rect.y + rect.height],
-    ].map(([x, y]) => Math.abs((x - center[0] + 0.5 * k) * n[0] + (y - center[1] + 0.5 * k) * n[1])),
-  );
-  const half = height / 2;
-  const slope = (2 * height) / period;
-  const travel =
-    shape === JawShape.SPIKES
-      ? reach + half + 0.5 * Math.hypot(1, slope)
-      : shape === JawShape.WAVES
-        ? reach + half * WAVE_TRAVEL
-        : reach + half + 0.73;
-  const parted = completion * travel - (shape === JawShape.WAVES ? half * WAVE_OVERLAP : 0);
-  return keepMatte(
-    ctx,
-    input,
-    `uniform vec2 u_center;
+/** CC Jaws' keep() (also embedded by the native engine). */
+export const JAWS_KEEP = `uniform vec2 u_center;
 uniform vec2 u_e;
 uniform vec2 u_n;
 uniform int u_shape;
@@ -514,7 +522,41 @@ float keep(vec2 p) {
   vec2 f = tooth(a);
   vec2 g = tooth(a + 0.5 * u_period);
   return min(edge(f.x - u_parted - b, f.y) + edge(b - u_parted + g.x, g.y), 1.0);
-}`,
+}`;
+
+registerStock("CC Jaws", (input, p, ctx, layer) => {
+  const completion = Math.min(1, Math.max(0, p.num(1, 0)));
+  if (completion <= 0) return input;
+  const k = input.scale ?? 1;
+  const center = ccPoint(p.vec(2, layerCenter(layer, input).map((v) => v - 0.5)), k);
+  const theta = (p.num(3, 0) * Math.PI) / 180;
+  const e = [Math.cos(theta), Math.sin(theta)];
+  const n = [-e[1], e[0]];
+  const shape = p.choice(6, JawShape.SPIKES);
+  const rect = layerRect(layer, input);
+  const height = Math.max(0, p.num(4, 0.2)) * rect.width;
+  const period = ((2 * Math.max(2, p.num(5, 8))) / 100) * rect.width;
+  const reach = Math.max(
+    ...[
+      [rect.x, rect.y],
+      [rect.x + rect.width, rect.y],
+      [rect.x, rect.y + rect.height],
+      [rect.x + rect.width, rect.y + rect.height],
+    ].map(([x, y]) => Math.abs((x - center[0] + 0.5 * k) * n[0] + (y - center[1] + 0.5 * k) * n[1])),
+  );
+  const half = height / 2;
+  const slope = (2 * height) / period;
+  const travel =
+    shape === JawShape.SPIKES
+      ? reach + half + 0.5 * Math.hypot(1, slope)
+      : shape === JawShape.WAVES
+        ? reach + half * WAVE_TRAVEL
+        : reach + half + 0.73;
+  const parted = completion * travel - (shape === JawShape.WAVES ? half * WAVE_OVERLAP : 0);
+  return keepMatte(
+    ctx,
+    input,
+    JAWS_KEEP,
     (u) => {
       const gl = ctx.gl;
       gl.uniform2f(u("u_center"), center[0], center[1]);
@@ -539,6 +581,34 @@ const lineShift = (axis: number[]) => 0.286 - Math.min(axis[0], 0) - Math.min(ax
 // end, what is left over before them making one more line, numbered -1. Each is swept away across its length L (Flip
 // Direction from the other end), lagging the one before by L (1 - Slant / 100)^2; line 0's edge runs from one lag
 // before the box at Completion 0 on by L + N lags.
+/** CC Line Sweep's uniforms (also embedded by the native engine). */
+export const LINE_SWEEP_DECLS = `uniform vec2 u_d;
+uniform vec2 u_s;
+uniform float u_slo;
+uniform float u_thickness;
+uniform float u_lead;
+uniform float u_lag;
+uniform float u_lines;
+uniform float u_first;
+uniform float u_start;
+float keepLine(float i, float u, float h) {
+  if (i < u_first || i >= u_lines) return 1.0;
+  return clamp((u - (u_lead - i * u_lag)) / (2.0 * h) + 0.5, 0.0, 1.0);
+}`;
+
+/** CC Line Sweep's pass (also embedded by the native engine). */
+export const LINE_SWEEP_BODY = `  float v = dot(p, u_d) - u_start;
+  float u = dot(p, u_s) - u_slo;
+  float hv = 0.5 * (abs(u_d.x) + abs(u_d.y));
+  float hu = 0.5 * (abs(u_s.x) + abs(u_s.y));
+  float i = clamp(floor(v / u_thickness), u_first, u_lines - 1.0);
+  float near = v - i * u_thickness;
+  float far = (i + 1.0) * u_thickness - v;
+  float keep = keepLine(i, u, hu);
+  if (near < hv && i > u_first) keep = mix(keepLine(i - 1.0, u, hu), keep, near / (2.0 * hv) + 0.5);
+  else if (far < hv && i < u_lines - 1.0) keep = mix(keepLine(i + 1.0, u, hu), keep, far / (2.0 * hv) + 0.5);
+  outColor = at(0, p) * keep;`;
+
 registerStock("CS LineSweep", (input, p, ctx, layer) => {
   const completion = Math.min(1, Math.max(0, p.num(1, 0) / 100));
   if (completion <= 0) return input;
@@ -558,30 +628,8 @@ registerStock("CS LineSweep", (input, p, ctx, layer) => {
     ctx,
     imageRect(input),
     [input],
-    `uniform vec2 u_d;
-uniform vec2 u_s;
-uniform float u_slo;
-uniform float u_thickness;
-uniform float u_lead;
-uniform float u_lag;
-uniform float u_lines;
-uniform float u_first;
-uniform float u_start;
-float keepLine(float i, float u, float h) {
-  if (i < u_first || i >= u_lines) return 1.0;
-  return clamp((u - (u_lead - i * u_lag)) / (2.0 * h) + 0.5, 0.0, 1.0);
-}`,
-    `  float v = dot(p, u_d) - u_start;
-  float u = dot(p, u_s) - u_slo;
-  float hv = 0.5 * (abs(u_d.x) + abs(u_d.y));
-  float hu = 0.5 * (abs(u_s.x) + abs(u_s.y));
-  float i = clamp(floor(v / u_thickness), u_first, u_lines - 1.0);
-  float near = v - i * u_thickness;
-  float far = (i + 1.0) * u_thickness - v;
-  float keep = keepLine(i, u, hu);
-  if (near < hv && i > u_first) keep = mix(keepLine(i - 1.0, u, hu), keep, near / (2.0 * hv) + 0.5);
-  else if (far < hv && i < u_lines - 1.0) keep = mix(keepLine(i + 1.0, u, hu), keep, far / (2.0 * hv) + 0.5);
-  outColor = at(0, p) * keep;`,
+    LINE_SWEEP_DECLS,
+    LINE_SWEEP_BODY,
     (u) => {
       const gl = ctx.gl;
       gl.uniform2f(u("u_d"), d[0], d[1]);
@@ -600,6 +648,10 @@ float keepLine(float i, float u, float h) {
   return out;
 });
 
+/** Iris Wipe's keep() (also embedded by the native engine). */
+export const IRIS_KEEP = `${POLYGON}
+float keep(vec2 p) { return clamp(polygonDistance(p) + 0.5, 0.0, 1.0); }`;
+
 // Iris Wipe: the layer is cut away inside a star (a regular polygon without the inner radius) around Iris Center;
 // Feather blurs its edge (about Feather / 5, not as a mask's feather).
 registerStock("ADBE IRIS_WIPE", (input, p, ctx, layer) => {
@@ -611,8 +663,7 @@ registerStock("ADBE IRIS_WIPE", (input, p, ctx, layer) => {
   return keepMatte(
     ctx,
     input,
-    `${POLYGON}
-float keep(vec2 p) { return clamp(polygonDistance(p) + 0.5, 0.0, 1.0); }`,
+    IRIS_KEEP,
     (u) => {
       ctx.gl.uniform2fv(u("u_poly"), new Float32Array(verts));
       ctx.gl.uniform1i(u("u_count"), verts.length / 2);
@@ -620,6 +671,18 @@ float keep(vec2 p) { return clamp(polygonDistance(p) + 0.5, 0.0, 1.0); }`,
     irisFeatherSigma(p.num(7, 0)) * k,
   );
 });
+
+/** Block Dissolve's keep() (also embedded by the native engine). */
+export const BLOCK_DISSOLVE_KEEP = `uniform vec2 u_block;
+uniform float u_completion;
+float keep(vec2 p) {
+  uvec2 c = uvec2(ivec2(floor(p / u_block)) + 32768);
+  uint h = c.x * 0x8da6b343u ^ c.y * 0xd8163841u;
+  h = (h ^ (h >> 15)) * 0x2c1b3c6du;
+  h = (h ^ (h >> 12)) * 0x297a2d39u;
+  h ^= h >> 15;
+  return float(h) / 4294967296.0 >= u_completion ? 1.0 : 0.0;
+}`;
 
 // Block Dissolve (a look-alike: After Effects picks the blocks with its own random numbers): the layer's grid of
 // Block Width by Block Height blocks loses each block once Completion passes the block's own random level; Soft Edges
@@ -632,16 +695,7 @@ registerStock("ADBE Block Dissolve", (input, p, ctx) => {
   return keepMatte(
     ctx,
     input,
-    `uniform vec2 u_block;
-uniform float u_completion;
-float keep(vec2 p) {
-  uvec2 c = uvec2(ivec2(floor(p / u_block)) + 32768);
-  uint h = c.x * 0x8da6b343u ^ c.y * 0xd8163841u;
-  h = (h ^ (h >> 15)) * 0x2c1b3c6du;
-  h = (h ^ (h >> 12)) * 0x297a2d39u;
-  h ^= h >> 15;
-  return float(h) / 4294967296.0 >= u_completion ? 1.0 : 0.0;
-}`,
+    BLOCK_DISSOLVE_KEEP,
     (u) => {
       ctx.gl.uniform2f(u("u_block"), block[0] * k, block[1] * k);
       ctx.gl.uniform1f(u("u_completion"), completion);

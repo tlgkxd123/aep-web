@@ -54,6 +54,18 @@ const generator = (name: string, prefix: string): FxShaderSource =>
 const stroke = (name: string, prefix: string): FxShaderSource =>
   layerPass(name, 1, ref("generateExtra.ts", "strokeDecls", ref("generateExtra.ts", `${prefix}_DECLS`)), ref("generateExtra.ts", "strokeBody", ref("generateExtra.ts", `${prefix}_BODY`)));
 
+/**
+ * A keepMatte effect of transitionsExtra.ts from its keep() export: the pass that keeps the layer where keep() says
+ * (<name>_keep) and, for effects that feather, the matte that is blurred first (<name>_matte).
+ */
+const keep = (name: string, exported: string, feathers: boolean): FxShaderSource[] => [
+  layerPass(`${name}_keep`, 1, ref("transitionsExtra.ts", exported), ref("transitionsExtra.ts", "KEEP_BODY")),
+  ...(feathers ? [{ name: `${name}_matte`, source: ref("transitionsExtra.ts", "keepMatteFragment", ref("transitionsExtra.ts", exported)) }] : []),
+];
+/** A layerPass transition of transitionsExtra.ts from its PREFIX_DECLS and PREFIX_BODY exports. */
+const transition = (name: string, count: number, prefix: string): FxShaderSource =>
+  layerPass(name, count, ref("transitionsExtra.ts", `${prefix}_DECLS`), ref("transitionsExtra.ts", `${prefix}_BODY`));
+
 export const FX_SHADERS: FxShaderSource[] = [
   shader("box_load", "boxBlur.ts", "LOAD_FS"),
   shader("box_level", "boxBlur.ts", "LEVEL_FS"),
@@ -110,6 +122,17 @@ export const FX_SHADERS: FxShaderSource[] = [
   layerPass("channel_blur_colour", 2, "", ref("blurNoise.ts", "CHANNEL_BLUR_COLOUR_BODY")),
   layerPass("channel_blur_compose", 4, "", ref("blurNoise.ts", "channelBlurComposeBody", 4, [0, 1, 2])),
   layerPass("cross_blur", 2, ref("blurNoise.ts", "CROSS_BLUR_DECLS"), ref("blurNoise.ts", "CROSS_BLUR_BODY")),
+  shader("keep_feather", "transitionsExtra.ts", "FEATHER_FS"),
+  layerPass("keep_apply", 2, "", ref("transitionsExtra.ts", "MATTE_APPLY_BODY")),
+  ...keep("jaws", "JAWS_KEEP", false),
+  ...keep("iris", "IRIS_KEEP", true),
+  ...keep("block_dissolve", "BLOCK_DISSOLVE_KEEP", true),
+  transition("gradient_wipe", 2, "GRADIENT_WIPE"),
+  transition("image_wipe", 2, "IMAGE_WIPE"),
+  transition("scale_wipe", 1, "SCALE_WIPE"),
+  transition("radial_scale_wipe", 1, "RADIAL_SCALE_WIPE"),
+  transition("light_wipe", 1, "LIGHT_WIPE"),
+  transition("line_sweep", 1, "LINE_SWEEP"),
 ];
 
 async function value(arg: FxArg): Promise<unknown> {
