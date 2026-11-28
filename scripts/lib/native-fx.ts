@@ -227,6 +227,9 @@ export const FX_SHADERS: FxShaderSource[] = [
   shader("keylight", "keylight.ts", "KEYLIGHT_FS"),
   layerPass("eyedropper_sample", 1, ref("generateExtra.ts", "EYEDROPPER_SAMPLE_DECLS"), ref("generateExtra.ts", "EYEDROPPER_SAMPLE_BODY")),
   layerPass("eyedropper_fill", 2, ref("generateExtra.ts", "EYEDROPPER_FILL_DECLS"), ref("generateExtra.ts", "EYEDROPPER_FILL_BODY")),
+  layerPass("radial_shadow", 1, ref("perspectiveTime.ts", "RADIAL_SHADOW_DECLS"), ref("perspectiveTime.ts", "RADIAL_SHADOW_BODY")),
+  layerPass("shadow_under", 2, ref("perspectiveTime.ts", "SHADOW_UNDER_DECLS"), ref("perspectiveTime.ts", "SHADOW_UNDER_BODY")),
+  layerPass("cc_spotlight", 1, ref("perspectiveTime.ts", "SPOTLIGHT_DECLS"), ref("perspectiveTime.ts", "SPOTLIGHT_BODY")),
   layerPass("mosaic", 1, ref("stylize.ts", "MOSAIC_DECLS"), ref("stylize.ts", "MOSAIC_BODY")),
   layerPass("noise", 1, ref("stylize.ts", "NOISE_DECLS"), ref("stylize.ts", "NOISE_BODY")),
 ];

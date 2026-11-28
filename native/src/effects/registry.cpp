@@ -51,6 +51,8 @@ FxRenderer fxRenderer(const std::string& matchName) {
       {"ADBE Minimax", minimaxRenderer},
       {"Keylight 906", keylightRenderer},
       {"ADBE Eyedropper Fill", eyedropperFillRenderer},
+      {"ADBE Radial Shadow", radialShadowRenderer},
+      {"CC Spotlight", spotlightRenderer},
       {"ADBE Linear Color Key2", linearColorKeyRenderer},
       {"ADBE Color Key", colorKeyRenderer},
       {"ADBE Luma Key", lumaKeyRenderer},

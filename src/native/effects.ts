@@ -50,6 +50,8 @@ export const NATIVE_EFFECTS: ReadonlyMap<string, NativeEffect> = new Map([
   ["ADBE Minimax", effect(false)],
   ["Keylight 906", effect(true)],
   ["ADBE Eyedropper Fill", effect(true)],
+  ["ADBE Radial Shadow", effect(true)],
+  ["CC Spotlight", effect(true)],
   ["ADBE Linear Color Key2", effect(true)],
   ["ADBE Color Key", effect(true)],
   ["ADBE Luma Key", effect(true)],

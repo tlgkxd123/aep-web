@@ -462,6 +462,15 @@ registerStock(
   TIME_EFFECT,
 );
 
+/** Radial Shadow's cast shadow and its composite under the layer (also embedded by the native engine). */
+export const RADIAL_SHADOW_DECLS = "uniform vec2 u_light; uniform float u_k; uniform vec3 u_color; uniform float u_opacity; uniform int u_glass; uniform float u_influence;";
+export const RADIAL_SHADOW_BODY = `  vec4 c = at(0, u_light + (p - u_light) / u_k);
+  vec3 tint = u_glass == 1 ? mix(u_color, straight(c), clamp(u_influence, 0.0, 1.0)) : u_color;
+  float a = c.a * u_opacity;
+  outColor = vec4(tint * a, a);`;
+export const SHADOW_UNDER_DECLS = "uniform int u_only;";
+export const SHADOW_UNDER_BODY = "  vec4 c = at(0, p);\n  vec4 s = at(1, p);\n  outColor = u_only == 1 ? s : c + s * (1.0 - c.a);";
+
 // Radial Shadow: the layer's alpha cast from Light Source onto a plane behind it, scaled about the light by
 // 1 / (1 - Projection Distance / 100), in Shadow Color at Opacity, softened by Softness, under the layer (or alone).
 // Glass Edge tints the shadow with the layer's colour by Color Influence. Resize Layer lets the shadow grow the layer.
@@ -484,11 +493,8 @@ registerStock("ADBE Radial Shadow", (input, p, ctx, layer) => {
     ctx,
     shadowRect,
     [input],
-    "uniform vec2 u_light; uniform float u_k; uniform vec3 u_color; uniform float u_opacity; uniform int u_glass; uniform float u_influence;",
-    `  vec4 c = at(0, u_light + (p - u_light) / u_k);
-  vec3 tint = u_glass == 1 ? mix(u_color, straight(c), clamp(u_influence, 0.0, 1.0)) : u_color;
-  float a = c.a * u_opacity;
-  outColor = vec4(tint * a, a);`,
+    RADIAL_SHADOW_DECLS,
+    RADIAL_SHADOW_BODY,
     (u) => {
       const gl = ctx.gl;
       gl.uniform2f(u("u_light"), light[0], light[1]);
@@ -501,7 +507,7 @@ registerStock("ADBE Radial Shadow", (input, p, ctx, layer) => {
   );
   if (softness > 0) shadow = gaussian(ctx, shadow, softness / RADIAL_SOFTNESS, softness / RADIAL_SOFTNESS);
   const outRect = resize ? unionRect(rect, imageRect(shadow)) : rect;
-  const out = layerPass(ctx, outRect, [input, shadow], "uniform int u_only;", "  vec4 c = at(0, p);\n  vec4 s = at(1, p);\n  outColor = u_only == 1 ? s : c + s * (1.0 - c.a);", (u) =>
+  const out = layerPass(ctx, outRect, [input, shadow], SHADOW_UNDER_DECLS, SHADOW_UNDER_BODY, (u) =>
     ctx.gl.uniform1i(u("u_only"), shadowOnly ? 1 : 0),
   );
   ctx.pool.release(shadow.target);
@@ -616,6 +622,26 @@ registerStock(
   { cacheable: false, scalable: true },
 );
 
+/** CC Spotlight's light (also embedded by the native engine). */
+export const SPOTLIGHT_DECLS = "uniform vec2 u_from; uniform vec2 u_to; uniform float u_height; uniform float u_cosCone; uniform float u_soft; uniform vec3 u_color; uniform float u_intensity; uniform float u_scale; uniform int u_mode;";
+export const SPOTLIGHT_BODY = `  vec3 s = vec3(u_from, u_height);
+  vec3 d = vec3(p / u_scale - 0.5, 0.0) - s;
+  float dist = max(length(d), 1e-6);
+  vec3 axis = vec3(u_to, 0.0) - s;
+  float cosAxis = dot(d, axis) / (dist * max(length(axis), 1e-6));
+  float edge = u_cosCone + u_soft * (1.0 - u_cosCone);
+  float cone = edge > u_cosCone ? smoothstep(u_cosCone, edge, cosAxis) : step(u_cosCone, cosAxis);
+  float k = cone * u_height / dist * u_intensity;
+  vec4 c = at(0, p);
+  if (u_mode == 1) {
+    float a = clamp(k, 0.0, 1.0);
+    outColor = vec4(u_color * a, a);
+  } else if (u_mode == 4) {
+    outColor = vec4(c.rgb * clamp(1.0 - u_intensity * (1.0 - cone), 0.0, 1.0), c.a);
+  } else {
+    outColor = vec4(min(c.rgb + u_color * k * c.a, vec3(c.a)), c.a);
+  }`;
+
 // CC Spotlight: a spot at Height (percent of the layer's height) above From, aimed at To on the layer, lighting each
 // point by the cosine of its incidence times Intensity inside a cone of half-angle Cone Angle whose edge softens, in
 // cosine, over Edge Softness of the way to the axis. The light's points are pixel corners. Light Only is the light
@@ -635,24 +661,8 @@ registerStock("CC Spotlight", (input, p, ctx, layer) => {
     ctx,
     imageRect(input),
     [input],
-    "uniform vec2 u_from; uniform vec2 u_to; uniform float u_height; uniform float u_cosCone; uniform float u_soft; uniform vec3 u_color; uniform float u_intensity; uniform float u_scale; uniform int u_mode;",
-    `  vec3 s = vec3(u_from, u_height);
-  vec3 d = vec3(p / u_scale - 0.5, 0.0) - s;
-  float dist = max(length(d), 1e-6);
-  vec3 axis = vec3(u_to, 0.0) - s;
-  float cosAxis = dot(d, axis) / (dist * max(length(axis), 1e-6));
-  float edge = u_cosCone + u_soft * (1.0 - u_cosCone);
-  float cone = edge > u_cosCone ? smoothstep(u_cosCone, edge, cosAxis) : step(u_cosCone, cosAxis);
-  float k = cone * u_height / dist * u_intensity;
-  vec4 c = at(0, p);
-  if (u_mode == 1) {
-    float a = clamp(k, 0.0, 1.0);
-    outColor = vec4(u_color * a, a);
-  } else if (u_mode == 4) {
-    outColor = vec4(c.rgb * clamp(1.0 - u_intensity * (1.0 - cone), 0.0, 1.0), c.a);
-  } else {
-    outColor = vec4(min(c.rgb + u_color * k * c.a, vec3(c.a)), c.a);
-  }`,
+    SPOTLIGHT_DECLS,
+    SPOTLIGHT_BODY,
     (u) => {
       const gl = ctx.gl;
       gl.uniform2f(u("u_from"), from[0], from[1]);

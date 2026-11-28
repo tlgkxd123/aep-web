@@ -56,6 +56,8 @@ FxRenderer vignetteRenderer();
 FxRenderer minimaxRenderer();
 FxRenderer keylightRenderer();
 FxRenderer eyedropperFillRenderer();
+FxRenderer radialShadowRenderer();
+FxRenderer spotlightRenderer();
 FxRenderer linearColorKeyRenderer();
 FxRenderer colorKeyRenderer();
 FxRenderer lumaKeyRenderer();
