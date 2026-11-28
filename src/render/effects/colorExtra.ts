@@ -91,25 +91,25 @@ registerStraight(
   },
 );
 
-// Curves renders from the tables its arbitrary data holds, four entries packed in a uint.
-register("ADBE CurvesCustom", (input, _p, ctx, _layer, _time, effect) => {
-  const tables = curvesTables(instanceData(effect, 1));
-  const packed = new Uint32Array(tables.buffer, tables.byteOffset, tables.length / 4);
-  const T = CURVES_TABLE;
-  return straightPass(
-    ctx,
-    input,
-    `uniform uvec4 u_lut[${packed.length / 4}];
+/** Curves' tables packed four to a uint (curvesTables, CURVES_TABLES of 256 bytes), in uvec4s. */
+const CURVES_WORDS = (5 * 256) / 4;
+
+/** ADBE CurvesCustom's adjust(), from u_lut, its tables packed four entries to a uint (also embedded by the native engine). */
+export const CURVES_GLSL = `uniform uvec4 u_lut[${CURVES_WORDS / 4}];
 float lut(int t, float v) {
   int k = t * 256 + int(floor(clamp(v, 0.0, 1.0) * 255.0 + 0.5));
   uint word = u_lut[k >> 4][(k >> 2) & 3];
   return float((word >> uint((k & 3) * 8)) & 255u) / 255.0;
 }
 vec4 adjust(vec4 s) {
-  return vec4(lut(${T.rgb}, lut(${T.red}, s.r)), lut(${T.rgb}, lut(${T.green}, s.g)), lut(${T.rgb}, lut(${T.blue}, s.b)), lut(${T.alpha}, s.a));
-}`,
-    (u) => ctx.gl.uniform4uiv(u("u_lut"), packed),
-  );
+  return vec4(lut(${CURVES_TABLE.rgb}, lut(${CURVES_TABLE.red}, s.r)), lut(${CURVES_TABLE.rgb}, lut(${CURVES_TABLE.green}, s.g)), lut(${CURVES_TABLE.rgb}, lut(${CURVES_TABLE.blue}, s.b)), lut(${CURVES_TABLE.alpha}, s.a));
+}`;
+
+// Curves renders from the tables its arbitrary data holds, four entries packed in a uint.
+register("ADBE CurvesCustom", (input, _p, ctx, _layer, _time, effect) => {
+  const tables = curvesTables(instanceData(effect, 1));
+  const packed = new Uint32Array(tables.buffer, tables.byteOffset, tables.length / 4);
+  return straightPass(ctx, input, CURVES_GLSL, (u) => ctx.gl.uniform4uiv(u("u_lut"), packed));
 });
 
 /** CC Toner's adjust() (also embedded by the native engine). */
@@ -417,18 +417,8 @@ registerStraight(
 /** The most output cycle entries Colorama stores. */
 const MAX_CYCLE = 64;
 
-register("APC Colorama", (input, p, ctx, _layer, _time, effect) => {
-  const cycle = coloramaCycle(instanceData(effect, 12));
-  const at = new Float32Array(MAX_CYCLE);
-  const rgba = new Float32Array(MAX_CYCLE * 4);
-  cycle.forEach((e, k) => {
-    at[k] = e.at;
-    rgba.set(e.rgba, k * 4);
-  });
-  return straightPass(
-    ctx,
-    input,
-    `uniform int u_count;
+/** APC Colorama's adjust(), from its output cycle in u_count, u_at and u_rgba (also embedded by the native engine). */
+export const COLORAMA_GLSL = `uniform int u_count;
 uniform float u_at[${MAX_CYCLE}];
 uniform vec4 u_rgba[${MAX_CYCLE}];
 uniform int u_phaseFrom;
@@ -473,7 +463,20 @@ vec3 modify(vec3 c, vec3 o) {
 vec4 adjust(vec4 s) {
   vec3 o = modify(s.rgb, cycleAt((phase(s) * ${COLORAMA_PHASE_SCALE} + u_shift) * u_repeats).rgb);
   return vec4(mix(o, s.rgb, u_blend), s.a);
-}`,
+}`;
+
+register("APC Colorama", (input, p, ctx, _layer, _time, effect) => {
+  const cycle = coloramaCycle(instanceData(effect, 12));
+  const at = new Float32Array(MAX_CYCLE);
+  const rgba = new Float32Array(MAX_CYCLE * 4);
+  cycle.forEach((e, k) => {
+    at[k] = e.at;
+    rgba.set(e.rgba, k * 4);
+  });
+  return straightPass(
+    ctx,
+    input,
+    COLORAMA_GLSL,
     (u) => {
       const gl = ctx.gl;
       gl.uniform1i(u("u_count"), cycle.length);

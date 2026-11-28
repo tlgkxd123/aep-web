@@ -243,6 +243,75 @@ FxImage toner(FxImage input, const Effect& effect, const EffectLayer&, FxContext
   });
 }
 
+/** Curves: its five tables (curvesTables in colorExtraMath.ts) from the data it stores, identity ones when it stores none. */
+FxImage curves(FxImage input, const Effect& effect, const EffectLayer&, FxContext& ctx) {
+  constexpr size_t kTables = 5, kHeader = 4;
+  std::array<uint8_t, kTables * 256> tables{};
+  const std::vector<uint8_t>* data = effect.stored(1);
+  if (data && data->size() >= kHeader + tables.size()) {
+    std::copy(data->begin() + kHeader, data->begin() + kHeader + tables.size(), tables.begin());
+  } else {
+    for (size_t t = 0; t < kTables; t++)
+      for (size_t i = 0; i < 256; i++) tables[t * 256 + i] = uint8_t(i);
+  }
+  /** Four entries to a word, the first in its low byte, as a little-endian Uint32Array view packs them. */
+  std::array<int32_t, kTables * 64> packed{};
+  for (size_t k = 0; k < packed.size(); k++)
+    packed[k] = int32_t(uint32_t(tables[k * 4]) | uint32_t(tables[k * 4 + 1]) << 8 | uint32_t(tables[k * 4 + 2]) << 16 |
+                        uint32_t(tables[k * 4 + 3]) << 24);
+  return colorEffect(ctx, input, fx::curves, [&](FxUniforms& u) { u.iv("u_lut", packed.data(), uint32_t(packed.size() / 4), 4); });
+}
+
+/** Colorama's Modify popup as the channels it replaces (COLORAMA_MODIFY in colorExtraMath.ts). */
+int32_t coloramaModify(int32_t choice) {
+  static const int32_t kModify[] = {7, 1, 2, 4, 3, 6, 5, 8, 16, 32, 24, 48, 40, 0};
+  return choice >= 1 && choice <= 14 ? kModify[choice - 1] : 7;
+}
+
+/**
+ * Colorama: its output cycle (coloramaCycle in colorExtraMath.ts) from the data it stores, up to 64 entries of a
+ * big-endian place in 65536ths and A, R, G, B, their count at byte 512, in order of place.
+ */
+FxImage colorama(FxImage input, const Effect& effect, const EffectLayer&, FxContext& ctx) {
+  constexpr size_t kMaxCycle = 64;
+  struct Entry {
+    float at;
+    std::array<float, 4> rgba;
+  };
+  std::vector<Entry> cycle;
+  const std::vector<uint8_t>* data = effect.stored(12);
+  const auto be32 = [&](size_t o) {
+    return uint32_t((*data)[o]) << 24 | uint32_t((*data)[o + 1]) << 16 | uint32_t((*data)[o + 2]) << 8 | uint32_t((*data)[o + 3]);
+  };
+  if (data && data->size() >= 516) {
+    const size_t n = std::min<size_t>(kMaxCycle, be32(512));
+    for (size_t k = 0; k < n; k++) {
+      const size_t o = k * 8;
+      const auto byte = [&](size_t i) { return float((*data)[o + i]) / 255.0f; };
+      cycle.push_back({float(double(be32(o)) / 65536.0), {byte(5), byte(6), byte(7), byte(4)}});
+    }
+    std::stable_sort(cycle.begin(), cycle.end(), [](const Entry& a, const Entry& b) { return a.at < b.at; });
+  }
+  std::array<float, kMaxCycle> at{};
+  std::array<float, kMaxCycle * 4> rgba{};
+  for (size_t k = 0; k < cycle.size(); k++) {
+    at[k] = cycle[k].at;
+    std::copy(cycle[k].rgba.begin(), cycle[k].rgba.end(), rgba.begin() + k * 4);
+  }
+  const FxParams p(effect);
+  return colorEffect(ctx, input, fx::colorama, [&](FxUniforms& u) {
+    u.i("u_count", int32_t(cycle.size()));
+    u.fv("u_at", at.data(), uint32_t(kMaxCycle));
+    u.fv("u_rgba", rgba.data(), uint32_t(kMaxCycle), 4);
+    u.i("u_phaseFrom", int32_t(std::floor(p.num(2, 1) + 0.5)));
+    u.f("u_shift", float(p.num(8, 0) / 360));
+    u.f("u_repeats", float(p.num(38, 1)));
+    u.i("u_interpolate", p.flag(14, true) ? 1 : 0);
+    u.i("u_modify", coloramaModify(p.choice(16, 1)));
+    u.f("u_blend", float(clamp01(p.num(36, 0) / 100)));
+  });
+}
+
 FxImage colorOffset(FxImage input, const Effect& effect, const EffectLayer&, FxContext& ctx) {
   const FxParams p(effect);
   return colorEffect(ctx, input, fx::color_offset, [&](FxUniforms& u) {
@@ -481,6 +550,8 @@ FxRenderer posterizeRenderer() { return posterize; }
 FxRenderer shiftChannelsRenderer() { return shiftChannels; }
 FxRenderer proLevelsRenderer() { return proLevels; }
 FxRenderer tonerRenderer() { return toner; }
+FxRenderer curvesRenderer() { return curves; }
+FxRenderer coloramaRenderer() { return colorama; }
 FxRenderer colorOffsetRenderer() { return colorOffset; }
 FxRenderer gammaPedestalGainRenderer() { return gammaPedestalGain; }
 FxRenderer colorBalanceRenderer() { return colorBalance; }

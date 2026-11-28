@@ -12,7 +12,8 @@ import { anySolo, drawOrder, isActive, MATTE_MODES, matteLayerOf, MAX_DEPTH, NO_
 import { footageFrameIndex, layerSourceTime, sourcePixelAspect } from "../render/footage.ts";
 import { MatteMode } from "../render/shaders.ts";
 import { planShapeLayer, type ShapePaintPlan } from "../render/shapes.ts";
-import { nativeEffect } from "./effects.ts";
+import { instanceData } from "../render/effects/colorExtraMath.ts";
+import { MISSING_PLUGINS, nativeEffect } from "./effects.ts";
 
 /** Footage stills the engine decodes itself (PNG, BMP and TIFF in native/src/image.cpp, JPEG through FFmpeg in native/src/video.cpp). */
 const NATIVE_IMAGE = /\.(png|bmp|tiff?|jpe?g)$/i;
@@ -26,6 +27,8 @@ const LAYER_CONTROL = 0;
 const AUDIO_LAYER_PARAMS: Readonly<Record<string, number>> = { "ADBE AudSpect": 1 };
 /** Effects that follow a mask of their layer: the declared index of their Path parameter (1-based mask, 0 none). */
 const PATH_PARAMS: Readonly<Record<string, number>> = { "ADBE AudSpect": 4 };
+/** The parameters whose stored data an effect reads (instanceData in colorExtraMath.ts): Curves' tables, Colorama's cycle. */
+export const DATA_PARAMS: Readonly<Record<string, readonly number[]>> = { "ADBE CurvesCustom": [1], "APC Colorama": [12] };
 /** Comps nested deeper than this are not heard (mix.ts). */
 const MAX_AUDIO_DEPTH = 16;
 
@@ -127,6 +130,8 @@ export interface PlanEffect {
   path?: { closed: boolean; vertices: number[] };
   /** A time effect's layer at the other times it reads (inputTimes), in their order; absent when it reads none. */
   inputs?: PlanEffectInput[];
+  /** The data the effect stores for its DATA_PARAMS (instanceData), each by declared index; absent when it stores none. */
+  data?: { param: number; bytes: Uint8Array }[];
 }
 
 /**
@@ -398,6 +403,7 @@ class Planner {
     // An adjustment layer's effects run on the composite below it (placeAdjustment in renderer.ts), at the comp's scale.
     const enabled = enabledEffects(layer);
     const missing = enabled.filter((e) => !nativeEffect(e.matchName));
+    for (const e of enabled) if (MISSING_PLUGINS[e.matchName]) this.warnings.add(`${MISSING_PLUGINS[e.matchName]} plugin is not installed; After Effects skips it`);
     if (missing.length) this.unsupported.add(`effects (${missing.map((e) => e.effectName ?? e.matchName).join(", ")} on "${layer.name}")`);
     else if (scale !== 1 && enabled.some((e) => !nativeEffect(e.matchName)!.scalable)) this.unsupported.add(`effects at a reduced resolution ("${layer.name}")`);
     const content = this.content(layer, time, depth, scale);
@@ -490,6 +496,11 @@ class Planner {
       if (path) planned1.path = path;
       const times = inputTimes(effect.matchName, valueOr, time, comp, layer, sources.find((src) => src.param === 1));
       if (times.length) planned1.inputs = times.map((t) => this.input(layer, comp, t, depth, effect));
+      const data = (DATA_PARAMS[effect.matchName] ?? []).flatMap((param) => {
+        const bytes = instanceData(effect, param);
+        return bytes ? [{ param, bytes }] : [];
+      });
+      if (data.length) planned1.data = data;
       planned.push(planned1);
     }
     return planned;

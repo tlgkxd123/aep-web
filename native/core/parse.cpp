@@ -1842,6 +1842,7 @@ private:
 			defs = &(m_EffectDefs[matchName] = std::move(own));
 		}
 
+		CollectInstanceData(sspc, *group);
 		const CChunk* tdgp = sspc.List(FCC("tdgp"));
 		const CChunk* tdsb = FindChild(tdgp, FCC("tdsb"));
 		group->m_bEnabled = tdsb ? CBytes(*tdsb).Bit(3, 0) : true;
@@ -1921,6 +1922,37 @@ private:
 			group->m_Children.push_back(std::move(params));
 		}
 		return group;
+	}
+
+	/**
+	 * The aRbp data under each aRbs list, named by the tdmn before it at the same level, anywhere below the effect but
+	 * for parameter declarations (instanceData in colorExtraMath.ts); the first met under a name answers for it.
+	 */
+	static void CollectInstanceData(const CChunk& parent, CPropertyNode& effect, int depth = 0)
+	{
+		if (depth > 64)
+		{
+			return;
+		}
+		std::string current;
+		for (const CChunk& chunk : parent.m_Children)
+		{
+			if (chunk.m_uType == FCC("tdmn"))
+			{
+				current = MatchNameOf(chunk);
+			}
+			else if (chunk.IsList(FCC("aRbs")) && !current.empty() && effect.m_InstanceData.find(current) == effect.m_InstanceData.end())
+			{
+				if (const CChunk* aRbp = chunk.Child(FCC("aRbp")))
+				{
+					effect.m_InstanceData[current].assign(aRbp->m_pData, aRbp->m_pData + aRbp->m_uSize);
+				}
+			}
+			else if (!chunk.m_Children.empty() && chunk.m_uListType != FCC("parT"))
+			{
+				CollectInstanceData(chunk, effect, depth + 1);
+			}
+		}
 	}
 
 	static void ApplyParamDef(CPropertyNode& prop, const sParamDef& def)

@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <cctype>
 #include <cmath>
+#include <cstdio>
 
 #include "evaluate.h"
 #include "shapes.h"
@@ -35,6 +36,16 @@ u32 AudioLayerParam(const std::string& matchName)
 u32 PathParam(const std::string& matchName)
 {
 	return matchName == "ADBE AudSpect" ? 4 : 0;
+}
+
+/** The declared index of the parameter whose stored data an effect reads (DATA_PARAMS in plan.ts), or 0. */
+u32 DataParam(const std::string& matchName)
+{
+	if (matchName == "ADBE CurvesCustom")
+	{
+		return 1;
+	}
+	return matchName == "APC Colorama" ? 12 : 0;
 }
 
 /** The first value of the parameter declared `index`-th, or 0 (plan.ts effects). */
@@ -344,6 +355,28 @@ const sNativeEffect* NativeEffect(const std::string& matchName)
 	return matchName.rfind("Pseudo/", 0) == 0 ? &s_Pseudo : nullptr;
 }
 
+/** The name of a plugin the native engine skips as After Effects does when it is not installed (MISSING_PLUGINS), or null. */
+const char* MissingPlugin(const std::string& matchName)
+{
+	static const char* const s_Plugins[][2] = {
+		{ "Fandev XMult", "XMult" },
+		{ "S_Blur", "Sapphire S_Blur" },
+		{ "S_BlurDirectional", "Sapphire S_BlurDirectional" },
+		{ "S_Shake", "Sapphire S_Shake" },
+		{ "S_Glow", "Sapphire S_Glow" },
+		{ "S_ZGlow", "Sapphire S_ZGlow" },
+		{ "S_Flicker", "Sapphire S_Flicker" },
+	};
+	for (const auto& plugin : s_Plugins)
+	{
+		if (matchName == plugin[0])
+		{
+			return plugin[1];
+		}
+	}
+	return nullptr;
+}
+
 f64 NumberAt(const CPropertyNode* prop, f64 time, const CLayer& layer, f64 fallback)
 {
 	if (!prop)
@@ -633,6 +666,10 @@ bool CFramePlanner::Placed(const CLayer& layer, const CItem& comp, f64 time, con
 		for (const CPropertyNode* effect : EnabledEffects(layer))
 		{
 			const sNativeEffect* native = NativeEffect(effect->m_MatchName);
+			if (const char* plugin = MissingPlugin(effect->m_MatchName))
+			{
+				Warn(std::string(plugin) + " plugin is not installed; After Effects skips it");
+			}
 			if (!native)
 			{
 				missing += (missing.empty() ? "" : ", ") + (effect->m_EffectName.empty() ? effect->m_MatchName : effect->m_EffectName);
@@ -811,6 +848,16 @@ void CFramePlanner::Effects(const CLayer& layer, const CItem& comp, f64 time, s3
 		{
 			planned.inputs.emplace_back();
 			Input(layer, comp, t, depth, effect, planned.inputs.back());
+		}
+		if (const u32 dataParam = DataParam(effect->m_MatchName))
+		{
+			char suffix[8];
+			std::snprintf(suffix, sizeof(suffix), "-%04u", unsigned(dataParam));
+			const auto found = effect->m_InstanceData.find(effect->m_MatchName + suffix);
+			if (found != effect->m_InstanceData.end())
+			{
+				planned.data.push_back({ dataParam, found->second });
+			}
 		}
 		out.push_back(std::move(planned));
 	}

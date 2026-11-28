@@ -276,6 +276,30 @@ describe("native render plan", () => {
     expect(inputTimes("ADBE Gaussian Blur 2", params({}), 1, comp, span, undefined)).toEqual([]);
   });
 
+  it("carries the data Curves and Colorama store, through the wire", () => {
+    const project = parseProject(new Uint8Array(readFileSync(resolve("refs/fixtures/color2.aep"))));
+    const stored = (name: string, matchName: string) => {
+      const comp = [...project.items.values()].find((i): i is CompItem => i.kind === "comp" && i.name === name)!;
+      const plan = buildFramePlan(project, comp, 0);
+      const find = (layers: PlanLayer[]): PlanLayer["effects"][number] | undefined => {
+        for (const layer of layers) {
+          const effect = layer.effects.find((e) => e.matchName === matchName);
+          if (effect) return effect;
+          const inner = layer.content.kind === "comp" ? find(layer.content.comp.layers) : undefined;
+          if (inner) return inner;
+        }
+        return undefined;
+      };
+      const planned = find(plan.root.layers)!;
+      const decoded = find(decodePlan(encodePlan(plan)).root.layers)!;
+      expect(decoded.data).toEqual(planned.data);
+      return planned.data;
+    };
+    // Colorama's output cycle: 64 entries of 8 bytes and their count; Curves' five tables after a 4-byte header.
+    expect(stored("color2_colorama", "APC Colorama")?.map((d) => [d.param, d.bytes.length >= 516])).toEqual([[12, true]]);
+    expect(stored("color2_curves", "ADBE CurvesCustom")?.map((d) => [d.param, d.bytes.length >= 4 + 5 * 256])).toEqual([[1, true]]);
+  });
+
   it("lists the same effects for both planners (src/native/effects.ts, native/src/effects/list.inc)", () => {
     const list = readFileSync(resolve("native/src/effects/list.inc"), "utf8");
     const native = [...list.matchAll(/^AEVK_EFFECT\("([^"]+)", (true|false), (true|false)\)$/gm)].map((m) => [m[1], { scalable: m[2] === "true", passThrough: m[3] === "true" }]);

@@ -155,6 +155,8 @@ export const FX_SHADERS: FxShaderSource[] = [
   shader("shift_channels", "colorCorrection.ts", "SHIFT_FS"),
   straight("pro_levels", "PRO_LEVELS_GLSL"),
   straight("toner", "TONER_GLSL"),
+  straight("curves", "CURVES_GLSL"),
+  straight("colorama", "COLORAMA_GLSL"),
   straight("color_offset", "COLOR_OFFSET_GLSL"),
   straight("gamma_pedestal_gain", "GAMMA_PEDESTAL_GAIN_GLSL"),
   straight("color_balance", "COLOR_BALANCE_GLSL"),

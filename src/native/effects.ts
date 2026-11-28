@@ -97,6 +97,8 @@ export const NATIVE_EFFECTS: ReadonlyMap<string, NativeEffect> = new Map([
   ["ADBE Shift Channels", effect(true)],
   ["ADBE Pro Levels2", effect(true)],
   ["CC Toner", effect(true)],
+  ["ADBE CurvesCustom", effect(true)],
+  ["APC Colorama", effect(true)],
   ["CC Color Offset", effect(true)],
   ["ADBE Gamma/Pedestal/Gain2", effect(true)],
   ["ADBE Color Balance 2", effect(true)],
@@ -161,7 +163,27 @@ export const NATIVE_EFFECTS: ReadonlyMap<string, NativeEffect> = new Map([
   ["ADBE Color Control", effect(true, true)],
   ["ADBE Dropdown Control", effect(true, true)],
   ["ADBE Layer Control", effect(true, true)],
+  // Plugins the reference machine lacks: After Effects skips them, as the WebGL renderer does unless asked for its
+  // look-alikes (missingPlugins.ts, sapphire.ts, sapphireLight.ts), so the native engine skips them with a warning.
+  ["Fandev XMult", effect(true, true)],
+  ["S_Blur", effect(true, true)],
+  ["S_BlurDirectional", effect(true, true)],
+  ["S_Shake", effect(true, true)],
+  ["S_Glow", effect(true, true)],
+  ["S_ZGlow", effect(true, true)],
+  ["S_Flicker", effect(true, true)],
 ]);
+
+/** The plugins the native engine skips as After Effects does when they are not installed, by match name: their names. */
+export const MISSING_PLUGINS: Readonly<Record<string, string>> = {
+  "Fandev XMult": "XMult",
+  S_Blur: "Sapphire S_Blur",
+  S_BlurDirectional: "Sapphire S_BlurDirectional",
+  S_Shake: "Sapphire S_Shake",
+  S_Glow: "Sapphire S_Glow",
+  S_ZGlow: "Sapphire S_ZGlow",
+  S_Flicker: "Sapphire S_Flicker",
+};
 
 /** The native engine's entry for an effect; pseudo effects (presets' parameter sets) draw nothing, like controls. */
 export function nativeEffect(matchName: string): NativeEffect | undefined {

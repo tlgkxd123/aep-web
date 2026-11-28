@@ -9,14 +9,14 @@ projects at close to desktop speed.
 | --- | --- | --- |
 | Project parsing (`.aep` RIFX) | `aep/` 3.7k lines | `native/core` (M1) |
 | Property evaluation (keyframes, eases, motion paths, parenting, cameras) | `aep/evaluate.ts`, `aep/transform.ts` | `native/core` (M1) |
-| Expressions | `expressions/` 3.2k lines on acorn | none |
+| Expressions | `expressions/` 3.2k lines on acorn | the same engine in QuickJS-ng (M3, `-DAEP_EXPRESSIONS=ON`) |
 | Compositing (solids, precomps, shapes, masks, mattes, blend modes, 3D) | `render/renderer.ts` (WebGL2) | `native/src` (Vulkan), from a plan |
 | Shape layers | `render/shapes.ts` | geometry in `native/core` (M1), raster in `native/src`; no dashes yet |
-| Text layers | `render/` + fonts | none |
+| Text layers | not drawn yet (`renderer.ts` warns) | not drawn either; both planners list them |
 | Footage (images, video, audio) | `media/` 3.7k lines | stills and image sequences (PNG, BMP, TIFF) in `native/src/image.cpp`; video through FFmpeg on desktop (`native/src/video.cpp`); JPEG stills through FFmpeg on desktop; WAV for Audio Spectrum; no JPEG or video on Android yet |
-| Effects (54 files, built-in and third-party look-alikes) | `render/effects/` ~15k lines | none |
-| Editing (undo, layer ops, write back to `.aep`) | `edit/` 6.2k lines | none |
-| UI | `ui/` 17k lines of React | none |
+| Effects (54 files, built-in and third-party look-alikes) | `render/effects/` ~15k lines | 141 drawn and 17 passed through in `native/src/effects` (M5); Particular and the opt-in Sapphire and XMult look-alikes not yet |
+| Editing (undo, layer ops, write back to `.aep`) | `edit/` 6.2k lines | not started |
+| UI | `ui/` 17k lines of React | Dear ImGui viewer on desktop and Android (M6); no editing |
 
 Before this port, the Android app ran the whole front half in the WebView: JavaScript parsed the project, evaluated
 every property, built a frame plan, serialized it, and sent the bytes over the WebView bridge for the Vulkan engine to
@@ -153,6 +153,12 @@ calls (a referenced property's value, `toComp`, `wiggle`, the noise behind `rand
   `perspectiveTime.ts` does, 7 frames a pass (Time Displacement 6 beside its map). 22 of their 24 reference frames
   pass; Echo's Composite In Back cell at frame 16 and Time Difference's edges at frame 15 differ as the WebGL model
   does.
+- Plan v8 also carries the data an effect stores beside its parameters (effect flag 8): Curves' tables and Colorama's
+  output cycle, read by both planners from the effect's `aRbs` lists as `instanceData` does. 9 of their 10 reference
+  frames pass; Colorama on a shape layer (`color2_colorama@5`) differs as the TypeScript model of it does.
+- XMult and the Sapphire effects (S_Blur, S_BlurDirectional, S_Shake, S_Glow, S_ZGlow, S_Flicker) are skipped with
+  a warning, as After Effects skips them without the plugins and the WebGL renderer does unless asked for its
+  look-alikes; all 8 of their reference frames pass. The look-alikes themselves are not ported.
 - Adjustment layers' effects run on the composite below them in comp pixels, as `placeAdjustment` does; the layer's
   own image still only says where the result shows. All four `adjust_*` reference frames pass.
 

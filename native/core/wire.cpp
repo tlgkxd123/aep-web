@@ -201,7 +201,7 @@ void WriteEffect(CWriter& w, const aevk::Effect& effect)
 			w.U32(source.layer.kind);
 		}
 	}
-	w.U32((effect.hasAudio ? 1u : 0u) | (effect.hasPath ? 2u : 0u) | (effect.inputs.empty() ? 0u : 4u));
+	w.U32((effect.hasAudio ? 1u : 0u) | (effect.hasPath ? 2u : 0u) | (effect.inputs.empty() ? 0u : 4u) | (effect.data.empty() ? 0u : 8u));
 	if (effect.hasAudio)
 	{
 		w.U32(u32(effect.audio.size()));
@@ -245,6 +245,16 @@ void WriteEffect(CWriter& w, const aevk::Effect& effect)
 			{
 				WriteEffect(w, inner);
 			}
+		}
+	}
+	if (!effect.data.empty())
+	{
+		w.U32(u32(effect.data.size()));
+		for (const aevk::EffectData& data : effect.data)
+		{
+			w.U32(data.param);
+			w.U32(u32(data.bytes.size()));
+			w.Raw(data.bytes);
 		}
 	}
 }

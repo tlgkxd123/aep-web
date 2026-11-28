@@ -168,6 +168,12 @@ struct EffectInput {
   std::vector<Effect> effects;
 };
 
+/** Data an effect stores for its parameter declared `param`-th. */
+struct EffectData {
+  uint32_t param = 0;
+  std::vector<uint8_t> bytes;
+};
+
 struct Effect {
   std::string matchName;
   std::vector<EffectParam> params;
@@ -181,6 +187,15 @@ struct Effect {
   EffectPath path;
   /** A time effect's layer at the other times it reads, in order (inputTimes in plan.ts). */
   std::vector<EffectInput> inputs;
+  /** The data the effect stores for a parameter (DATA_PARAMS in plan.ts): Curves' tables, Colorama's cycle. */
+  std::vector<EffectData> data;
+
+  /** The data stored for the parameter declared n-th, or null. */
+  const std::vector<uint8_t>* stored(uint32_t n) const {
+    for (const EffectData& d : data)
+      if (d.param == n) return &d.bytes;
+    return nullptr;
+  }
 
   /** The source planned for the layer parameter declared n-th, or null (None, or the layer itself). */
   const EffectSource* source(uint32_t n) const {

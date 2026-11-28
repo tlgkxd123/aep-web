@@ -222,6 +222,8 @@ public:
 	std::vector<std::unique_ptr<CPropertyNode>> m_Children;
 	bool m_bEffect = false;
 	std::string m_EffectName;
+	/** Effect: the arbitrary data (aRbp) the instance stores, by parameter match name (instanceData in colorExtraMath.ts). */
+	std::map<std::string, std::vector<u8>> m_InstanceData;
 	bool m_bHasMask = false;
 	sMaskInfo m_Mask;
 

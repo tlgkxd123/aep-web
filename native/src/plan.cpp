@@ -189,7 +189,7 @@ void readEffect(Reader& r, Effect& effect, int depth) {
     if (source.layer.kind > 2) r.fail("unknown effect source layer kind");
   }
   const uint32_t flags = r.u32();
-  if (flags & ~7u) r.fail("unknown effect flags");
+  if (flags & ~15u) r.fail("unknown effect flags");
   effect.hasAudio = (flags & 1) != 0;
   if (effect.hasAudio) {
     effect.audio.resize(r.count(36));
@@ -217,6 +217,14 @@ void readEffect(Reader& r, Effect& effect, int depth) {
       readMasks(r, input.masks);
       input.effects.resize(r.count(12));
       for (Effect& inner : input.effects) readEffect(r, inner, depth + 1);
+    }
+  }
+  if (flags & 8) {
+    effect.data.resize(r.count(8));
+    for (EffectData& data : effect.data) {
+      data.param = r.u32();
+      data.bytes.resize(r.count(1));
+      if (!data.bytes.empty()) r.bytes(data.bytes.data(), data.bytes.size());
     }
   }
 }

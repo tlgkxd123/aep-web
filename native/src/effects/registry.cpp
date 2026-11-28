@@ -98,6 +98,8 @@ FxRenderer fxRenderer(const std::string& matchName) {
       {"ADBE Shift Channels", shiftChannelsRenderer},
       {"ADBE Pro Levels2", proLevelsRenderer},
       {"CC Toner", tonerRenderer},
+      {"ADBE CurvesCustom", curvesRenderer},
+      {"APC Colorama", coloramaRenderer},
       {"CC Color Offset", colorOffsetRenderer},
       {"ADBE Gamma/Pedestal/Gain2", gammaPedestalGainRenderer},
       {"ADBE Color Balance 2", colorBalanceRenderer},

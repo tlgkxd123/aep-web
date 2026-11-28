@@ -118,6 +118,8 @@ FxRenderer posterizeRenderer();
 FxRenderer shiftChannelsRenderer();
 FxRenderer proLevelsRenderer();
 FxRenderer tonerRenderer();
+FxRenderer curvesRenderer();
+FxRenderer coloramaRenderer();
 FxRenderer colorOffsetRenderer();
 FxRenderer gammaPedestalGainRenderer();
 FxRenderer colorBalanceRenderer();
