@@ -12,7 +12,7 @@
 namespace aevk {
 
 constexpr uint32_t kPlanMagic = 0x50564541;  // "AEVP"
-constexpr uint32_t kPlanVersion = 5;
+constexpr uint32_t kPlanVersion = 6;
 constexpr int kPad = 1;
 
 enum class ContentKind : uint32_t { Solid = 1, Comp = 2, Image = 3, Shape = 4, Footage = 5 };
@@ -65,8 +65,8 @@ struct ShapePaint {
 struct Comp;
 
 /**
- * A still image or a sequence frame a footage layer shows (src/render/footage.ts): its file and the Interpret Footage
- * alpha settings. The content's size is the source's at the plan's scale; at a reduced scale (below 1) each image
+ * A still image, a sequence frame or a video frame a footage layer shows (src/render/footage.ts): its file and the
+ * Interpret Footage alpha settings. The content's size is the source's at the plan's scale; at a reduced scale (below 1) each image
  * pixel averages the source pixels it covers, as INTERPRET_FS does.
  */
 struct FootageFrame {
@@ -77,6 +77,11 @@ struct FootageFrame {
   /** 0 straight, 1 premultiplied (against `matte`), 2 ignore. */
   uint32_t alphaMode = 0;
   std::array<float, 3> matte{};
+  /**
+   * Video: the seconds of the file's own time whose picture shows (the frame index over the file's native rate, as
+   * footageStore reads it); negative for a still image or a sequence frame.
+   */
+  double videoTime = -1;
 };
 
 struct Content {

@@ -16,6 +16,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
 option(AEVK_TOOLS "Build the headless renderer and the tests" ON)
+option(AEVK_FFMPEG "Decode video footage with FFmpeg (libavformat, libavcodec, libswscale) on the desktop when it is installed" ON)
 
 add_library(aevk STATIC
   src/capi.cpp
@@ -36,6 +37,7 @@ add_library(aevk STATIC
   src/plan.cpp
   src/playback.cpp
   src/spectrum.cpp
+  src/video.cpp
   src/vk.cpp
 )
 target_include_directories(aevk PUBLIC include src)
@@ -58,6 +60,21 @@ else()
   endif()
   if(UNIX)
     target_link_libraries(aevk PUBLIC ${CMAKE_DL_LIBS})
+  endif()
+  # Video footage: FFmpeg's libraries where pkg-config finds them (libavformat-dev, libavcodec-dev, libswscale-dev);
+  # without them video layers draw nothing, with a warning.
+  if(AEVK_FFMPEG)
+    find_package(PkgConfig QUIET)
+    if(PKG_CONFIG_FOUND)
+      pkg_check_modules(AEVK_AV QUIET IMPORTED_TARGET libavformat libavcodec libavutil libswscale)
+    endif()
+    if(AEVK_AV_FOUND)
+      target_link_libraries(aevk PRIVATE PkgConfig::AEVK_AV)
+      target_compile_definitions(aevk PRIVATE AEVK_HAVE_FFMPEG=1)
+      message(STATUS "aevk: video footage through FFmpeg ${AEVK_AV_libavcodec_VERSION}")
+    else()
+      message(STATUS "aevk: FFmpeg not found, video footage will draw nothing")
+    endif()
   endif()
   # Desktop windows: Win32 always, xcb on Linux when its headers are installed (libxcb1-dev).
   set(AEVK_DESKTOP_WINDOW OFF)

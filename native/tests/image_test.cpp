@@ -1,5 +1,6 @@
-/** Footage images: inflate, PNG filters, palettes and tRNS, and the decoded image cache's errors. */
+/** Footage images and video: inflate, PNG filters, palettes and tRNS, the decoded image cache's errors and video frames. */
 #include <cstdint>
+#include <cstdlib>
 #include <string>
 #include <vector>
 
@@ -70,4 +71,42 @@ TEST(reports_footage_not_in_the_media_folders) {
   std::string error;
   CHECK(media.image("/nowhere/missing.png", error) == nullptr);
   CHECK(!error.empty());
+}
+
+TEST(finds_the_video_sample_shown_at_a_time) {
+  const std::vector<double> times = {0, 0.1, 0.2};
+  CHECK(indexAtTimes(times, -1) == 0);
+  CHECK(indexAtTimes(times, 0.05) == 0);
+  CHECK(indexAtTimes(times, 0.09995) == 1);
+  CHECK(indexAtTimes(times, 0.15) == 1);
+  CHECK(indexAtTimes(times, 9) == 2);
+  CHECK(indexAtTimes({}, 1) == 0);
+}
+
+TEST(decodes_video_frames_forward_and_back) {
+  MediaLibrary media;
+  media.addFolder(AEVK_TEST_DATA);
+  std::string error;
+  CHECK(!media.video("/footage/missing.mp4", 0, error));
+  CHECK(error == "the file is not in the media folders");
+  if (!canDecodeVideo()) {
+    error.clear();
+    CHECK(!media.video("C:/footage/three.mp4", 0, error));
+    CHECK(error == "this build has no video decoder");
+    return;
+  }
+  // Red, lime and blue, a tenth of a second each, 4:2:0 in video range (BT.601: Y 81/145/41, Cr 240/34/110).
+  const int y[] = {81, 145, 41}, cr[] = {240, 34, 110};
+  for (const double t : {0.0, 0.1, 0.25, 0.05, 0.2, 0.0}) {
+    error.clear();
+    std::shared_ptr<const VideoPicture> picture = media.video("C:/footage/three.mp4", t, error);
+    CHECK(picture != nullptr);
+    if (!picture) continue;
+    const int i = indexAtTimes({0, 0.1, 0.2}, t);
+    CHECK(picture->yuv && picture->width == 32 && picture->height == 16 && picture->chromaWidth == 16 && picture->chromaHeight == 8);
+    CHECK(picture->limitedRange && !picture->interleaved);
+    CHECK(picture->bytes.size() % kVideoRowBytes == 0);
+    CHECK(std::abs(int(picture->bytes[picture->offsets[0] + 5 * picture->strides[0] + 7]) - y[i]) <= 3);
+    CHECK(std::abs(int(picture->bytes[picture->offsets[2] + 3 * picture->strides[2] + 4]) - cr[i]) <= 3);
+  }
 }

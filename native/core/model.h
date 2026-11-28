@@ -329,6 +329,8 @@ struct sFootageSource
 	/** No duration of its own (a still image). */
 	bool m_bIsStill = true;
 	u32 m_uLoop = 1;
+	/** The file's own frame rate (sspc), 0 when the project records none: video frames are looked up by it. */
+	f64 m_fNativeFrameRate = 0;
 	/** The project records a folder of numbered frames: the fields below are set. */
 	bool m_bSequence = false;
 	std::string m_SequencePrefix;

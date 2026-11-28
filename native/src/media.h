@@ -14,6 +14,7 @@
 
 #include "image.h"
 #include "plan.h"
+#include "video.h"
 
 namespace aevk {
 
@@ -43,6 +44,11 @@ class MediaLibrary {
   std::shared_ptr<const ImageData> image(const std::string& recorded, std::string& error);
   /** Bytes of decoded images kept at most (the least recently used beyond it are dropped). */
   void setImageBudget(size_t bytes);
+  /**
+   * The picture the video file `recorded` names shows at `seconds` of its own time (video.ts); null with `error` set
+   * when it is not found or cannot be decoded. Files stay open for the frames that follow.
+   */
+  std::shared_ptr<const VideoPicture> video(const std::string& recorded, double seconds, std::string& error);
 
  private:
   void index();
@@ -60,6 +66,11 @@ class MediaLibrary {
   std::map<std::string, std::string> located_;
   size_t imageBytes_ = 0, imageBudget_ = size_t(512) << 20;
   void trimImages();
+  /** Open videos by the file found, most recently used first, and why files failed to open. */
+  std::list<std::pair<std::string, std::unique_ptr<VideoReader>>> videos_;
+  std::map<std::string, std::string> videoErrors_;
+  /** The path a recorded name finds, looked up once. */
+  const std::string& located(const std::string& recorded);
 };
 
 /** One decoded sound heard in a layer's mix: source seconds = scale * t + offset for t in [from, to) (Contribution). */

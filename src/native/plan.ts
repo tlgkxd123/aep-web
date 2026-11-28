@@ -16,6 +16,8 @@ import { nativeEffect } from "./effects.ts";
 
 /** Footage files the engine decodes itself (native/src/image.cpp); other files and video are left to WebGL. */
 const NATIVE_IMAGE = /\.(png|bmp|tiff?)$/i;
+/** Video files the engine decodes itself (native/src/video.cpp, with FFmpeg on desktop and the system decoder on Android). */
+const NATIVE_VIDEO = /\.(mp4|mov|m4v|webm|mkv|avi)$/i;
 
 /** PF_Param_LAYER: an effect parameter naming a layer of the comp by index. */
 const LAYER_CONTROL = 0;
@@ -64,8 +66,8 @@ export type PlanContent =
   | (ContentBase & FootagePlan);
 
 /**
- * A still image or a sequence frame a footage layer shows (src/render/footage.ts): its file and the Interpret Footage
- * alpha settings. The content's size is the source's at the plan's scale; at a reduced scale each image pixel
+ * A still image, a sequence frame or a video frame a footage layer shows (src/render/footage.ts): its file and the
+ * Interpret Footage alpha settings. The content's size is the source's at the plan's scale; at a reduced scale each image pixel
  * averages the source pixels it covers, as INTERPRET_FS does.
  */
 export interface FootagePlan {
@@ -80,6 +82,11 @@ export interface FootagePlan {
   /** 0 straight, 1 premultiplied (against `matte`), 2 ignore. */
   alphaMode: 0 | 1 | 2;
   matte: [number, number, number];
+  /**
+   * Video: the seconds of the file's own time whose picture shows (the frame index over the file's native rate, as
+   * footageStore reads it); -1 for a still image or a sequence frame.
+   */
+  videoTime: number;
 }
 
 export interface PlanMask {
@@ -252,7 +259,7 @@ function maskPath(layer: Layer, index: number, time: number): PlanEffect["path"]
 
 /**
  * The frame a file footage item shows at `sourceTime` seconds of footage time (the frame footageStore.frame reads):
- * undefined for video and for files the engine does not decode.
+ * undefined for files the engine does not decode.
  */
 function footagePlan(item: FootageItem, sourceTime: number): FootagePlan | undefined {
   const source = item.mainSource;
@@ -262,10 +269,15 @@ function footagePlan(item: FootageItem, sourceTime: number): FootagePlan | undef
     const folder = file.replace(/[\\/][^\\/]*$/, "");
     file = `${folder}/${sequenceFrameName(source.sequence, source.sequence.startFrame + footageFrameIndex(item, sourceTime))}`;
   }
-  if (!NATIVE_IMAGE.test(file)) return undefined;
+  let videoTime = -1;
+  if (!source.sequence && NATIVE_VIDEO.test(file)) {
+    // footageStore.videoFrame: the frame index over the file's native rate, else the item's, else 30.
+    const rate = source.nativeFrameRate || item.frameRate || 30;
+    videoTime = footageFrameIndex(item, sourceTime) / rate;
+  } else if (!NATIVE_IMAGE.test(file)) return undefined;
   const alphaMode = source.alphaMode === AlphaMode.IGNORE ? 2 : source.alphaMode === AlphaMode.PREMULTIPLIED ? 1 : 0;
   const [r, g, b] = source.premulColor;
-  return { kind: "footage", file, sourceWidth: item.width, sourceHeight: item.height, hasAlpha: source.hasAlpha, invertAlpha: source.invertAlpha, alphaMode, matte: [r, g, b] };
+  return { kind: "footage", file, sourceWidth: item.width, sourceHeight: item.height, hasAlpha: source.hasAlpha, invertAlpha: source.invertAlpha, alphaMode, matte: [r, g, b], videoTime };
 }
 
 class Planner {

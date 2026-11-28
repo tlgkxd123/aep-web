@@ -314,25 +314,44 @@ u32 FootageFrameIndex(const CItem& item, f64 sourceTime)
 	return u32(std::fmod(frame, perLoop));
 }
 
-/** Footage files the engine decodes itself (native/src/image.cpp): PNG, BMP and TIFF, by extension (plan.ts NATIVE_IMAGE). */
-bool IsNativeImage(const std::string& file)
+/** The lowercased extension of a file name, empty without one. */
+std::string FileExtension(const std::string& file)
 {
 	const size_t dot = file.find_last_of('.');
-	if (dot == std::string::npos)
+	const size_t slash = file.find_last_of("/\\");
+	if (dot == std::string::npos || (slash != std::string::npos && dot < slash))
 	{
-		return false;
+		return std::string();
 	}
 	std::string ext = file.substr(dot + 1);
 	for (char& c : ext)
 	{
 		c = char(std::tolower(static_cast<unsigned char>(c)));
 	}
+	return ext;
+}
+
+/** Footage files the engine decodes itself (native/src/image.cpp): PNG, BMP and TIFF, by extension (plan.ts NATIVE_IMAGE). */
+bool IsNativeImage(const std::string& file)
+{
+	const std::string ext = FileExtension(file);
 	return ext == "png" || ext == "bmp" || ext == "tif" || ext == "tiff";
 }
 
-/** The file a footage item shows at `sourceTime`, or empty for video and files the engine does not decode (plan.ts footagePlan). */
-std::string FootageFile(const CItem& item, f64 sourceTime)
+/** Video files the engine decodes itself (native/src/video.cpp), by extension (plan.ts NATIVE_VIDEO). */
+bool IsNativeVideo(const std::string& file)
 {
+	const std::string ext = FileExtension(file);
+	return ext == "mp4" || ext == "mov" || ext == "m4v" || ext == "webm" || ext == "mkv" || ext == "avi";
+}
+
+/**
+ * The file a footage item shows at `sourceTime` and, for video, the seconds of the file's own time whose picture
+ * shows (negative otherwise); an empty file for files the engine does not decode (plan.ts footagePlan).
+ */
+std::string FootageFile(const CItem& item, f64 sourceTime, f64& videoTime)
+{
+	videoTime = -1;
 	if (item.m_eSource != SOURCE_FILE)
 	{
 		return std::string();
@@ -344,6 +363,15 @@ std::string FootageFile(const CItem& item, f64 sourceTime)
 		const size_t slash = file.find_last_of("/\\");
 		const std::string folder = slash == std::string::npos ? file : file.substr(0, slash);
 		file = folder + "/" + footage.FrameName(footage.m_uStartFrame + FootageFrameIndex(item, sourceTime));
+	}
+	else if (IsNativeVideo(file))
+	{
+		/** footageStore.videoFrame: the frame index over the file's native rate, else the item's, else 30. */
+		const f64 rate = footage.m_fNativeFrameRate > 0 ? footage.m_fNativeFrameRate
+			: item.m_fFrameRate > 0 ? item.m_fFrameRate
+			: 30;
+		videoTime = FootageFrameIndex(item, sourceTime) / rate;
+		return file;
 	}
 	return IsNativeImage(file) ? file : std::string();
 }
@@ -819,7 +847,8 @@ bool CFramePlanner::Content(const CLayer& layer, f64 time, s32 depth, f64 scale,
 		}
 		else if (source->m_fWidth > 0)
 		{
-			const std::string file = FootageFile(*source, LayerSourceTime(layer, time));
+			f64 videoTime = -1;
+			const std::string file = FootageFile(*source, LayerSourceTime(layer, time), videoTime);
 			if (!file.empty())
 			{
 				const sFootageSource& footage = source->m_Footage;
@@ -840,6 +869,7 @@ bool CFramePlanner::Content(const CLayer& layer, f64 time, s32 depth, f64 scale,
 				frame.invertAlpha = footage.m_bInvertAlpha;
 				frame.alphaMode = footage.m_uAlphaMode == ALPHA_IGNORE ? 2 : footage.m_uAlphaMode == ALPHA_PREMULTIPLIED ? 1 : 0;
 				frame.matte = { float(footage.m_PremulColor[0]), float(footage.m_PremulColor[1]), float(footage.m_PremulColor[2]) };
+				frame.videoTime = videoTime;
 				return true;
 			}
 			Unsupported("footage (\"" + source->m_Name + "\")");

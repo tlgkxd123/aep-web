@@ -170,10 +170,42 @@ const AudioData* MediaLibrary::audio(const std::string& recorded) {
   return result;
 }
 
-std::shared_ptr<const ImageData> MediaLibrary::image(const std::string& recorded, std::string& error) {
+const std::string& MediaLibrary::located(const std::string& recorded) {
   auto at = located_.find(recorded);
   if (at == located_.end()) at = located_.emplace(recorded, locate(recorded)).first;
-  const std::string& path = at->second;
+  return at->second;
+}
+
+std::shared_ptr<const VideoPicture> MediaLibrary::video(const std::string& recorded, double seconds, std::string& error) {
+  const std::string path = located(recorded);
+  if (path.empty()) {
+    error = "the file is not in the media folders";
+    return nullptr;
+  }
+  auto it = std::find_if(videos_.begin(), videos_.end(), [&](const auto& v) { return v.first == path; });
+  if (it == videos_.end()) {
+    const auto failed = videoErrors_.find(path);
+    if (failed != videoErrors_.end()) {
+      error = failed->second;
+      return nullptr;
+    }
+    std::unique_ptr<VideoReader> reader = openVideo(path, error);
+    if (!reader) {
+      videoErrors_[path] = error;
+      return nullptr;
+    }
+    videos_.emplace_front(path, std::move(reader));
+    // A few files stay open: each holds a decoder and the pictures it kept.
+    constexpr size_t kOpenVideos = 6;
+    while (videos_.size() > kOpenVideos) videos_.pop_back();
+  } else {
+    videos_.splice(videos_.begin(), videos_, it);
+  }
+  return videos_.front().second->pictureAt(seconds, error);
+}
+
+std::shared_ptr<const ImageData> MediaLibrary::image(const std::string& recorded, std::string& error) {
+  const std::string& path = located(recorded);
   if (path.empty()) {
     error = "the file is not in the media folders";
     return nullptr;

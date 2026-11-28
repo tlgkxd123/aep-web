@@ -196,7 +196,7 @@ struct Engine::Impl {
   std::vector<VkShaderModule> modules;
   VkShaderModule layerVert = VK_NULL_HANDLE, fullscreenVert = VK_NULL_HANDLE, layerFrag = VK_NULL_HANDLE;
   VkPipeline layerPipe = VK_NULL_HANDLE, compositePipe = VK_NULL_HANDLE, maskPipe = VK_NULL_HANDLE, premultiplyPipe = VK_NULL_HANDLE,
-             footagePipe = VK_NULL_HANDLE;
+             footagePipe = VK_NULL_HANDLE, footageYuvPipe = VK_NULL_HANDLE;
   VkPipeline coveragePipe = VK_NULL_HANDLE, featherPipe = VK_NULL_HANDLE, combinePipe = VK_NULL_HANDLE, paintPipe = VK_NULL_HANDLE;
   VkPipeline straightPipe = VK_NULL_HANDLE;
   VkDescriptorSetLayout fxSetLayout = VK_NULL_HANDLE;
@@ -555,6 +555,7 @@ struct Engine::Impl {
     maskPipe = pipeline(fullscreenVert, shader(kShader_mask_frag, sizeof kShader_mask_frag), color, false);
     premultiplyPipe = pipeline(fullscreenVert, shader(kShader_premultiply_frag, sizeof kShader_premultiply_frag), color, false);
     footagePipe = pipeline(fullscreenVert, shader(kShader_footage_frag, sizeof kShader_footage_frag), color, false);
+    footageYuvPipe = pipeline(fullscreenVert, shader(kShader_footage_yuv_frag, sizeof kShader_footage_yuv_frag), color, false);
     coveragePipe = pipeline(fullscreenVert, shader(kShader_coverage_frag, sizeof kShader_coverage_frag), coverage, false);
     featherPipe = pipeline(fullscreenVert, shader(kShader_feather_frag, sizeof kShader_feather_frag), coverage, false);
     combinePipe = pipeline(fullscreenVert, shader(kShader_combine_frag, sizeof kShader_combine_frag), coverage, false);
@@ -1196,10 +1197,19 @@ struct Engine::Impl {
   void footageImage(const Content& content, LayerImage& image) {
     const FootageFrame& f = content.footage;
     std::string error;
-    std::shared_ptr<const ImageData> data = media.image(f.file, error);
     const size_t slash = f.file.find_last_of("/\\");
     const std::string name = slash == std::string::npos ? f.file : f.file.substr(slash + 1);
-    if (!data || !data->width || !data->height) {
+    std::shared_ptr<const ImageData> data;
+    std::shared_ptr<const VideoPicture> picture;
+    uint32_t width = 0, height = 0;
+    if (f.videoTime >= 0) {
+      picture = media.video(f.file, f.videoTime, error);
+      if (picture) width = picture->width, height = picture->height;
+    } else {
+      data = media.image(f.file, error);
+      if (data) width = data->width, height = data->height;
+    }
+    if (!width || !height) {
       warn("footage \"" + name + "\" draws nothing: " + (error.empty() ? "it is empty" : error));
       image.target = cleared(content.width + 2 * kPad, content.height + 2 * kPad);
       return;
@@ -1207,19 +1217,44 @@ struct Engine::Impl {
     const float scale = content.scale;
     const bool reduced = scale < 1;
     const auto side = [reduced, scale](uint32_t s) { return reduced ? std::max<uint32_t>(1, uint32_t(std::ceil(double(s) * scale - 1e-6))) : s; };
-    image.width = side(data->width);
-    image.height = side(data->height);
+    image.width = side(width);
+    image.height = side(height);
     image.scale = reduced ? scale : 1;
-    Target* source = uploadStraight(data->pixels.data(), data->pixels.size(), data->width, data->height);
     struct {
       int32_t outSize[2];
       int32_t pad, mode, hasAlpha, invert, taps;
       float scale;
       float matte[4];
+      int32_t size[2], chromaSize[2];
+      int32_t offsets[4], strides[4];
+      float k[4];
     } push{{int32_t(image.width), int32_t(image.height)}, kPad, int32_t(f.alphaMode), f.hasAlpha ? 1 : 0, f.invertAlpha ? 1 : 0,
-           reduced ? std::min(8, int32_t(std::ceil(1.0 / scale - 1e-6))) : 1, scale, {f.matte[0], f.matte[1], f.matte[2], 0}};
+           reduced ? std::min(8, int32_t(std::ceil(1.0 / scale - 1e-6))) : 1, scale, {f.matte[0], f.matte[1], f.matte[2], 0}, {}, {}, {}, {}, {}};
+    Target* source = nullptr;
+    VkPipeline pipe = footagePipe;
+    uint32_t pushSize = 48;
+    if (picture && picture->yuv) {
+      // The planes as bytes in an RGBA8 image kVideoRowBytes wide: the shader converts them.
+      source = uploadStraight(picture->bytes.data(), picture->bytes.size(), kVideoRowBytes / 4, uint32_t(picture->bytes.size() / kVideoRowBytes));
+      pipe = footageYuvPipe;
+      pushSize = sizeof push;
+      push.size[0] = int32_t(width), push.size[1] = int32_t(height);
+      push.chromaSize[0] = int32_t(picture->chromaWidth), push.chromaSize[1] = int32_t(picture->chromaHeight);
+      for (int i = 0; i < 3; i++) push.offsets[i] = int32_t(picture->offsets[i]);
+      push.offsets[3] = picture->interleaved ? 1 : 0;
+      push.strides[0] = int32_t(picture->strides[0]), push.strides[1] = int32_t(picture->strides[1]);
+      push.strides[2] = picture->limitedRange ? 1 : 0;
+      // After Effects' matrix: BT.709 above standard definition, else BT.601.
+      const bool hd = height > 576;
+      push.k[0] = hd ? 0.2126f : 0.299f;
+      push.k[1] = hd ? 0.0722f : 0.114f;
+    } else if (picture) {
+      source = uploadStraight(picture->bytes.data(), size_t(width) * height * 4, width, height);
+    } else {
+      source = uploadStraight(data->pixels.data(), data->pixels.size(), width, height);
+    }
     Target* out = acquire(image.width + 2 * kPad, image.height + 2 * kPad);
-    pass(*out, footagePipe, {source}, &push, sizeof push, 3);
+    pass(*out, pipe, {source}, &push, pushSize, 3);
     release(source);
     flush();
     image.target = out;
@@ -1826,7 +1861,7 @@ struct Engine::Impl {
       uiTextures.clear();
       if (uiPipelineLayout) vk::vkDestroyPipelineLayout(device, uiPipelineLayout, nullptr);
       if (uiSetLayout) vk::vkDestroyDescriptorSetLayout(device, uiSetLayout, nullptr);
-      for (VkPipeline p : {layerPipe, compositePipe, maskPipe, premultiplyPipe, footagePipe, coveragePipe, featherPipe, combinePipe, paintPipe, straightPipe})
+      for (VkPipeline p : {layerPipe, compositePipe, maskPipe, premultiplyPipe, footagePipe, footageYuvPipe, coveragePipe, featherPipe, combinePipe, paintPipe, straightPipe})
         if (p) vk::vkDestroyPipeline(device, p, nullptr);
       for (VkShaderModule m : modules) vk::vkDestroyShaderModule(device, m, nullptr);
       for (auto& [format, pass] : passes) vk::vkDestroyRenderPass(device, pass, nullptr);

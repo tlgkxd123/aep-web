@@ -140,6 +140,7 @@ void readContent(Reader& r, Content& content, int depth) {
       f.alphaMode = r.u32();
       if (f.alphaMode > 2) r.fail("unknown footage alpha mode");
       for (float& c : f.matte) c = r.f32();
+      f.videoTime = r.f64();
       break;
     }
     default:

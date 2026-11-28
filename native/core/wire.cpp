@@ -146,6 +146,7 @@ void WriteContent(CWriter& w, const aevk::Content& content)
 		{
 			w.F32(c);
 		}
+		w.F64(content.footage.videoTime);
 		break;
 	}
 }

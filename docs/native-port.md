@@ -13,7 +13,7 @@ projects at close to desktop speed.
 | Compositing (solids, precomps, shapes, masks, mattes, blend modes, 3D) | `render/renderer.ts` (WebGL2) | `native/src` (Vulkan), from a plan |
 | Shape layers | `render/shapes.ts` | geometry in `native/core` (M1), raster in `native/src`; no dashes yet |
 | Text layers | `render/` + fonts | none |
-| Footage (images, video, audio) | `media/` 3.7k lines | stills and image sequences (PNG, BMP, TIFF) in `native/src/image.cpp`; WAV for Audio Spectrum; no JPEG or video yet |
+| Footage (images, video, audio) | `media/` 3.7k lines | stills and image sequences (PNG, BMP, TIFF) in `native/src/image.cpp`; video through FFmpeg on desktop (`native/src/video.cpp`); WAV for Audio Spectrum; no JPEG yet, no video on Android yet |
 | Effects (54 files, built-in and third-party look-alikes) | `render/effects/` ~15k lines | none |
 | Editing (undo, layer ops, write back to `.aep`) | `edit/` 6.2k lines | none |
 | UI | `ui/` 17k lines of React | none |
@@ -134,8 +134,15 @@ calls (a referenced property's value, `toComp`, `wiggle`, the noise behind `rand
   sequence fixture passes; `footage_tiff` and `footage_tiff_assoc` fail exactly as the WebGL renderer does on master.
   The web app's own native bridge (`src/native/engine.ts`) leaves footage frames to WebGL, because there the files
   belong to the browser. JPEG is still left to WebGL (a baseline decoder would need to match the browser's IDCT).
-- Video: Android `AMediaCodec` straight into a hardware buffer the engine imports, FFmpeg on desktop. This is where
-  phones gain the most over a WebView, which copies every decoded frame at least twice.
+- Video (done on desktop): plan v6 adds the seconds of the file's own time whose picture shows (the frame index over
+  the file's native rate, as `footageStore.videoFrame` reads it). `native/src/video.cpp` opens the file with FFmpeg
+  (when CMake finds libavformat, libavcodec and libswscale; `-DAEVK_FFMPEG=OFF` leaves it out), lists the samples'
+  presentation times as `src/media/mp4.ts` does, picks one the way `indexAtTimes` does, and decodes forward from where
+  it stopped (seeking to the key frame only for a jump back or more than 2 s ahead). 8-bit 4:2:0, 4:2:2, 4:4:4 and
+  NV12 pictures keep their planes and upload as bytes; `shaders/footage_yuv.frag` converts them as `INTERPRET_FS`
+  does (After Effects' matrix, bilinear chroma). Other formats go through swscale to RGBA. All `footage_video`
+  reference frames pass. Android still needs `AMediaCodec` behind the same `VideoReader`, and before that a way to
+  reach the project's footage folder (below).
 
 **M5. Effects**
 

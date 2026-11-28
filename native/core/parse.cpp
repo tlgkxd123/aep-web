@@ -1256,6 +1256,7 @@ private:
 			}
 			footage.m_bIsStill = duration == 0;
 			footage.m_uLoop = loop ? loop : 1;
+			footage.m_fNativeFrameRate = nativeFrameRate;
 		}
 		item.m_fFrameRate = displayFrameRate;
 		/** With "use proxy" on (idta byte 22, bit 0), AE reports the proxy's audio (footage.ts). */

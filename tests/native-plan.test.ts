@@ -110,20 +110,25 @@ describe("native render plan", () => {
     expect(decoded.images[0].pixels).toEqual(new Uint8Array([10, 20, 30, 255]));
   });
 
-  it("plans footage stills and sequence frames for the engine to decode", () => {
+  it("plans footage stills, sequence frames and video frames for the engine to decode", () => {
     const project = parseProject(new Uint8Array(readFileSync(resolve("refs/fixtures/footage.aep"))));
     const comp = (name: string) => [...project.items.values()].find((i): i is CompItem => i.kind === "comp" && i.name === name)!;
     const still = buildFramePlan(project, comp("footage_png_premul"), 0);
     expect(still.unsupported).toEqual([]);
     const footage = still.root.layers.map((l) => l.content).find((c) => c?.kind === "footage");
-    expect(footage).toMatchObject({ kind: "footage", width: 96, height: 72, scale: 1, alphaMode: 1, hasAlpha: true });
+    expect(footage).toMatchObject({ kind: "footage", width: 96, height: 72, scale: 1, alphaMode: 1, hasAlpha: true, videoTime: -1 });
     const frame = buildFramePlan(project, comp("footage_seq_30fps"), 5 / 24).root.layers.map((l) => l.content).find((c) => c?.kind === "footage");
     expect(frame?.kind === "footage" && frame.file.split(/[\\/]/).pop()).toMatch(/^seq_\d{4}\.png$/);
     const half = buildFramePlan(project, comp("footage_png_premul"), 0, { scale: 0.5 }).root.layers.map((l) => l.content).find((c) => c?.kind === "footage");
     expect(half).toMatchObject({ width: 48, height: 36, scale: 0.5 });
     const back = decodePlan(encodePlan(still)).root.layers.map((l) => l.content).find((c) => c?.kind === "footage");
     expect(back).toEqual(footage?.kind === "footage" ? { ...footage, matte: footage.matte.map(Math.fround) } : footage);
-    // Video stays with the WebGL renderer.
+    // Video: the frame index over the file's native rate, the seconds the engine's decoder looks up.
+    const video = buildFramePlan(project, comp("footage_video"), 0.5);
+    expect(video.unsupported).toEqual([]);
+    const clip = video.root.layers.map((l) => l.content).find((c) => c?.kind === "footage");
+    expect(clip?.kind === "footage" && clip.videoTime).toBeGreaterThan(0);
+    // JPEG stays with the WebGL renderer.
     expect(buildFramePlan(project, comp("footage_jpeg"), 0).unsupported).toEqual(['footage ("photo.jpg")']);
   });
 
