@@ -143,6 +143,8 @@ calls (a referenced property's value, `toComp`, `wiggle`, the noise behind `rand
   does (After Effects' matrix, bilinear chroma). Other formats go through swscale to RGBA. All `footage_video`
   reference frames pass. Android still needs `AMediaCodec` behind the same `VideoReader`, and before that a way to
   reach the project's footage folder (below).
+- Plan v7 adds each effect layer's Time Stretch, so effects that run on the layer's own clock (Ripple's waves) see
+  the same time the TypeScript renderer gives them.
 
 **M5. Effects**
 

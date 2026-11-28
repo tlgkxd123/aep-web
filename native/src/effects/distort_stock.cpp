@@ -45,47 +45,10 @@ Affine geometryMatrix(const std::vector<double>& anchor, const std::vector<doubl
              mul(rotate(rotation * kDeg), mul(skewM, mul(scaling(scaleX / 100, scaleY / 100), translate(-anchor[0], -anchor[1])))));
 }
 
-/** The projective map taking the unit square's corners (0,0), (1,0), (0,1), (1,1) to the four points (squareToQuad). */
-Mat3 squareToQuad(const std::array<double, 2>& p00, const std::array<double, 2>& p10, const std::array<double, 2>& p01,
-                  const std::array<double, 2>& p11) {
-  const double x0 = p00[0], y0 = p00[1], x1 = p10[0], y1 = p10[1], x2 = p01[0], y2 = p01[1], x3 = p11[0], y3 = p11[1];
-  const double dx1 = x1 - x3, dy1 = y1 - y3, dx2 = x2 - x3, dy2 = y2 - y3;
-  const double sx = x0 - x1 - x2 + x3, sy = y0 - y1 - y2 + y3;
-  double g = 0, h = 0;
-  if (std::abs(sx) > 1e-12 || std::abs(sy) > 1e-12) {
-    const double det = dx1 * dy2 - dx2 * dy1;
-    g = (sx * dy2 - dx2 * sy) / det;
-    h = (dx1 * sy - sx * dy1) / det;
-  }
-  return {x1 - x0 + g * x1, x2 - x0 + h * x2, x0, y1 - y0 + g * y1, y2 - y0 + h * y2, y0, g, h, 1};
-}
-
-std::optional<Mat3> invert3(const Mat3& m) {
-  const auto [a, b, c, d, e, f, g, h, i] = m;
-  const double A = e * i - f * h, B = -(d * i - f * g), C = d * h - e * g;
-  const double det = a * A + b * B + c * C;
-  if (std::abs(det) < 1e-12 || !std::isfinite(det)) return std::nullopt;
-  return Mat3{A / det, -(b * i - c * h) / det, (b * f - c * e) / det, B / det, (a * i - c * g) / det,
-              -(a * f - c * d) / det, C / det, -(a * h - b * g) / det, (a * e - b * d) / det};
-}
-
 /** The layer's centre in layer pixels: half its size, or the middle of its box (center in distort.ts). */
 std::vector<double> center(const FxRect& r, double k, const EffectLayer& layer) {
   if (layer.width > 0 && layer.height > 0) return {layer.width / 2.0, layer.height / 2.0};
   return {(r.x + r.width / 2) / k, (r.y + r.height / 2) / k};
-}
-
-/** A transparent image over `rect`; releases `input`. */
-FxImage blank(FxContext& ctx, FxImage input, const FxRect& rect) {
-  ctx.release(input.target);
-  return layerPass(ctx, rect, {}, fx::blank, {}, input.scale);
-}
-
-/** A warp shader's pass over `rect` with the input as its source (warp in stockUtil.ts); releases `input`. */
-FxImage warp(FxContext& ctx, FxImage input, const FxRect& rect, fx::Id shader, const FxSetter& set) {
-  FxImage out = layerPass(ctx, rect, {input}, shader, set, input.scale);
-  ctx.release(input.target);
-  return out;
 }
 
 /** Transform: the layer image through anchor, position, scale, skew and rotation, at Opacity, within the layer's box. */
@@ -106,9 +69,9 @@ FxImage transform(FxImage input, const Effect& effect, const EffectLayer& layer,
   const std::optional<Affine> inverse = invert(m);
   const double opacity = std::clamp(p.num(8, 100) / 100, 0.0, 1.0);
   if (!p.flag(9, true) && p.num(10, 0) > 0) ctx.warn("Transform: motion blur is not rendered");
-  if (!inverse) return blank(ctx, input, rect);
+  if (!inverse) return blankImage(ctx, input, rect);
   const Affine& v = *inverse;
-  return warp(ctx, input, unionRect(rect, imageRect(input)), fx::geometry, [&](FxUniforms& u) {
+  return warpPass(ctx, input, unionRect(rect, imageRect(input)), fx::geometry, [&](FxUniforms& u) {
     u.f("u_m0", float(v[0]), float(v[2]), float(v[4]));
     u.f("u_m1", float(v[1]), float(v[3]), float(v[5]));
     u.f("u_opacity", float(opacity));
@@ -146,7 +109,8 @@ FxImage cornerPin(FxImage input, const Effect& effect, const EffectLayer& layer,
     v.resize(2, 0);
     pins[i] = {v[0] * k, v[1] * k};
   }
-  const std::optional<Mat3> inverse = invert3(squareToQuad(pins[0], pins[1], pins[2], pins[3]));
+  Mat3 m;
+  const bool inverse = cornerPinInverse(pins, m);
   double minX = pins[0][0], maxX = minX, minY = pins[0][1], maxY = minY;
   for (const auto& pin : pins) {
     minX = std::min(minX, pin[0]);
@@ -155,9 +119,8 @@ FxImage cornerPin(FxImage input, const Effect& effect, const EffectLayer& layer,
     maxY = std::max(maxY, pin[1]);
   }
   const FxRect out = clampRect({minX, minY, maxX - minX, maxY - minY});
-  if (!inverse || out.width < 1 || out.height < 1) return blank(ctx, input, {rect.x, rect.y, 1, 1});
-  const Mat3& m = *inverse;
-  return warp(ctx, input, out, fx::corner_pin, [&](FxUniforms& u) {
+  if (!inverse || out.width < 1 || out.height < 1) return blankImage(ctx, input, {rect.x, rect.y, 1, 1});
+  return warpPass(ctx, input, out, fx::corner_pin, [&](FxUniforms& u) {
     // Row-major to GLSL's column-major.
     const float columns[9] = {float(m[0]), float(m[3]), float(m[6]), float(m[1]), float(m[4]), float(m[7]), float(m[2]), float(m[5]), float(m[8])};
     u.matrix("u_inverse", columns);
@@ -181,10 +144,10 @@ FxImage motionTile(FxImage input, const Effect& effect, const EffectLayer& layer
   const double ow = std::max(0.0, p.num(4, 100) / 100), oh = std::max(0.0, p.num(5, 100) / 100);
   const double midX = rect.x + rect.width / 2, midY = rect.y + rect.height / 2;
   const FxRect out = clampRect({midX - rect.width * ow / 2, midY - rect.height * oh / 2, rect.width * ow, rect.height * oh});
-  if (out.width < 1 || out.height < 1) return blank(ctx, input, {rect.x, rect.y, 1, 1});
+  if (out.width < 1 || out.height < 1) return blankImage(ctx, input, {rect.x, rect.y, 1, 1});
   const double phase = p.num(7, 0) / 360;
   const bool horizontal = p.flag(8, false), mirror = p.flag(6, false);
-  return warp(ctx, input, out, fx::motion_tile, [&](FxUniforms& u) {
+  return warpPass(ctx, input, out, fx::motion_tile, [&](FxUniforms& u) {
     u.f("u_center", float(cx), float(cy));
     u.f("u_tile", float(tileW), float(tileH));
     u.f("u_rect", float(rect.x), float(rect.y), float(rect.width), float(rect.height));

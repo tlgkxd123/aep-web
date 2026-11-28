@@ -247,6 +247,7 @@ void WriteLayer(CWriter& w, const aevk::Layer& layer)
 		const aevk::EffectLayer& info = layer.effectLayer;
 		w.F64(info.time);
 		w.F64(info.startTime);
+		w.F64(info.stretch);
 		w.F32(info.width);
 		w.F32(info.height);
 		w.U32(info.kind);

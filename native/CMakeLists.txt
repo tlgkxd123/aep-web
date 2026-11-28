@@ -26,6 +26,7 @@ add_library(aevk STATIC
     src/effects/stylize_stock.cpp
     src/effects/distort_stock.cpp
     src/effects/keying.cpp
+    src/effects/distort_extra.cpp
   src/effects/transitions.cpp
   src/effects/box_blur.cpp
   src/effects/channel.cpp

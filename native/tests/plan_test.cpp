@@ -38,6 +38,7 @@ TEST(decodes_the_sample_plan) {
   CHECK(solid.effects.size() == 2 && solid.effects[0].matchName == "ADBE Box Blur2");
   CHECK_NEAR(solid.effectLayer.time, 1.0 / 3, 0);
   CHECK_NEAR(solid.effectLayer.startTime, -0.5, 0);
+  CHECK_NEAR(solid.effectLayer.stretch, 1, 0);
   CHECK(solid.effectLayer.width == 4 && solid.effectLayer.kind == 0);
   const Effect& blur = solid.effects[0];
   CHECK(blur.params.size() == 3);

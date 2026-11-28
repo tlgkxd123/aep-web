@@ -15,7 +15,7 @@
 //   path    := u32 closed, u32 vertexCount, f32[6] per vertex
 //   mask    := u32 mode, u32 inverted, f32 opacity, f32 feather, f32 expansion, u32 closed, u32 vertexCount,
 //              f32[6] per vertex (x, y, in x, in y, out x, out y)
-//   effectLayer := f64 time, f64 startTime, f32 width, f32 height, u32 kind (0 AV, 1 shape, 2 other)
+//   effectLayer := f64 time, f64 startTime, f64 stretch, f32 width, f32 height, u32 kind (0 AV, 1 shape, 2 other)
 //   effect  := str matchName, u32 paramCount, param*, u32 sourceCount, source*, u32 flags (1 audio, 2 path),
 //              [u32 audioCount, audio*], [u32 closed, u32 vertexCount, f32[6] per vertex]
 //   source  := u32 param (declared index of a layer parameter), u32 drawn, [content, f32 width, f32 height, u32 kind]
@@ -27,7 +27,7 @@
 import type { FramePlan, PlanComp, PlanContent, PlanEffect, PlanImage, PlanLayer, PlanMask, PlanParam, ShapePaintPlan } from "./plan.ts";
 
 export const PLAN_MAGIC = 0x50564541; // "AEVP"
-export const PLAN_VERSION = 6;
+export const PLAN_VERSION = 7;
 
 const KIND = { solid: 1, comp: 2, image: 3, shape: 4, footage: 5 } as const;
 const utf8 = new TextEncoder();
@@ -205,6 +205,7 @@ function writeLayer(w: Writer, layer: PlanLayer): void {
     const info = layer.effectLayer!;
     w.f64(info.time);
     w.f64(info.startTime);
+    w.f64(info.stretch);
     w.f32(info.width);
     w.f32(info.height);
     w.u32(info.kind);
@@ -356,7 +357,7 @@ function readLayer(r: Reader): PlanLayer {
   const layer: PlanLayer = { name: "", adjustment: (flags & 1) !== 0, blendMode, opacity, content, masks, matrix, zoom, effects: [] };
   const effectCount = r.u32();
   if (effectCount) {
-    layer.effectLayer = { time: r.f64(), startTime: r.f64(), width: r.f32(), height: r.f32(), kind: r.u32() };
+    layer.effectLayer = { time: r.f64(), startTime: r.f64(), stretch: r.f64(), width: r.f32(), height: r.f32(), kind: r.u32() };
     for (let i = 0; i < effectCount; i++) {
       const matchName = r.str();
       const params: PlanParam[] = [];

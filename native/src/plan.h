@@ -12,7 +12,7 @@
 namespace aevk {
 
 constexpr uint32_t kPlanMagic = 0x50564541;  // "AEVP"
-constexpr uint32_t kPlanVersion = 6;
+constexpr uint32_t kPlanVersion = 7;
 constexpr int kPad = 1;
 
 enum class ContentKind : uint32_t { Solid = 1, Comp = 2, Image = 3, Shape = 4, Footage = 5 };
@@ -114,6 +114,8 @@ struct EffectParam {
 struct EffectLayer {
   /** Composition time of the frame and the layer's start time, in seconds. */
   double time = 0, startTime = 0;
+  /** The layer's time stretch as a fraction (1 when none; negative reverses it). */
+  double stretch = 1;
   /** Layer pixels. */
   float width = 0, height = 0;
   /** 0 an AV layer, 1 a shape layer, 2 anything else. */

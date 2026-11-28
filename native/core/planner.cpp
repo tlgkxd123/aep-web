@@ -606,6 +606,7 @@ bool CFramePlanner::Placed(const CLayer& layer, const CItem& comp, f64 time, con
 		aevk::EffectLayer& info = out.effectLayer;
 		info.time = time;
 		info.startTime = layer.m_fStartTime;
+		info.stretch = layer.m_fStretch != 0 ? layer.m_fStretch / 100 : 1;
 		info.width = float(layer.m_fWidth);
 		info.height = float(layer.m_fHeight);
 		info.kind = layer.m_eType == LAYER_AV ? 0 : layer.m_eType == LAYER_SHAPE ? 1 : 2;

@@ -210,4 +210,39 @@ FxImage grown(FxContext& ctx, FxImage input, double grow) {
   return out;
 }
 
+FxImage warpPass(FxContext& ctx, FxImage input, const FxRect& rect, fx::Id shader, const FxSetter& set) {
+  FxImage out = layerPass(ctx, rect, {input}, shader, set, input.scale);
+  ctx.release(input.target);
+  return out;
+}
+
+FxImage blankImage(FxContext& ctx, FxImage input, const FxRect& rect) {
+  ctx.release(input.target);
+  return layerPass(ctx, rect, {}, fx::blank, {}, input.scale);
+}
+
+bool cornerPinInverse(const std::array<std::array<double, 2>, 4>& pins, std::array<double, 9>& inverse) {
+  /** squareToQuad in stockMath.ts. */
+  const double x0 = pins[0][0], y0 = pins[0][1], x1 = pins[1][0], y1 = pins[1][1];
+  const double x2 = pins[2][0], y2 = pins[2][1], x3 = pins[3][0], y3 = pins[3][1];
+  const double dx1 = x1 - x3, dy1 = y1 - y3, dx2 = x2 - x3, dy2 = y2 - y3;
+  const double sx = x0 - x1 - x2 + x3, sy = y0 - y1 - y2 + y3;
+  double g = 0, h = 0;
+  if (std::abs(sx) > 1e-12 || std::abs(sy) > 1e-12) {
+    const double det = dx1 * dy2 - dx2 * dy1;
+    g = (sx * dy2 - dx2 * sy) / det;
+    h = (dx1 * sy - sx * dy1) / det;
+  }
+  const double a = x1 - x0 + g * x1, b = x2 - x0 + h * x2, c = x0;
+  const double d = y1 - y0 + g * y1, e = y2 - y0 + h * y2, f = y0;
+  const double i = 1;
+  /** invert3 in stockMath.ts. */
+  const double A = e * i - f * h, B = -(d * i - f * g), C = d * h - e * g;
+  const double det = a * A + b * B + c * C;
+  if (!(std::abs(det) >= 1e-12) || !std::isfinite(det)) return false;
+  inverse = {A / det, -(b * i - c * h) / det, (b * f - c * e) / det, B / det, (a * i - c * g) / det,
+             -(a * f - c * d) / det, C / det, -(a * h - b * g) / det, (a * e - b * d) / det};
+  return true;
+}
+
 }  // namespace aevk

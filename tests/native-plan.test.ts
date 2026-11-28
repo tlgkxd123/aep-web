@@ -63,7 +63,7 @@ function samplePlan(): Pick<FramePlan, "root" | "images"> {
     audio: [{ file: "C:\\media\\tone.wav", scale: 0.5, offset: -0.25, from: -Infinity, to: 2 }],
     path: { closed: false, vertices: [1, 2, 0, 0, 0.5, 0, 3, 2, -0.5, 0, 0, 0] },
   });
-  red.effectLayer = { time: 1 / 3, startTime: -0.5, width: 4, height: 4, kind: 0 };
+  red.effectLayer = { time: 1 / 3, startTime: -0.5, stretch: 1, width: 4, height: 4, kind: 0 };
   const nested: PlanLayer = {
     ...solidLayer(2, 2, [0, 1, 0], 4, 2),
     blendMode: 5216,
@@ -102,7 +102,7 @@ describe("native render plan", () => {
     expect(red.content).toMatchObject({ kind: "solid", width: 4, height: 4, color: [1, 0.25, 0] });
     expect(red.masks[0]).toMatchObject({ mode: 6813, closed: true, feather: 1.5 });
     expect(red.effects).toEqual(samplePlan().root.layers[0].effects);
-    expect(red.effectLayer).toEqual({ time: 1 / 3, startTime: -0.5, width: 4, height: 4, kind: 0 });
+    expect(red.effectLayer).toEqual({ time: 1 / 3, startTime: -0.5, stretch: 1, width: 4, height: 4, kind: 0 });
     expect(nested.matte?.layer?.content.kind).toBe("solid");
     expect(nested.content.kind === "comp" && nested.content.comp.layers.length).toBe(1);
     expect(image.matte).toEqual({ mode: 4, opacity: 1, layer: null });

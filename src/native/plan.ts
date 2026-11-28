@@ -159,6 +159,8 @@ export interface PlanEffectLayer {
   /** Composition time the layer is drawn at, and the layer's start time, in seconds. */
   time: number;
   startTime: number;
+  /** The layer's time stretch as a fraction (1 when none; negative reverses it). */
+  stretch: number;
   /** The layer's own size (its source's, or the comp's for a shape layer). */
   width: number;
   height: number;
@@ -357,7 +359,7 @@ class Planner {
     };
     if (effects.length) {
       const kind = layer.layerType === "AVLayer" ? 0 : layer.layerType === "ShapeLayer" ? 1 : 2;
-      placed.effectLayer = { time, startTime: layer.startTime, width: layer.width, height: layer.height, kind };
+      placed.effectLayer = { time, startTime: layer.startTime, stretch: layer.stretch ? layer.stretch / 100 : 1, width: layer.width, height: layer.height, kind };
     }
     return placed;
   }

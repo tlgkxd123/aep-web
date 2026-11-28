@@ -100,4 +100,17 @@ FxImage reframe(FxContext& ctx, FxImage input, const FxRect& rect);
 /** `input` with `grow` pixels (rounded up) of transparency added on every side (grown in fxextraUtil.ts); releases `input`. */
 FxImage grown(FxContext& ctx, FxImage input, double grow);
 
+/** A warp shader's pass over `rect` with the input as its source, at its scale (warp in stockUtil.ts); releases `input`. */
+FxImage warpPass(FxContext& ctx, FxImage input, const FxRect& rect, fx::Id shader, const FxSetter& set = {});
+
+/** A transparent image over `rect` at the input's scale; releases `input`. */
+FxImage blankImage(FxContext& ctx, FxImage input, const FxRect& rect);
+
+/**
+ * The inverse of the projective map taking the unit square's corners (0,0), (1,0), (0,1), (1,1) to the four pins: a
+ * row-major 3x3 matrix from layer points to unit-square coordinates (cornerPinInverse in stockMath.ts). False for a
+ * degenerate quad.
+ */
+bool cornerPinInverse(const std::array<std::array<double, 2>, 4>& pins, std::array<double, 9>& inverse);
+
 }  // namespace aevk

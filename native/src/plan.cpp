@@ -175,6 +175,7 @@ void readLayer(Reader& r, Layer& layer, int depth) {
     EffectLayer& info = layer.effectLayer;
     info.time = r.f64();
     info.startTime = r.f64();
+    info.stretch = r.f64();
     info.width = r.f32();
     info.height = r.f32();
     info.kind = r.u32();
