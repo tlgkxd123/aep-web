@@ -7,6 +7,23 @@ import { copyImage } from "./fxextraUtil.ts";
 import { blurrinessSigma } from "./stockMath.ts";
 import { blurAxes, compOf, gaussian, imageRect, layerCenter, layerPass, layerRect, registerStock, unionRect, type Params } from "./stockUtil.ts";
 
+/** Channel Blur's mix of its two-pass and three-pass blurs (also embedded by the native engine). */
+export const CHANNEL_BLUR_MIX_DECLS = "uniform float u_t;";
+export const CHANNEL_BLUR_MIX_BODY = "  outColor = mix(at(0, p), at(1, p), u_t);";
+/** Channel Blur's colour before blurring: straight colour (black where transparent) times the blurred alpha, opaque. */
+export const CHANNEL_BLUR_COLOUR_BODY = "  vec4 c = at(0, p);\n  outColor = vec4(c.a < 1.5 / 255.0 ? vec3(0.0) : straight(c) * at(1, p).a, 1.0);";
+
+/**
+ * Channel Blur's result from `count` images, the last the blurred alpha: red, green and blue from the images `pick`
+ * names, clamped to that alpha (also embedded by the native engine, with each channel's own image).
+ */
+export function channelBlurComposeBody(count: number, pick: number[]): string {
+  return `  vec4 s[${count}];
+${Array.from({ length: count }, (_, i) => `  s[${i}] = at(${i}, p);`).join("\n")}
+  float a = s[${count - 1}].a;
+  outColor = vec4(clamp(vec3(s[${pick[0]}].r, s[${pick[1]}].g, s[${pick[2]}].b), 0.0, a), a);`;
+}
+
 /**
  * Channel Blur's blur of one Blurriness b, in box passes with a fractional outer tap: one of radius b/2 up to 1, two
  * of 0.37b up to 2, three of 0.37b from 2.5 and between 2 and 2.5 the two-pass and three-pass results mixed linearly.
@@ -19,7 +36,7 @@ function channelBoxBlur(ctx: RenderContext, source: LayerImage, blurriness: numb
   if (b <= 2 || b >= 2.5) return boxBlur(ctx, source, { ...options, radius, iterations: b <= 2 ? 2 : 3 });
   const two = boxBlur(ctx, source, { ...options, radius, iterations: 2 });
   const three = boxBlur(ctx, copyImage(ctx, two), { ...options, radius, iterations: 1 });
-  const out = layerPass(ctx, unionRect(imageRect(two), imageRect(three)), [two, three], "uniform float u_t;", "  outColor = mix(at(0, p), at(1, p), u_t);",
+  const out = layerPass(ctx, unionRect(imageRect(two), imageRect(three)), [two, three], CHANNEL_BLUR_MIX_DECLS, CHANNEL_BLUR_MIX_BODY,
     (u) => ctx.gl.uniform1f(u("u_t"), (b - 2) / 0.5), source.scale);
   ctx.pool.release(two.target);
   ctx.pool.release(three.target);
@@ -43,7 +60,7 @@ registerStock("ADBE Channel Blur", (input, p, ctx, layer) => {
     imageRect(input),
     [input, alpha],
     "",
-    "  vec4 c = at(0, p);\n  outColor = vec4(c.a < 1.5 / 255.0 ? vec3(0.0) : straight(c) * at(1, p).a, 1.0);",
+    CHANNEL_BLUR_COLOUR_BODY,
     undefined,
     input.scale,
   );
@@ -57,10 +74,7 @@ registerStock("ADBE Channel Blur", (input, p, ctx, layer) => {
     imageRect(alpha),
     images,
     "",
-    `  vec4 s[${images.length}];
-${images.map((_, i) => `  s[${i}] = at(${i}, p);`).join("\n")}
-  float a = s[${images.length - 1}].a;
-  outColor = vec4(clamp(vec3(s[${pick[0]}].r, s[${pick[1]}].g, s[${pick[2]}].b), 0.0, a), a);`,
+    channelBlurComposeBody(images.length, pick),
     undefined,
     input.scale,
   );
@@ -178,6 +192,24 @@ registerStock("ADBE Dust & Scratches", (input, p, ctx) => {
 
 const CrossMode = { BLEND: 1, ADD: 2, SCREEN: 3, MULTIPLY: 4, LIGHTEN: 5, DARKEN: 6 } as const;
 
+/** CC Cross Blur's combination of its horizontal and vertical blurs by Transfer Mode (also embedded by the native engine). */
+export const CROSS_BLUR_DECLS = "uniform int u_mode;";
+export const CROSS_BLUR_BODY = `  vec4 a = at(0, p);
+  vec4 b = at(1, p);
+  vec4 r;
+  if (u_mode == ${CrossMode.BLEND}) r = 0.5 * (a + b);
+  else if (u_mode == ${CrossMode.ADD}) r = vec4(a.rgb + b.rgb, a.a + b.a - a.a * b.a);
+  else {
+    vec3 sa = straight(a), sb = straight(b), m;
+    if (u_mode == ${CrossMode.SCREEN}) m = sa + sb - sa * sb;
+    else if (u_mode == ${CrossMode.MULTIPLY}) m = sa * sb;
+    else if (u_mode == ${CrossMode.LIGHTEN}) m = max(sa, sb);
+    else m = min(sa, sb);
+    r = vec4((1.0 - b.a) * a.rgb + (1.0 - a.a) * b.rgb + a.a * b.a * m, a.a + b.a - a.a * b.a);
+  }
+  r = clamp(r, 0.0, 1.0);
+  outColor = vec4(min(r.rgb, vec3(r.a)), r.a);`;
+
 // CC Cross Blur: the layer blurred along x as Channel Blur blurs by Radius X and along y by Radius Y (premultiplied).
 // Blend averages the two and Add sums them (alphas screened); the other Transfer Modes composite one over the other
 // with that blend of their straight colours where both cover.
@@ -202,22 +234,8 @@ registerStock("CS CrossBlur", (input, p, ctx, layer) => {
     ctx,
     rect,
     images,
-    "uniform int u_mode;",
-    `  vec4 a = at(0, p);
-  vec4 b = at(1, p);
-  vec4 r;
-  if (u_mode == ${CrossMode.BLEND}) r = 0.5 * (a + b);
-  else if (u_mode == ${CrossMode.ADD}) r = vec4(a.rgb + b.rgb, a.a + b.a - a.a * b.a);
-  else {
-    vec3 sa = straight(a), sb = straight(b), m;
-    if (u_mode == ${CrossMode.SCREEN}) m = sa + sb - sa * sb;
-    else if (u_mode == ${CrossMode.MULTIPLY}) m = sa * sb;
-    else if (u_mode == ${CrossMode.LIGHTEN}) m = max(sa, sb);
-    else m = min(sa, sb);
-    r = vec4((1.0 - b.a) * a.rgb + (1.0 - a.a) * b.rgb + a.a * b.a * m, a.a + b.a - a.a * b.a);
-  }
-  r = clamp(r, 0.0, 1.0);
-  outColor = vec4(min(r.rgb, vec3(r.a)), r.a);`,
+    CROSS_BLUR_DECLS,
+    CROSS_BLUR_BODY,
     (u) => ctx.gl.uniform1i(u("u_mode"), p.choice(3, CrossMode.BLEND)),
     input.scale,
   );

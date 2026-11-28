@@ -85,6 +85,9 @@ FxImage mapPass(FxContext& ctx, FxImage input, fx::Id shader, const FxSetter& se
 /** The input's straight colours, opaque (unpremultiplied in stylizeExtra.ts); keeps `input`. */
 FxImage unpremultiplied(FxContext& ctx, const FxImage& input);
 
+/** A copy of `image` in a target of its own (copyImage in fxextraUtil.ts); keeps `image`. */
+FxImage copyImage(FxContext& ctx, const FxImage& image);
+
 /** layerPass over the input's own rectangle with the input as source 0, keeping its scale; releases `input`. */
 FxImage pixelPass(FxContext& ctx, FxImage input, fx::Id shader, const FxSetter& set = {});
 

@@ -27,9 +27,12 @@ export function mapPass(ctx: RenderContext, input: LayerImage, fragment: string,
 }
 
 /** A new image with the same pixels as `input` (which stays valid). */
+/** copyImage's pass (also embedded by the native engine). */
+export const COPY_FS = `${PASS_HEADER}void main() { outColor = texture(u_source, v_uv); }`;
+
 export function copyImage(ctx: RenderContext, input: LayerImage): LayerImage {
   const out = ctx.pool.acquire(input.target.width, input.target.height, false);
-  ctx.pass(ctx.program(`${PASS_HEADER}void main() { outColor = texture(u_source, v_uv); }`), out, [input.target], (uniform) =>
+  ctx.pass(ctx.program(COPY_FS), out, [input.target], (uniform) =>
     ctx.gl.uniform1i(uniform("u_source"), 0),
   );
   return { ...input, target: out };

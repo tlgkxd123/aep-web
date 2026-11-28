@@ -14,6 +14,8 @@ FxRenderer fxRenderer(const std::string& matchName) {
   static const Entry entries[] = {
       {"ADBE AudSpect", audioSpectrumRenderer},
       {"ADBE Box Blur2", boxBlurRenderer},
+      {"ADBE Channel Blur", channelBlurRenderer},
+      {"CS CrossBlur", crossBlurRenderer},
       {"ADBE Strobe", strobeRenderer},
       {"PEDG2", deepGlowRenderer},
       {"ADBE Checkerboard", checkerboardRenderer},

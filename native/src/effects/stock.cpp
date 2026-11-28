@@ -162,6 +162,13 @@ FxImage mapPass(FxContext& ctx, FxImage input, fx::Id shader, const FxSetter& se
   return input;
 }
 
+FxImage copyImage(FxContext& ctx, const FxImage& image) {
+  FxImage out = image;
+  out.target = ctx.acquire(ctx.width(image.target), ctx.height(image.target), FxFormat::Color, false);
+  ctx.pass(fx::copy, *out.target, {image.target}, [](FxUniforms& u) { u.i("u_source", 0); });
+  return out;
+}
+
 FxImage unpremultiplied(FxContext& ctx, const FxImage& input) { return layerPass(ctx, imageRect(input), {input}, fx::unpremultiplied); }
 
 FxImage pixelPass(FxContext& ctx, FxImage input, fx::Id shader, const FxSetter& set) {

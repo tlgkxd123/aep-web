@@ -105,6 +105,11 @@ export const FX_SHADERS: FxShaderSource[] = [
   shader("hdr_tonemap", "channelUtility.ts", "HDR_TONEMAP_FS"),
   program("capsule", "audioSpectrum.ts", "CAPSULE_VS", "CAPSULE_FS"),
   shader("spectrum_composite", "audioSpectrum.ts", "COMPOSITE_FS"),
+  shader("copy", "fxextraUtil.ts", "COPY_FS"),
+  layerPass("channel_blur_mix", 2, ref("blurNoise.ts", "CHANNEL_BLUR_MIX_DECLS"), ref("blurNoise.ts", "CHANNEL_BLUR_MIX_BODY")),
+  layerPass("channel_blur_colour", 2, "", ref("blurNoise.ts", "CHANNEL_BLUR_COLOUR_BODY")),
+  layerPass("channel_blur_compose", 4, "", ref("blurNoise.ts", "channelBlurComposeBody", 4, [0, 1, 2])),
+  layerPass("cross_blur", 2, ref("blurNoise.ts", "CROSS_BLUR_DECLS"), ref("blurNoise.ts", "CROSS_BLUR_BODY")),
 ];
 
 async function value(arg: FxArg): Promise<unknown> {

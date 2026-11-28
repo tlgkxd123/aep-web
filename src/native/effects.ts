@@ -12,6 +12,8 @@ const effect = (scalable: boolean, passThrough = false): NativeEffect => ({ scal
 
 export const NATIVE_EFFECTS: ReadonlyMap<string, NativeEffect> = new Map([
   ["ADBE Box Blur2", effect(true)],
+  ["ADBE Channel Blur", effect(true)],
+  ["CS CrossBlur", effect(true)],
   ["ADBE Strobe", effect(true)],
   ["PEDG2", effect(true)],
   ["ADBE Checkerboard", effect(true)],
