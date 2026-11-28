@@ -213,6 +213,13 @@ export const FX_SHADERS: FxShaderSource[] = [
   warp("twirl", ref("displace.ts", "TWIRL_DECLS")),
   warp("optics_compensation", ref("displace.ts", "OPTICS_DECLS")),
   layerPass("cc_power_pin", 1, ref("distortExtra.ts", "POWER_PIN_DECLS"), ref("distortExtra.ts", "POWER_PIN_BODY")),
+  layerPass("camera_lens", 1, ref("blurNoise.ts", "CAMERA_LENS_DECLS"), ref("blurNoise.ts", "CAMERA_LENS_BODY")),
+  layerPass("bilateral", 1, ref("blurNoise.ts", "BILATERAL_DECLS"), ref("blurNoise.ts", "BILATERAL_BODY")),
+  layerPass("smart_blur", 1, ref("blurNoise.ts", "SMART_BLUR_DECLS"), ref("blurNoise.ts", "SMART_BLUR_BODY")),
+  layerPass("radial_pass", 1, ref("blurNoise.ts", "RADIAL_PASS_DECLS"), ref("blurNoise.ts", "RADIAL_PASS_BODY")),
+  layerPass("noise_hls", 1, ref("blurNoise.ts", "NOISE_HLS_DECLS"), ref("blurNoise.ts", "NOISE_HLS_BODY")),
+  shader("median_step", "blurNoise.ts", "MEDIAN_STEP_FS"),
+  shader("median_store", "blurNoise.ts", "MEDIAN_STORE_FS"),
   layerPass("mosaic", 1, ref("stylize.ts", "MOSAIC_DECLS"), ref("stylize.ts", "MOSAIC_BODY")),
   layerPass("noise", 1, ref("stylize.ts", "NOISE_DECLS"), ref("stylize.ts", "NOISE_BODY")),
 ];

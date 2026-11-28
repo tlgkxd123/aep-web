@@ -28,6 +28,7 @@ add_library(aevk STATIC
     src/effects/keying.cpp
     src/effects/distort_extra.cpp
     src/effects/displace.cpp
+    src/effects/blur_noise.cpp
   src/effects/transitions.cpp
   src/effects/box_blur.cpp
   src/effects/channel.cpp
