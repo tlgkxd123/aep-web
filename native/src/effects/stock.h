@@ -40,6 +40,9 @@ std::array<double, 2> layerCenter(const EffectLayer& layer, const FxImage& input
 /** A direction angle (degrees, 0 = up, clockwise) as a unit vector in layer space, y down (directionVector). */
 std::array<double, 2> directionVector(double degrees);
 
+/** The layer's own time at the frame, after its In point and Time Stretch (layerTimeAt in evaluate.ts). */
+double layerTimeAt(const EffectLayer& layer);
+
 /** An effect point in layer pixels: points are measured from the top left of the layer's box (layerPoint in generateExtra.ts). */
 std::array<double, 2> effectPoint(const EffectLayer& layer, const std::vector<double>& point);
 

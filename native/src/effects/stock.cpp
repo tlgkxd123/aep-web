@@ -68,6 +68,12 @@ std::array<double, 2> layerCenter(const EffectLayer& layer, const FxImage& input
   return {(input.originX + input.width / 2.0) / k, (input.originY + input.height / 2.0) / k};
 }
 
+double layerTimeAt(const EffectLayer& layer) {
+  const double stretch = layer.stretch;
+  const double offset = stretch >= 0 ? layer.startTime : layer.startTime - std::abs(stretch) / 3000;
+  return (layer.time - offset) / stretch;
+}
+
 std::array<double, 2> directionVector(double degrees) {
   const double r = degrees * M_PI / 180;
   return {std::sin(r), -std::cos(r)};

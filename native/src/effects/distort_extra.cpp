@@ -47,13 +47,6 @@ FxRect boundsOf(const Point* points, size_t count) {
   return {x0, y0, x1 - x0, y1 - y0};
 }
 
-/** The layer's time at the frame (layerTimeAt in evaluate.ts). */
-double layerTime(const EffectLayer& layer) {
-  const double stretch = layer.stretch;
-  const double offset = stretch >= 0 ? layer.startTime : layer.startTime - std::abs(stretch) / 3000;
-  return (layer.time - offset) / stretch;
-}
-
 /**
  * Spherize: the disc of Radius about Center of Sphere magnified as if wrapped on a sphere; the layer grows to the
  * disc.
@@ -84,7 +77,7 @@ FxImage ripple(FxImage input, const Effect& effect, const EffectLayer& layer, Fx
   const Point c = point(p, 2, layer, input);
   const bool symmetric = p.choice(3, 1) == 2;
   const double width = std::max(1.0, p.num(5, 20)) * k;
-  const double phase = p.num(7, 0) * kPi / 180 - 2 * kPi * p.num(4, 1) * layerTime(layer);
+  const double phase = p.num(7, 0) * kPi / 180 - 2 * kPi * p.num(4, 1) * layerTimeAt(layer);
   const FxRect rect = clampRect(growRect(imageRect(input), std::abs(amplitude), std::abs(amplitude)));
   return warpPass(ctx, input, rect, fx::ripple, [&](FxUniforms& u) {
     u.f("u_center", float(c[0]), float(c[1]));
