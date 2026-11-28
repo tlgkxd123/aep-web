@@ -14,8 +14,10 @@
 //   mask    := u32 mode, u32 inverted, f32 opacity, f32 feather, f32 expansion, u32 closed, u32 vertexCount,
 //              f32[6] per vertex (x, y, in x, in y, out x, out y)
 //   effectLayer := f64 time, f64 startTime, f32 width, f32 height, u32 kind (0 AV, 1 shape, 2 other)
-//   effect  := str matchName, u32 paramCount, param*, u32 sourceCount, source*
+//   effect  := str matchName, u32 paramCount, param*, u32 sourceCount, source*, u32 flags (1 audio, 2 path),
+//              [u32 audioCount, audio*], [u32 closed, u32 vertexCount, f32[6] per vertex]
 //   source  := u32 param (declared index of a layer parameter), u32 drawn, [content, f32 width, f32 height, u32 kind]
+//   audio   := str file, f64 scale, f64 offset, f64 from, f64 to
 //   param   := u32 index (n for "<effect match name>-000n", 0 for any other), [str matchName when 0],
 //              u32 valueCount, f64*, u32 menuCount, u32 per entry (1 separator)
 //   str     := u32 byteCount, UTF-8 bytes
@@ -23,7 +25,7 @@
 import type { FramePlan, PlanComp, PlanContent, PlanEffect, PlanImage, PlanLayer, PlanMask, PlanParam, ShapePaintPlan } from "./plan.ts";
 
 export const PLAN_MAGIC = 0x50564541; // "AEVP"
-export const PLAN_VERSION = 3;
+export const PLAN_VERSION = 4;
 
 const KIND = { solid: 1, comp: 2, image: 3, shape: 4 } as const;
 const utf8 = new TextEncoder();
@@ -160,6 +162,22 @@ function writeEffect(w: Writer, effect: PlanEffect): void {
     w.f32(source.width);
     w.f32(source.height);
     w.u32(source.kind);
+  }
+  w.u32((effect.audio ? 1 : 0) | (effect.path ? 2 : 0));
+  if (effect.audio) {
+    w.u32(effect.audio.length);
+    for (const a of effect.audio) {
+      w.str(a.file);
+      w.f64(a.scale);
+      w.f64(a.offset);
+      w.f64(a.from);
+      w.f64(a.to);
+    }
+  }
+  if (effect.path) {
+    w.u32(effect.path.closed ? 1 : 0);
+    w.u32(effect.path.vertices.length / 6);
+    for (const v of effect.path.vertices) w.f32(v);
   }
 }
 
@@ -339,6 +357,12 @@ function readLayer(r: Reader): PlanLayer {
         const param = r.u32();
         const content = r.u32() ? readContent(r) : null;
         effect.sources!.push(content ? { param, content, width: r.f32(), height: r.f32(), kind: r.u32() } : { param, content, width: 0, height: 0, kind: 0 });
+      }
+      const flags = r.u32();
+      if (flags & 1) effect.audio = Array.from({ length: r.u32() }, () => ({ file: r.str(), scale: r.f64(), offset: r.f64(), from: r.f64(), to: r.f64() }));
+      if (flags & 2) {
+        const closed = r.u32() !== 0;
+        effect.path = { closed, vertices: Array.from({ length: r.u32() * 6 }, () => r.f32()) };
       }
       layer.effects.push(effect);
     }

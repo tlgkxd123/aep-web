@@ -52,6 +52,10 @@ private:
 	void Masks(const CLayer& layer, f64 time, f64 scale, std::vector<aevk::Mask>& out);
 	/** The layer's enabled effects the engine renders, with their parameters at `time` (plan.ts effects). */
 	void Effects(const CLayer& layer, const CItem& comp, f64 time, s32 depth, std::vector<aevk::Effect>& out);
+	/** The sound files `layer` is heard from around comp time `time` (plan.ts audio, layerAudio in src/media/mix.ts). */
+	void Audio(const CLayer& layer, f64 time, std::vector<aevk::AudioSource>& out);
+	void AudioVisit(const CLayer& layer, f64 time, f64 scale, f64 offset, f64 from, f64 to, s32 depth,
+		std::vector<aevk::AudioSource>& out);
 	void Unsupported(const std::string& what);
 	void Warn(const std::string& what);
 	void NoteExpressions(const CLayer& layer);

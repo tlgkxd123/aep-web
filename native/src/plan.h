@@ -12,7 +12,7 @@
 namespace aevk {
 
 constexpr uint32_t kPlanMagic = 0x50564541;  // "AEVP"
-constexpr uint32_t kPlanVersion = 3;
+constexpr uint32_t kPlanVersion = 4;
 constexpr int kPad = 1;
 
 enum class ContentKind : uint32_t { Solid = 1, Comp = 2, Image = 3, Shape = 4 };
@@ -113,11 +113,33 @@ struct EffectSource {
 };
 
 /** An effect a layer renders through, with its parameters in declared order. */
+/**
+ * A sound file heard in a layer's audio (Contribution in src/media/mixWindow.ts): source seconds = scale * t + offset
+ * for comp time t in [from, to).
+ */
+struct AudioSource {
+  /** As the project records it; the engine relinks it by its trailing folders. */
+  std::string file;
+  double scale = 1, offset = 0, from = 0, to = 0;
+};
+
+/** A mask outline: x, y, in x, in y, out x, out y per vertex. */
+struct EffectPath {
+  bool closed = false;
+  std::vector<float> vertices;
+};
+
 struct Effect {
   std::string matchName;
   std::vector<EffectParam> params;
   /** The other layers its layer parameters name. */
   std::vector<EffectSource> sources;
+  /** The sound of the layer its audio layer parameter names (Audio Spectrum): unset when that names no layer, empty when the layer is silent. */
+  bool hasAudio = false;
+  std::vector<AudioSource> audio;
+  /** The mask its Path parameter names, at the frame's time. */
+  bool hasPath = false;
+  EffectPath path;
 
   /** The source planned for the layer parameter declared n-th, or null (None, or the layer itself). */
   const EffectSource* source(uint32_t n) const {

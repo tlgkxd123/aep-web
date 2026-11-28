@@ -282,6 +282,7 @@ public:
 	bool m_bNull = false;
 	bool m_bGuide = false;
 	bool m_bEffectsActive = true;
+	bool m_bAudioEnabled = true;
 	bool m_bTimeRemapEnabled = false;
 	u32 m_uBlendMode = 5212;
 	u32 m_uTrackMatteType = TRACK_MATTE_NONE;
@@ -328,6 +329,8 @@ public:
 	eSourceType m_eSource = SOURCE_FILE;
 	f64 m_SolidColor[3] = { 0, 0, 0 };
 	std::string m_File;
+	/** Whether the footage has sound (an audio sample rate; the proxy's when "use proxy" is on). */
+	bool m_bHasAudio = false;
 
 	/** Comps. */
 	f64 m_BgColor[3] = { 0, 0, 0 };

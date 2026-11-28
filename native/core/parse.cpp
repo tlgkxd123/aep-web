@@ -399,6 +399,7 @@ struct sLdta
 	bool m_bAdjustment = false;
 	bool m_bAutoOrientAlongPath = false;
 	bool m_bEffectsActive = false;
+	bool m_bAudioEnabled = false;
 	bool m_bEnabled = false;
 	u32 m_uSourceId = 0;
 	std::string m_Name;
@@ -432,6 +433,7 @@ sLdta DecodeLdta(const CChunk& chunk)
 	l.m_bAdjustment = b.Bit(38, 1);
 	l.m_bAutoOrientAlongPath = b.Bit(38, 0);
 	l.m_bEffectsActive = b.Bit(39, 2);
+	l.m_bAudioEnabled = b.Bit(39, 1);
 	l.m_bEnabled = b.Bit(39, 0);
 	l.m_uSourceId = b.U32(40);
 	l.m_Name = b.CStr(64, 32);
@@ -1241,6 +1243,13 @@ private:
 			item.m_fDuration = duration * conformFactor * (loop ? loop : 1);
 		}
 		item.m_fFrameRate = displayFrameRate;
+		/** With "use proxy" on (idta byte 22, bit 0), AE reports the proxy's audio (footage.ts). */
+		const CChunk* idta = list.Child(FCC("idta"));
+		const std::vector<const CChunk*> pins = list.Lists(FCC("Pin "));
+		const bool useProxy = idta && (CBytes(*idta).U8(22) & 1) != 0;
+		const CChunk* proxy = useProxy && pins.size() > 1 ? FindChild(pins[1], FCC("sspc")) : nullptr;
+		const CChunk* audio = proxy ? proxy : sspc;
+		item.m_bHasAudio = audio && audio->m_uSize >= 168 && CBytes(*audio).F64(160) > 0;
 		item.m_eSource = SOURCE_FILE;
 		if (opti)
 		{
@@ -1518,6 +1527,7 @@ private:
 		layer->m_bNull = ldta.m_bNull;
 		layer->m_bGuide = ldta.m_bGuide;
 		layer->m_bEffectsActive = ldta.m_bEffectsActive;
+		layer->m_bAudioEnabled = ldta.m_bAudioEnabled;
 		layer->m_uBlendMode = blendMode;
 		layer->m_uTrackMatteType = ldta.m_uTrackMatteTypeRaw <= 4 ? ldta.m_uTrackMatteTypeRaw + 5012 : TRACK_MATTE_NONE;
 		layer->m_uTrackMatteLayerId = ldta.m_bHasMatteLayerId ? ldta.m_uMatteLayerId : 0;

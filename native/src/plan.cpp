@@ -189,6 +189,25 @@ void readLayer(Reader& r, Layer& layer, int depth) {
         source.layer.kind = r.u32();
         if (source.layer.kind > 2) r.fail("unknown effect source layer kind");
       }
+      const uint32_t flags = r.u32();
+      if (flags & ~3u) r.fail("unknown effect flags");
+      effect.hasAudio = (flags & 1) != 0;
+      if (effect.hasAudio) {
+        effect.audio.resize(r.count(36));
+        for (AudioSource& a : effect.audio) {
+          a.file = r.str();
+          a.scale = r.f64();
+          a.offset = r.f64();
+          a.from = r.f64();
+          a.to = r.f64();
+        }
+      }
+      effect.hasPath = (flags & 2) != 0;
+      if (effect.hasPath) {
+        effect.path.closed = r.u32() != 0;
+        effect.path.vertices.resize(size_t(r.count(24)) * 6);
+        for (float& v : effect.path.vertices) v = r.f32();
+      }
     }
   }
   layer.matteMode = r.u32();

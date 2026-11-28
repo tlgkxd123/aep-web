@@ -1,4 +1,5 @@
 // Decoding: the sample plan tests/native-plan.test.ts encodes (tests/data/sample.aevp), and damaged plans.
+#include <cmath>
 #include <fstream>
 #include <iterator>
 
@@ -34,7 +35,7 @@ TEST(decodes_the_sample_plan) {
   CHECK(solid.masks[0].vertices.size() == 24);
   CHECK_NEAR(solid.masks[0].feather, 1.5, 0);
   CHECK_NEAR(solid.masks[0].vertices[6], 3, 0);
-  CHECK(solid.effects.size() == 1 && solid.effects[0].matchName == "ADBE Box Blur2");
+  CHECK(solid.effects.size() == 2 && solid.effects[0].matchName == "ADBE Box Blur2");
   CHECK_NEAR(solid.effectLayer.time, 1.0 / 3, 0);
   CHECK_NEAR(solid.effectLayer.startTime, -0.5, 0);
   CHECK(solid.effectLayer.width == 4 && solid.effectLayer.kind == 0);
@@ -49,6 +50,17 @@ TEST(decodes_the_sample_plan) {
   CHECK(blur.source(4)->drawn && blur.source(4)->content.kind == ContentKind::Solid && blur.source(4)->content.height == 3);
   CHECK(blur.source(4)->layer.width == 2 && blur.source(4)->layer.height == 3 && blur.source(4)->layer.kind == 0);
   CHECK(!blur.source(5)->drawn);
+  CHECK(!blur.hasAudio && blur.audio.empty() && !blur.hasPath);
+  const Effect& spectrum = solid.effects[1];
+  CHECK(spectrum.matchName == "ADBE AudSpect" && spectrum.sources.empty());
+  CHECK(spectrum.hasAudio && spectrum.audio.size() == 1 && spectrum.audio[0].file == "C:\\media\\tone.wav");
+  CHECK_NEAR(spectrum.audio[0].scale, 0.5, 0);
+  CHECK_NEAR(spectrum.audio[0].offset, -0.25, 0);
+  CHECK(std::isinf(spectrum.audio[0].from) && spectrum.audio[0].from < 0);
+  CHECK_NEAR(spectrum.audio[0].to, 2, 0);
+  CHECK(spectrum.hasPath && !spectrum.path.closed && spectrum.path.vertices.size() == 12);
+  CHECK_NEAR(spectrum.path.vertices[6], 3, 0);
+  CHECK_NEAR(spectrum.path.vertices[8], -0.5, 0);
   CHECK(plan.root.layers[1].effects.empty());
   const Layer& nested = plan.root.layers[1];
   CHECK(nested.content.kind == ContentKind::Comp && nested.content.comp);
@@ -79,7 +91,7 @@ TEST(refuses_damaged_plans) {
   longer.push_back(0);
   CHECK(!decodePlan(longer.data(), longer.size(), plan, error));
   std::vector<uint8_t> version = bytes;
-  version[4] = 99;  // kPlanVersion is 2
+  version[4] = 99;  // kPlanVersion is 4
   CHECK(!decodePlan(version.data(), version.size(), plan, error));
   // A layer count far beyond what the bytes could hold.
   std::vector<uint8_t> count = bytes;

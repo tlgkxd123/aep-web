@@ -189,6 +189,28 @@ void WriteEffect(CWriter& w, const aevk::Effect& effect)
 			w.U32(source.layer.kind);
 		}
 	}
+	w.U32((effect.hasAudio ? 1u : 0u) | (effect.hasPath ? 2u : 0u));
+	if (effect.hasAudio)
+	{
+		w.U32(u32(effect.audio.size()));
+		for (const aevk::AudioSource& audio : effect.audio)
+		{
+			w.Str(audio.file);
+			w.F64(audio.scale);
+			w.F64(audio.offset);
+			w.F64(audio.from);
+			w.F64(audio.to);
+		}
+	}
+	if (effect.hasPath)
+	{
+		w.U32(effect.path.closed ? 1 : 0);
+		w.U32(u32(effect.path.vertices.size() / 6));
+		for (const float v : effect.path.vertices)
+		{
+			w.F32(v);
+		}
+	}
 }
 
 void WriteLayer(CWriter& w, const aevk::Layer& layer)

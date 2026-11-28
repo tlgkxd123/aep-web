@@ -21,6 +21,71 @@ const u32 NORMAL = 5212;
 /** Comps nested deeper than this render empty. */
 const s32 MAX_DEPTH = 16;
 const f64 PAD = aevk::kPad;
+/** Comps nested deeper than this are not heard (src/media/mix.ts). */
+const s32 MAX_AUDIO_DEPTH = 16;
+
+/** The declared index of an effect's audio layer parameter (a layer of the comp by index heard by the effect), or 0. */
+u32 AudioLayerParam(const std::string& matchName)
+{
+	return matchName == "ADBE AudSpect" ? 1 : 0;
+}
+
+/** The declared index of an effect's Path parameter (a 1-based mask of its layer, 0 for none), or 0. */
+u32 PathParam(const std::string& matchName)
+{
+	return matchName == "ADBE AudSpect" ? 4 : 0;
+}
+
+/** The first value of the parameter declared `index`-th, or 0 (plan.ts effects). */
+f64 PlannedValue(const aevk::Effect& effect, u32 index)
+{
+	const aevk::EffectParam* param = effect.param(index);
+	return param && !param->value.empty() ? param->value[0] : 0;
+}
+
+/** The mask of `layer` a Path parameter names (1-based, among all its masks), at `time` (maskPath in plan.ts). */
+bool MaskPath(const CLayer& layer, f64 index, f64 time, aevk::EffectPath& out)
+{
+	if (!(index > 0))
+	{
+		return false;
+	}
+	const CPropertyNode* parade = layer.m_Properties.FindGroup("ADBE Mask Parade");
+	if (!parade)
+	{
+		return false;
+	}
+	f64 n = 0;
+	for (const auto& node : parade->m_Children)
+	{
+		const CPropertyNode& mask = *node;
+		if (!mask.m_bGroup || !mask.m_bHasMask || ++n != index)
+		{
+			continue;
+		}
+		const CPropertyNode* prop = mask.FindProperty("ADBE Mask Shape");
+		const CValue shape = prop ? CurrentValue(*prop, time, layer) : CValue();
+		if (!shape.IsShape())
+		{
+			return false;
+		}
+		const sShape& s = *shape.m_pShape;
+		out.closed = s.m_bClosed;
+		out.vertices.clear();
+		for (size_t i = 0; i < s.m_Vertices.size(); i++)
+		{
+			const sVec2 in = i < s.m_InTangents.size() ? s.m_InTangents[i] : sVec2{};
+			const sVec2 o = i < s.m_OutTangents.size() ? s.m_OutTangents[i] : sVec2{};
+			const f64 v[6] = { s.m_Vertices[i].x, s.m_Vertices[i].y, in.x, in.y, o.x, o.y };
+			for (const f64 x : v)
+			{
+				out.vertices.push_back(float(x));
+			}
+		}
+		return true;
+	}
+	return false;
+}
 
 bool IsRenderable(const CLayer& layer)
 {
@@ -530,7 +595,91 @@ void CFramePlanner::Effects(const CLayer& layer, const CItem& comp, f64 time, s3
 			}
 			planned.sources.push_back(std::move(source));
 		}
+		if (const u32 audioParam = AudioLayerParam(effect->m_MatchName))
+		{
+			/** Any layer of the comp by its exact index, the effect's own included. */
+			const f64 index = PlannedValue(planned, audioParam);
+			for (const auto& candidate : comp.m_Layers)
+			{
+				if (candidate->m_iIndex == index)
+				{
+					planned.hasAudio = true;
+					Audio(*candidate, time, planned.audio);
+					break;
+				}
+			}
+		}
+		if (const u32 pathParam = PathParam(effect->m_MatchName))
+		{
+			planned.hasPath = MaskPath(layer, PlannedValue(planned, pathParam), time, planned.path);
+		}
 		out.push_back(std::move(planned));
+	}
+}
+
+void CFramePlanner::Audio(const CLayer& layer, f64 time, std::vector<aevk::AudioSource>& out)
+{
+	AudioVisit(layer, time, 1, 0, -INFINITY, INFINITY, 0, out);
+}
+
+void CFramePlanner::AudioVisit(const CLayer& layer, f64 time, f64 scale, f64 offset, f64 from, f64 to, s32 depth,
+	std::vector<aevk::AudioSource>& out)
+{
+	if (depth > MAX_AUDIO_DEPTH || scale == 0)
+	{
+		return;
+	}
+	if (depth > 0)
+	{
+		/** A nested layer is heard between its in and out points, in the outer comp's time. */
+		const f64 lo = std::min(layer.m_fInPoint, layer.m_fOutPoint);
+		const f64 hi = std::max(layer.m_fInPoint, layer.m_fOutPoint);
+		from = std::max(from, scale > 0 ? (lo - offset) / scale : (hi - offset) / scale);
+		to = std::min(to, scale > 0 ? (hi - offset) / scale : (lo - offset) / scale);
+		if (from >= to)
+		{
+			return;
+		}
+	}
+	const f64 stretch = layer.m_fStretch != 0 ? layer.m_fStretch / 100 : 1;
+	f64 innerScale = scale / stretch;
+	f64 innerOffset = (offset - layer.m_fStartTime) / stretch;
+	if (layer.m_bTimeRemapEnabled)
+	{
+		if (const CPropertyNode* remap = layer.m_Properties.FindProperty("ADBE Time Remapping"))
+		{
+			const CValue value = ValueAtTime(*remap, scale * time + offset, layer);
+			if (value.IsNumber())
+			{
+				innerScale = scale;
+				innerOffset = value.m_V[0] - scale * time;
+			}
+		}
+	}
+	const CItem* source = layer.m_uSourceId ? m_Project.Item(layer.m_uSourceId) : nullptr;
+	if (!source)
+	{
+		return;
+	}
+	if (source->m_eKind == ITEM_COMP)
+	{
+		for (const auto& child : source->m_Layers)
+		{
+			if (child->m_bAudioEnabled)
+			{
+				AudioVisit(*child, time, innerScale, innerOffset, from, to, depth + 1, out);
+			}
+		}
+	}
+	else if (source->m_eKind == ITEM_FOOTAGE && source->m_bHasAudio && source->m_eSource == SOURCE_FILE)
+	{
+		aevk::AudioSource heard;
+		heard.file = source->m_File;
+		heard.scale = innerScale;
+		heard.offset = innerOffset;
+		heard.from = from;
+		heard.to = to;
+		out.push_back(std::move(heard));
 	}
 }
 

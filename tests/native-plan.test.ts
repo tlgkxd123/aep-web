@@ -57,6 +57,12 @@ function samplePlan(): Pick<FramePlan, "root" | "images"> {
       { param: 5, content: null, width: 0, height: 0, kind: 0 },
     ],
   });
+  red.effects.push({
+    matchName: "ADBE AudSpect",
+    params: [{ matchName: "ADBE AudSpect-0001", value: [1] }],
+    audio: [{ file: "C:\\media\\tone.wav", scale: 0.5, offset: -0.25, from: -Infinity, to: 2 }],
+    path: { closed: false, vertices: [1, 2, 0, 0, 0.5, 0, 3, 2, -0.5, 0, 0, 0] },
+  });
   red.effectLayer = { time: 1 / 3, startTime: -0.5, width: 4, height: 4, kind: 0 };
   const nested: PlanLayer = {
     ...solidLayer(2, 2, [0, 1, 0], 4, 2),

@@ -4,7 +4,7 @@
 //
 // Images are in their own pixels, y down, with the renderer's 1 px transparent border (PAD) around them. A plan the
 // engine cannot render faithfully lists why in `unsupported`; the frame is then left to the WebGL renderer.
-import { currentValue, layerTimeAt, setExpressionScope } from "../aep/evaluate.ts";
+import { currentValue, layerTimeAt, setExpressionScope, valueAtTime } from "../aep/evaluate.ts";
 import { isShapeValue, type CompItem, type Layer, type Project, type Property, type PropertyGroup, type PropertyNode } from "../aep/model.ts";
 import { cameraAt, localTransform, Mat4, worldMatrix, type Camera } from "../aep/transform.ts";
 import { anySolo, drawOrder, isActive, MATTE_MODES, matteLayerOf, MAX_DEPTH, NO_MATTE, PAD, scaledSize } from "../render/composition.ts";
@@ -15,6 +15,13 @@ import { nativeEffect } from "./effects.ts";
 
 /** PF_Param_LAYER: an effect parameter naming a layer of the comp by index. */
 const LAYER_CONTROL = 0;
+
+/** Effects that hear another layer: the declared index of their audio layer parameter (a layer of the comp by index). */
+const AUDIO_LAYER_PARAMS: Readonly<Record<string, number>> = { "ADBE AudSpect": 1 };
+/** Effects that follow a mask of their layer: the declared index of their Path parameter (1-based mask, 0 none). */
+const PATH_PARAMS: Readonly<Record<string, number>> = { "ADBE AudSpect": 4 };
+/** Comps nested deeper than this are not heard (mix.ts). */
+const MAX_AUDIO_DEPTH = 16;
 
 /** n for a parameter match name "<effect match name>-000n", else 0. */
 function declaredIndex(effect: string, matchName: string): number {
@@ -80,6 +87,26 @@ export interface PlanEffect {
   params: PlanParam[];
   /** The other layers its layer parameters name; absent when none does. */
   sources?: PlanEffectSource[];
+  /**
+   * The sound of the layer its audio layer parameter names (Audio Spectrum), as the files heard and where: absent when
+   * that names no layer, empty when the layer has no sound.
+   */
+  audio?: PlanAudioSource[];
+  /** The mask its Path parameter names, at the frame's time; absent when that names none. */
+  path?: { closed: boolean; vertices: number[] };
+}
+
+/**
+ * A sound file heard in a layer's audio (Contribution in src/media/mixWindow.ts): source seconds = scale * t + offset
+ * for comp time t (seconds of the comp the effect's layer is in) in [from, to).
+ */
+export interface PlanAudioSource {
+  /** The footage's file as the project records it; the engine relinks it (the most trailing folders in common). */
+  file: string;
+  scale: number;
+  offset: number;
+  from: number;
+  to: number;
 }
 
 /**
@@ -179,6 +206,24 @@ function enabledEffects(layer: Layer): PropertyGroup[] {
   if (!layer.effectsActive) return [];
   const parade = layer.properties.find((n): n is PropertyGroup => n.kind === "group" && n.matchName === "ADBE Effect Parade");
   return (parade?.children ?? []).filter((e): e is PropertyGroup => e.kind === "group" && e.enabled);
+}
+
+/** The mask of `layer` a Path parameter names (1-based, among all its masks), at `time` (maskShape in audioSpectrum.ts). */
+function maskPath(layer: Layer, index: number, time: number): PlanEffect["path"] {
+  if (!(index > 0)) return undefined;
+  const parade = layer.properties.find((n): n is PropertyGroup => n.kind === "group" && n.matchName === "ADBE Mask Parade");
+  const masks = (parade?.children ?? []).filter((n): n is PropertyGroup => n.kind === "group" && !!n.mask);
+  const mask = masks[index - 1];
+  const prop = mask?.children.find((c) => c.matchName === "ADBE Mask Shape");
+  const shape = prop?.kind === "property" ? currentValue(prop, time, layer) : null;
+  if (!isShapeValue(shape)) return undefined;
+  const vertices: number[] = [];
+  shape.vertices.forEach((v, i) => {
+    const inT = shape.inTangents[i] ?? [0, 0];
+    const outT = shape.outTangents[i] ?? [0, 0];
+    vertices.push(v[0], v[1], inT[0], inT[1], outT[0], outT[1]);
+  });
+  return { closed: shape.closed, vertices };
 }
 
 class Planner {
@@ -292,9 +337,57 @@ class Planner {
         const kind = other.layerType === "AVLayer" ? 0 : other.layerType === "ShapeLayer" ? 1 : 2;
         sources.push(content ? { param: index, content, width: other.width, height: other.height, kind } : { param: index, content, width: 0, height: 0, kind: 0 });
       }
-      planned.push(sources.length ? { matchName: effect.matchName, params, sources } : { matchName: effect.matchName, params });
+      const planned1: PlanEffect = sources.length ? { matchName: effect.matchName, params, sources } : { matchName: effect.matchName, params };
+      const value = (index: number) => params.find((p) => declaredIndex(effect.matchName, p.matchName) === index)?.value[0] ?? 0;
+      const audioParam = AUDIO_LAYER_PARAMS[effect.matchName];
+      if (audioParam) {
+        const index = value(audioParam);
+        const heard = comp.layers.find((l) => l.index === index);
+        if (heard) planned1.audio = this.audio(heard, time);
+      }
+      const pathParam = PATH_PARAMS[effect.matchName];
+      const path = pathParam ? maskPath(layer, value(pathParam), time) : undefined;
+      if (path) planned1.path = path;
+      planned.push(planned1);
     }
     return planned;
+  }
+
+  /**
+   * The sound files `layer` is heard from around comp time `time` (layerAudio in src/media/mix.ts): its footage, or a
+   * precomp's audio-enabled layers (each heard between its in and out points), shifted by start times and stretch.
+   */
+  private audio(layer: Layer, time: number): PlanAudioSource[] {
+    const heard: PlanAudioSource[] = [];
+    const visit = (l: Layer, scale: number, offset: number, from: number, to: number, depth: number) => {
+      if (depth > MAX_AUDIO_DEPTH || !scale) return;
+      if (depth > 0) {
+        const lo = Math.min(l.inPoint, l.outPoint);
+        const hi = Math.max(l.inPoint, l.outPoint);
+        from = Math.max(from, scale > 0 ? (lo - offset) / scale : (hi - offset) / scale);
+        to = Math.min(to, scale > 0 ? (hi - offset) / scale : (lo - offset) / scale);
+        if (from >= to) return;
+      }
+      const stretch = l.stretch ? l.stretch / 100 : 1;
+      let innerScale = scale / stretch;
+      let innerOffset = (offset - l.startTime) / stretch;
+      if (l.timeRemapEnabled) {
+        const remap = findProperty(l.properties, ["ADBE Time Remapping"]);
+        const value = remap ? valueAtTime(remap, scale * time + offset, l) : null;
+        if (typeof value === "number") {
+          innerScale = scale;
+          innerOffset = value - scale * time;
+        }
+      }
+      const source = this.project.items.get(l.sourceId);
+      if (source?.kind === "comp") {
+        for (const child of source.layers) if (child.audioEnabled) visit(child, innerScale, innerOffset, from, to, depth + 1);
+      } else if (source?.kind === "footage" && source.hasAudio && source.mainSource.sourceType === "FileSource") {
+        heard.push({ file: source.mainSource.file, scale: innerScale, offset: innerOffset, from, to });
+      }
+    };
+    visit(layer, 1, 0, -Infinity, Infinity, 0);
+    return heard;
   }
 
   private content(layer: Layer, time: number, depth: number, scale: number): PlanContent | null {
