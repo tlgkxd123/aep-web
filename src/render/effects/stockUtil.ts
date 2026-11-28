@@ -256,7 +256,8 @@ export function registerColor(matchName: string, glsl: string, uniforms: (p: Par
   registerStock(matchName, (input, p, ctx) => colorPass(ctx, input, glsl, (u) => uniforms(p, ctx.gl, u, ctx)));
 }
 
-const GAUSS_FS = `${PASS_HEADER}
+/** Also embedded by the native engine. */
+export const GAUSS_FS = `${PASS_HEADER}
 uniform vec2 u_size;
 uniform float u_pad;
 uniform vec2 u_dir;
@@ -285,7 +286,8 @@ const MAX_KERNEL = 40;
  * GAUSS_FS's sum without clamping, two taps a texture read: the bilinear read between taps i and i + 1, placed by
  * their weights, returns their weighted sum. u_kernel holds (offset, weight) pairs, the centre's first, normalised.
  */
-const PAIRED_GAUSS_FS = `${PASS_HEADER}
+/** Also embedded by the native engine. */
+export const PAIRED_GAUSS_FS = `${PASS_HEADER}
 uniform vec2 u_size;
 uniform float u_pad;
 uniform vec2 u_dir;
@@ -307,7 +309,8 @@ void main() {
  * its top-left corner (u_factor 2 or 4), each 2 x 2 of them one bilinear read. The loops count in ints to a constant,
  * as every GLSL compiler takes them.
  */
-const REDUCE_FS = `${PASS_HEADER}
+/** Also embedded by the native engine. */
+export const REDUCE_FS = `${PASS_HEADER}
 uniform vec2 u_size;
 uniform float u_pad;
 uniform vec2 u_fromSize;
@@ -332,7 +335,8 @@ void main() {
 }`;
 
 /** A reduced image of REDUCE_FS's (u_fromSize, u_fromHeight) read back at full size, bilinear. */
-const EXPAND_FS = `${PASS_HEADER}
+/** Also embedded by the native engine. */
+export const EXPAND_FS = `${PASS_HEADER}
 uniform vec2 u_size;
 uniform float u_pad;
 uniform vec2 u_fromSize;

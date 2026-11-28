@@ -91,4 +91,13 @@ FxImage copyImage(FxContext& ctx, const FxImage& image);
 /** layerPass over the input's own rectangle with the input as source 0, keeping its scale; releases `input`. */
 FxImage pixelPass(FxContext& ctx, FxImage input, fx::Id shader, const FxSetter& set = {});
 
+/** `r` grown by whole pixels, gx each side horizontally and gy vertically (growRect in stockMath.ts). */
+FxRect growRect(const FxRect& r, double gx, double gy);
+
+/** `input` resampled into `rect` (reframe in stockUtil.ts): the input itself when it covers just that; else releases it. */
+FxImage reframe(FxContext& ctx, FxImage input, const FxRect& rect);
+
+/** `input` with `grow` pixels (rounded up) of transparency added on every side (grown in fxextraUtil.ts); releases `input`. */
+FxImage grown(FxContext& ctx, FxImage input, double grow);
+
 }  // namespace aevk

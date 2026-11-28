@@ -18,7 +18,8 @@ registerStock("ADBE Gaussian Blur 2", (input, p, ctx, layer) => gaussianBlur(inp
 registerStock("ADBE Gaussian Blur", (input, p, ctx, layer) => gaussianBlur(input, ctx, layer, p.num(1, 0), p.num(2, 1), false));
 registerStock("ADBE Fast Blur", (input, p, ctx, layer) => gaussianBlur(input, ctx, layer, p.num(1, 0), p.num(2, 1), p.bool(3, false)));
 
-const DIRECTIONAL_FS = `${PASS_HEADER}
+/** Also embedded by the native engine. */
+export const DIRECTIONAL_FS = `${PASS_HEADER}
 uniform vec2 u_size;
 uniform float u_pad;
 uniform vec2 u_half;
@@ -56,6 +57,23 @@ const RadialType = { SPIN: 1, ZOOM: 2 } as const;
 // Radial Blur: each pixel averages the layer along the arc about Center it sweeps turning by Amount degrees in all
 // (Spin), or along its ray from Center over Amount % of its distance in all (Zoom), centred on the pixel. The
 // layer grows to what the blur reaches; Antialiasing is not told apart.
+/** Radial Blur's uniforms (also embedded by the native engine). */
+export const RADIAL_BLUR_DECLS = `uniform vec2 u_center;
+uniform float u_span;
+uniform int u_zoom;
+uniform int u_taps;`;
+
+/** Radial Blur's pass (also embedded by the native engine). */
+export const RADIAL_BLUR_BODY = `  vec2 v = p - u_center;
+  vec4 sum = vec4(0.0);
+  for (int i = 0; i < ${RADIAL_TAPS}; i++) {
+    if (i >= u_taps) break;
+    float t = (float(i) / float(u_taps - 1) - 0.5) * u_span;
+    vec2 q = u_zoom == 1 ? u_center + v * (1.0 + t) : u_center + vec2(cos(t) * v.x - sin(t) * v.y, sin(t) * v.x + cos(t) * v.y);
+    sum += at(0, q);
+  }
+  outColor = sum / float(u_taps);`;
+
 registerStock("ADBE Radial Blur", (input, p, ctx, layer) => {
   const amount = Math.max(0, p.num(1, 10));
   if (amount < 1e-3) return input;
@@ -77,19 +95,8 @@ registerStock("ADBE Radial Blur", (input, p, ctx, layer) => {
     ctx,
     rect,
     [input],
-    `uniform vec2 u_center;
-uniform float u_span;
-uniform int u_zoom;
-uniform int u_taps;`,
-    `  vec2 v = p - u_center;
-  vec4 sum = vec4(0.0);
-  for (int i = 0; i < ${RADIAL_TAPS}; i++) {
-    if (i >= u_taps) break;
-    float t = (float(i) / float(u_taps - 1) - 0.5) * u_span;
-    vec2 q = u_zoom == 1 ? u_center + v * (1.0 + t) : u_center + vec2(cos(t) * v.x - sin(t) * v.y, sin(t) * v.x + cos(t) * v.y);
-    sum += at(0, q);
-  }
-  outColor = sum / float(u_taps);`,
+    RADIAL_BLUR_DECLS,
+    RADIAL_BLUR_BODY,
     (u) => {
       ctx.gl.uniform2f(u("u_center"), center[0], center[1] ?? 0);
       ctx.gl.uniform1f(u("u_span"), span);
@@ -102,7 +109,8 @@ uniform int u_taps;`,
   return out;
 });
 
-const SHARPEN_FS = `${PASS_HEADER}
+/** Also embedded by the native engine. */
+export const SHARPEN_FS = `${PASS_HEADER}
 uniform vec2 u_size;
 uniform float u_amount;
 void main() {
@@ -120,7 +128,8 @@ registerStock("ADBE Sharpen", (input, p, ctx) => {
   return mapPass(ctx, input, SHARPEN_FS, (u) => ctx.gl.uniform1f(u("u_amount"), amount));
 });
 
-const UNSHARP_FS = `${PASS_HEADER}
+/** Also embedded by the native engine. */
+export const UNSHARP_FS = `${PASS_HEADER}
 uniform sampler2D u_extra0;
 uniform float u_amount;
 uniform float u_threshold;

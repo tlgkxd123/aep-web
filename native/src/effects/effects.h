@@ -20,6 +20,13 @@ FxRenderer jawsRenderer();
 FxRenderer lineSweepRenderer();
 FxRenderer irisWipeRenderer();
 FxRenderer blockDissolveRenderer();
+/** blur_sharpen.cpp */
+FxRenderer gaussianBlurRenderer();
+FxRenderer gaussianBlurLegacyRenderer();
+FxRenderer directionalBlurRenderer();
+FxRenderer radialBlurRenderer();
+FxRenderer sharpenRenderer();
+FxRenderer unsharpMaskRenderer();
 /** box_blur.cpp */
 FxRenderer boxBlurRenderer();
 /** channel.cpp */

@@ -163,6 +163,15 @@ export const FX_SHADERS: FxShaderSource[] = [
   straight("change_color", "CHANGE_COLOR_GLSL"),
   straight("change_to_color", "CHANGE_TO_COLOR_GLSL"),
   shader("kernel", "colorExtra.ts", "KERNEL_FS"),
+  layerPass("reframe", 1, "", "  outColor = at(0, p);"),
+  shader("gauss", "stockUtil.ts", "GAUSS_FS"),
+  shader("paired_gauss", "stockUtil.ts", "PAIRED_GAUSS_FS"),
+  shader("gauss_reduce", "stockUtil.ts", "REDUCE_FS"),
+  shader("gauss_expand", "stockUtil.ts", "EXPAND_FS"),
+  shader("directional_blur", "blurSharpen.ts", "DIRECTIONAL_FS"),
+  layerPass("radial_blur", 1, ref("blurSharpen.ts", "RADIAL_BLUR_DECLS"), ref("blurSharpen.ts", "RADIAL_BLUR_BODY")),
+  shader("sharpen", "blurSharpen.ts", "SHARPEN_FS"),
+  shader("unsharp", "blurSharpen.ts", "UNSHARP_FS"),
 ];
 
 async function value(arg: FxArg): Promise<unknown> {

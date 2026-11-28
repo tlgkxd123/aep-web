@@ -177,4 +177,37 @@ FxImage pixelPass(FxContext& ctx, FxImage input, fx::Id shader, const FxSetter& 
   return out;
 }
 
+FxRect growRect(const FxRect& r, double gx, double gy) {
+  const double x = std::ceil(std::max(0.0, gx)), y = std::ceil(std::max(0.0, gy));
+  return {r.x - x, r.y - y, r.width + 2 * x, r.height + 2 * y};
+}
+
+FxImage reframe(FxContext& ctx, FxImage input, const FxRect& rect) {
+  const FxRect r = imageRect(input);
+  if (r.x == rect.x && r.y == rect.y && r.width == rect.width && r.height == rect.height) return input;
+  FxImage out = layerPass(ctx, rect, {input}, fx::reframe, {}, input.scale);
+  ctx.release(input.target);
+  return out;
+}
+
+FxImage grown(FxContext& ctx, FxImage input, double grow) {
+  const double g = std::max(0.0, std::ceil(grow));
+  if (g <= 0) return input;
+  FxImage out = input;
+  out.width = input.width + uint32_t(2 * g);
+  out.height = input.height + uint32_t(2 * g);
+  out.originX = float(input.originX - g);
+  out.originY = float(input.originY - g);
+  out.target = ctx.acquire(out.width + 2 * ctx.pad, out.height + 2 * ctx.pad, FxFormat::Color, false);
+  const float outW = float(ctx.width(out.target)), outH = float(ctx.height(out.target));
+  ctx.pass(fx::grown, *out.target, {input.target}, [&](FxUniforms& u) {
+    u.i("u_source", 0);
+    u.f("u_outSize", outW, outH);
+    u.f("u_inSize", float(ctx.width(input.target)), float(ctx.height(input.target)));
+    u.f("u_grow", float(g));
+  });
+  ctx.release(input.target);
+  return out;
+}
+
 }  // namespace aevk
