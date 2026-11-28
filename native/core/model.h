@@ -33,6 +33,29 @@ enum ePropertyValueType : u32
 	PVT_TEXT_DOCUMENT = 6424,
 };
 
+/** PF_ParamType: the control an effect parameter declares (EffectControlType in src/aep/model.ts). */
+enum eEffectControl : u32
+{
+	CONTROL_LAYER = 0,
+	CONTROL_INTEGER = 1,
+	CONTROL_SCALAR = 2,
+	CONTROL_ANGLE = 3,
+	CONTROL_CHECKBOX = 4,
+	CONTROL_COLOR = 5,
+	CONTROL_POINT = 6,
+	CONTROL_POPUP = 7,
+	CONTROL_NO_DATA = 9,
+	CONTROL_FLOAT_SLIDER = 10,
+	CONTROL_ARBITRARY = 11,
+	CONTROL_PATH = 12,
+	CONTROL_GROUP_START = 13,
+	CONTROL_GROUP_END = 14,
+	CONTROL_BUTTON = 15,
+	CONTROL_POINT_3D = 18,
+	/** Not an effect parameter, or one its effect does not declare. */
+	CONTROL_NONE = 0xffffffffu,
+};
+
 /** ExtendScript KeyframeInterpolationType. */
 enum eInterpolation : u32
 {
@@ -212,6 +235,9 @@ public:
 	bool m_bSpatial = false;
 	/** Created with a default because After Effects did not store it. */
 	bool m_bSynthesized = false;
+	/** Effect parameter: the control its effect declares for it, and a popup's choices. */
+	u32 m_uControlType = CONTROL_NONE;
+	std::vector<std::string> m_Options;
 
 	/** Eases resolved for interpolation, built on first use (evaluate.cpp). */
 	mutable std::unique_ptr<sPrepared> m_pPrepared;

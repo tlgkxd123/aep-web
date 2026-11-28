@@ -478,6 +478,166 @@ sCdta DecodeCdta(const CChunk& chunk)
 	return c;
 }
 
+/** The value type a declared effect control gives its parameter (EFFECT_VALUE_TYPES); 0 when it gives none. */
+u32 EffectValueType(u32 controlType)
+{
+	switch (controlType)
+	{
+	case CONTROL_LAYER:
+		return PVT_LAYER_INDEX;
+	case CONTROL_INTEGER:
+	case CONTROL_SCALAR:
+	case CONTROL_ANGLE:
+	case CONTROL_CHECKBOX:
+	case CONTROL_POPUP:
+	case CONTROL_FLOAT_SLIDER:
+		return PVT_ONE_D;
+	case CONTROL_COLOR:
+		return PVT_COLOR;
+	case CONTROL_POINT:
+		return PVT_TWO_D_SPATIAL;
+	case CONTROL_NO_DATA:
+	case CONTROL_GROUP_START:
+	case CONTROL_GROUP_END:
+	case CONTROL_BUTTON:
+		return PVT_NO_VALUE;
+	case CONTROL_ARBITRARY:
+		return PVT_CUSTOM_VALUE;
+	case CONTROL_PATH:
+		return PVT_MASK_INDEX;
+	case CONTROL_POINT_3D:
+		return PVT_THREE_D_SPATIAL;
+	default:
+		return 0;
+	}
+}
+
+/** `pard`: an effect parameter's declaration (decodePard). Values a control type does not store are left out. */
+struct sPard
+{
+	u32 m_uControlType = 0;
+	std::string m_Name;
+	bool m_bCanVaryOverTime = true;
+	u32 m_uLastCount = 0;
+	f64 m_Last[4] = {};
+	u32 m_uDefaultCount = 0;
+	f64 m_Default[4] = {};
+};
+
+sPard DecodePard(const CChunk& chunk)
+{
+	const CBytes b(chunk);
+	sPard pard;
+	pard.m_uControlType = b.U8(15);
+	pard.m_Name = b.CStr(16, 32);
+	pard.m_bCanVaryOverTime = (b.U8(51) & 0x02) == 0;
+	const size_t body = 56;
+	const auto last = [&pard](std::initializer_list<f64> values)
+	{
+		pard.m_uLastCount = 0;
+		for (f64 v : values)
+		{
+			pard.m_Last[pard.m_uLastCount++] = v;
+		}
+	};
+	const auto fallback = [&pard](std::initializer_list<f64> values)
+	{
+		pard.m_uDefaultCount = 0;
+		for (f64 v : values)
+		{
+			pard.m_Default[pard.m_uDefaultCount++] = v;
+		}
+	};
+	const auto argb = [&b](size_t o, f64* out)
+	{
+		out[0] = b.U8(o + 1) / 255.0;
+		out[1] = b.U8(o + 2) / 255.0;
+		out[2] = b.U8(o + 3) / 255.0;
+		out[3] = b.U8(o) / 255.0;
+	};
+	switch (pard.m_uControlType)
+	{
+	case 1:
+		last({ f64(b.S32(body)) });
+		if (b.Has(body + 76, 12))
+		{
+			fallback({ f64(b.S32(body + 84)) });
+		}
+		break;
+	case 2:
+		last({ b.S32(body) / 65536.0 });
+		if (b.Has(body + 84, 4))
+		{
+			fallback({ b.S32(body + 84) / 65536.0 });
+		}
+		break;
+	case 3:
+		last({ b.S32(body) / 65536.0 });
+		if (b.Has(body + 4, 4))
+		{
+			fallback({ b.S32(body + 4) / 65536.0 });
+		}
+		break;
+	case 4:
+		last({ f64(b.U32(body)) });
+		fallback({ f64(b.U8(body + 4)) });
+		break;
+	case 5:
+		argb(body, pard.m_Last);
+		pard.m_uLastCount = 4;
+		argb(body + 4, pard.m_Default);
+		pard.m_uDefaultCount = 4;
+		break;
+	case 6:
+		last({ b.S32(body) / 128.0, b.S32(body + 4) / 128.0 });
+		break;
+	case 7:
+		last({ f64(b.U32(body)) });
+		fallback({ f64(b.U16(body + 6)) });
+		break;
+	case 10:
+		last({ b.F64(body) });
+		if (b.Has(body + 64, 4))
+		{
+			fallback({ f64(b.F32(body + 64)) });
+		}
+		break;
+	case 18:
+		last({ b.F64(body) * 512, b.F64(body + 8) * 512, b.F64(body + 16) * 512 });
+		break;
+	default:
+		break;
+	}
+	return pard;
+}
+
+/** An effect parameter as its effect declares it (ParamDef). */
+struct sParamDef
+{
+	std::string m_MatchName;
+	sPard m_Pard;
+	std::string m_Name;
+	bool m_bHasOptions = false;
+	std::vector<std::string> m_Options;
+};
+
+/** The parameter declarations a property parse is inside (LeafOptions). */
+struct sLeafOptions
+{
+	bool m_bInEffect = false;
+	const std::map<std::string, const sParamDef*>* m_pDefs = nullptr;
+
+	const sParamDef* Def(const std::string& matchName) const
+	{
+		if (!m_pDefs)
+		{
+			return nullptr;
+		}
+		const auto found = m_pDefs->find(matchName);
+		return found != m_pDefs->end() ? found->second : nullptr;
+	}
+};
+
 /** Per-layer state the property parser needs. */
 struct sLayerContext
 {
@@ -509,18 +669,35 @@ struct sLayerContext
 class CValueResolver
 {
 public:
-	CValueResolver(const std::string& matchName, const sTdb4* tdb4, const sLayerContext& ctx)
+	CValueResolver(const std::string& matchName, const sTdb4* tdb4, const sLayerContext& ctx, bool inEffect = false,
+		u32 controlType = CONTROL_NONE)
 	{
 		m_bPercent = matchName == "ADBE Opacity" || matchName == "ADBE Scale" || matchName == "ADBE Mask Opacity";
-		m_bColor = tdb4 && tdb4->m_bColor;
+		m_bColor = controlType == CONTROL_COLOR || (tdb4 && tdb4->m_bColor);
 		m_uDimensions = tdb4 ? tdb4->m_uDimensions : 1;
 		m_bFlattenScaleZ = matchName == "ADBE Scale" && !ctx.m_bThreeD;
-		if (matchName == "ADBE Anchor Point" && ctx.m_bHasSource && ctx.m_fWidth != 0 && ctx.m_fHeight != 0)
+		/** Values an effect creates without declaring them (a puppet pin) count as points by their flags. */
+		const bool flaggedPoint = controlType == CONTROL_NONE && tdb4 && tdb4->m_bVector &&
+			(tdb4->m_uDimensions == 2 || tdb4->m_uDimensions == 3);
+		const bool point = controlType == CONTROL_POINT || controlType == CONTROL_POINT_3D || flaggedPoint;
+		if (matchName == "ADBE Anchor Point" && ctx.m_bHasSource)
 		{
+			if (ctx.m_fWidth != 0 && ctx.m_fHeight != 0)
+			{
+				m_bScale = true;
+				m_Scale[0] = ctx.m_fWidth;
+				m_Scale[1] = ctx.m_fHeight;
+				m_Scale[2] = 1;
+			}
+		}
+		else if (inEffect && ctx.m_fWidth != 0 && ctx.m_fHeight != 0 && point)
+		{
+			/** Effect points are stored as fractions of the layer; Z shares the height divisor. */
 			m_bScale = true;
 			m_Scale[0] = ctx.m_fWidth;
 			m_Scale[1] = ctx.m_fHeight;
-			m_Scale[2] = 1;
+			m_Scale[2] = ctx.m_fHeight;
+			m_fSpeedFactor = ctx.m_fHeight;
 		}
 	}
 
@@ -569,7 +746,8 @@ public:
 		}
 	}
 
-	f64 Speed(f64 raw) const { return m_bPercent ? raw * 100 : raw; }
+	/** Ease speeds of effect points are stored against the layer height. */
+	f64 Speed(f64 raw) const { return (m_bPercent ? raw * 100 : raw) * m_fSpeedFactor; }
 
 private:
 	bool m_bPercent = false;
@@ -578,6 +756,7 @@ private:
 	bool m_bFlattenScaleZ = false;
 	bool m_bScale = false;
 	f64 m_Scale[3] = { 1, 1, 1 };
+	f64 m_fSpeedFactor = 1;
 };
 
 u32 InterpolationType(u32 raw)
@@ -823,6 +1002,9 @@ class CParser
 public:
 	explicit CParser(CProject& project) : m_Project(project) {}
 
+	/** Parameter declarations by effect match name: the project's (EfdG), then those met on layers. */
+	std::map<std::string, std::vector<sParamDef>> m_EffectDefs;
+
 	void ParseEffectNames(const CChunk& root)
 	{
 		const CChunk* efdg = root.List(FCC("EfdG"));
@@ -838,12 +1020,93 @@ public:
 			{
 				continue;
 			}
+			const std::string matchName = MatchNameOf(*tdmn);
+			std::vector<sParamDef> defs = ParamDefs(*sspc);
+			if (!defs.empty())
+			{
+				m_EffectDefs[matchName] = std::move(defs);
+			}
 			std::string display;
 			if (ContainerText(sspc->Child(FCC("fnam")), display) && !display.empty())
 			{
-				m_Project.m_EffectTypes[MatchNameOf(*tdmn)] = display;
+				m_Project.m_EffectTypes[matchName] = display;
 			}
 		}
+	}
+
+	/** An effect's parameter declarations (`parT`), in order, without the first entry (the effect itself). */
+	static std::vector<sParamDef> ParamDefs(const CChunk& sspc)
+	{
+		std::vector<sParamDef> defs;
+		const CChunk* part = sspc.List(FCC("parT"));
+		if (!part)
+		{
+			return defs;
+		}
+		/** Runs of one match name are merged, in the order each name first appears. */
+		std::vector<std::pair<std::string, std::vector<const CChunk*>>> merged;
+		for (const sRun& run : MatchNameRuns(part))
+		{
+			auto existing = std::find_if(merged.begin(), merged.end(), [&run](const auto& m) { return m.first == run.m_MatchName; });
+			if (existing != merged.end())
+			{
+				existing->second.insert(existing->second.end(), run.m_Chunks.begin(), run.m_Chunks.end());
+			}
+			else
+			{
+				merged.push_back({ run.m_MatchName, run.m_Chunks });
+			}
+		}
+		for (size_t i = 1; i < merged.size(); i++)
+		{
+			const CChunk* pardChunk = nullptr;
+			const CChunk* pdnm = nullptr;
+			for (const CChunk* c : merged[i].second)
+			{
+				if (!pardChunk && c->m_uType == FCC("pard"))
+				{
+					pardChunk = c;
+				}
+				if (!pdnm && c->m_uType == FCC("pdnm"))
+				{
+					pdnm = c;
+				}
+			}
+			if (!pardChunk)
+			{
+				continue;
+			}
+			sParamDef def;
+			def.m_MatchName = merged[i].first;
+			def.m_Pard = DecodePard(*pardChunk);
+			def.m_Name = def.m_Pard.m_Name;
+			std::string text;
+			if (ContainerText(pdnm, text))
+			{
+				if (def.m_Pard.m_uControlType == CONTROL_POPUP)
+				{
+					def.m_bHasOptions = true;
+					size_t start = 0;
+					for (;;)
+					{
+						const size_t bar = text.find('|', start);
+						def.m_Options.push_back(text.substr(start, bar == std::string::npos ? std::string::npos : bar - start));
+						if (bar == std::string::npos)
+						{
+							break;
+						}
+						start = bar + 1;
+					}
+				}
+				else if (!text.empty() && def.m_Pard.m_uControlType != CONTROL_BUTTON)
+				{
+					/** A button's pdnm is the label drawn on the button, not the parameter name. */
+					def.m_Name = text;
+				}
+			}
+			defs.push_back(std::move(def));
+		}
+		return defs;
 	}
 
 	const CItem* ParseItemList(const CChunk& list, u32 parentFolderId)
@@ -1350,16 +1613,16 @@ private:
 	}
 
 	void ParseRuns(const std::vector<sRun>& runs, const sLayerContext& ctx, std::vector<std::unique_ptr<CPropertyNode>>& nodes,
-		const std::string& layerName)
+		const std::string& layerName, const sLeafOptions& options = sLeafOptions())
 	{
 		for (const sRun& run : runs)
 		{
-			ParseRun(run, ctx, nodes, layerName);
+			ParseRun(run, ctx, nodes, layerName, options);
 		}
 	}
 
 	void ParseRun(const sRun& run, const sLayerContext& ctx, std::vector<std::unique_ptr<CPropertyNode>>& nodes,
-		const std::string& layerName)
+		const std::string& layerName, const sLeafOptions& options)
 	{
 		const CChunk* first = nullptr;
 		for (const CChunk* c : run.m_Chunks)
@@ -1390,7 +1653,7 @@ private:
 		{
 			for (const CChunk* sspc : lists(FCC("sspc")))
 			{
-				nodes.push_back(ParseEffect(*sspc, run.m_MatchName));
+				nodes.push_back(ParseEffect(*sspc, run.m_MatchName, ctx, layerName));
 			}
 		}
 		else if (listType == FCC("tdgp"))
@@ -1415,13 +1678,13 @@ private:
 			{
 				for (const CChunk* tdgp : lists(FCC("tdgp")))
 				{
-					nodes.push_back(ParseGroup(*tdgp, run.m_MatchName, ctx, layerName));
+					nodes.push_back(ParseGroup(*tdgp, run.m_MatchName, ctx, layerName, options));
 				}
 			}
 		}
 		else if (listType == FCC("tdbs"))
 		{
-			nodes.push_back(ParseLeaf(*first, run.m_MatchName, ctx, false));
+			nodes.push_back(ParseLeaf(*first, run.m_MatchName, ctx, false, options));
 		}
 		else if (listType == FCC("otst"))
 		{
@@ -1463,7 +1726,7 @@ private:
 			const std::vector<const CChunk*> tdgps = lists(FCC("tdgp"));
 			if (!tdgps.empty())
 			{
-				nodes.push_back(ParseGroup(*tdgps[0], run.m_MatchName, ctx, layerName));
+				nodes.push_back(ParseGroup(*tdgps[0], run.m_MatchName, ctx, layerName, options));
 			}
 		}
 		else
@@ -1474,14 +1737,14 @@ private:
 	}
 
 	std::unique_ptr<CPropertyNode> ParseGroup(const CChunk& tdgp, const std::string& matchName, const sLayerContext& ctx,
-		const std::string& layerName)
+		const std::string& layerName, const sLeafOptions& options = sLeafOptions())
 	{
 		auto group = std::make_unique<CPropertyNode>();
 		group->m_bGroup = true;
 		group->m_MatchName = matchName;
 		const CChunk* tdsb = tdgp.Child(FCC("tdsb"));
 		group->m_bEnabled = tdsb ? CBytes(*tdsb).Bit(3, 0) : true;
-		ParseRuns(MatchNameRuns(&tdgp), ctx, group->m_Children, layerName);
+		ParseRuns(MatchNameRuns(&tdgp), ctx, group->m_Children, layerName, options);
 		ComposeSeparatedPosition(*group);
 		return group;
 	}
@@ -1502,10 +1765,11 @@ private:
 	}
 
 	/**
-	 * An effect: its enabled switch and its name. Its parameters are not read yet: effects make a frame unsupported
-	 * until they are ported (M5), and expressions that read them come with M3.
+	 * An effect (parseEffect): its parameters in the order its effect declares them, with the ones After Effects left
+	 * out of the file (at their defaults) made from their declarations, then any it stored without declaring.
 	 */
-	std::unique_ptr<CPropertyNode> ParseEffect(const CChunk& sspc, const std::string& matchName)
+	std::unique_ptr<CPropertyNode> ParseEffect(const CChunk& sspc, const std::string& matchName, const sLayerContext& ctx,
+		const std::string& layerName)
 	{
 		auto group = std::make_unique<CPropertyNode>();
 		group->m_bGroup = true;
@@ -1525,16 +1789,176 @@ private:
 		{
 			m_Project.m_EffectTypes[matchName] = group->m_EffectName;
 		}
-		const CChunk* tdsb = FindChild(sspc.List(FCC("tdgp")), FCC("tdsb"));
+		std::vector<sParamDef> own = ParamDefs(sspc);
+		const std::vector<sParamDef>* defs = &own;
+		if (own.empty())
+		{
+			const auto known = m_EffectDefs.find(matchName);
+			static const std::vector<sParamDef> s_None;
+			defs = known != m_EffectDefs.end() ? &known->second : &s_None;
+		}
+		else if (m_EffectDefs.find(matchName) == m_EffectDefs.end())
+		{
+			defs = &(m_EffectDefs[matchName] = std::move(own));
+		}
+
+		const CChunk* tdgp = sspc.List(FCC("tdgp"));
+		const CChunk* tdsb = FindChild(tdgp, FCC("tdsb"));
 		group->m_bEnabled = tdsb ? CBytes(*tdsb).Bit(3, 0) : true;
+		std::map<std::string, const sParamDef*> defsByName;
+		for (const sParamDef& def : *defs)
+		{
+			defsByName[def.m_MatchName] = &def;
+		}
+		sLeafOptions options;
+		options.m_bInEffect = true;
+		options.m_pDefs = &defsByName;
+		std::vector<std::unique_ptr<CPropertyNode>> parsed;
+		for (const sRun& run : MatchNameRuns(tdgp))
+		{
+			if (run.m_MatchName.size() >= 5 && run.m_MatchName.compare(run.m_MatchName.size() - 5, 5, "-0000") == 0)
+			{
+				continue;
+			}
+			const auto def = defsByName.find(run.m_MatchName);
+			const size_t before = parsed.size();
+			ParseRuns({ run }, ctx, parsed, layerName, options);
+			for (size_t i = before; i < parsed.size(); i++)
+			{
+				if (def != defsByName.end() && !parsed[i]->m_bGroup)
+				{
+					ApplyParamDef(*parsed[i], *def->second);
+				}
+			}
+		}
+		/** The last node parsed under a match name answers for it, as a Map built from them does. */
+		std::map<std::string, size_t> parsedByName;
+		for (size_t i = 0; i < parsed.size(); i++)
+		{
+			parsedByName[parsed[i]->m_MatchName] = i;
+		}
+		std::vector<bool> taken(parsed.size(), false);
+		for (const sParamDef& def : *defs)
+		{
+			if (def.m_MatchName == "ADBE Force CPU GPU")
+			{
+				continue;
+			}
+			const auto found = parsedByName.find(def.m_MatchName);
+			if (found != parsedByName.end() && !taken[found->second])
+			{
+				taken[found->second] = true;
+				group->m_Children.push_back(std::move(parsed[found->second]));
+			}
+			else if (found != parsedByName.end())
+			{
+				/** A declaration listed twice takes the same node twice in TypeScript; the copy is made from it. */
+				group->m_Children.push_back(SynthesizeParam(def, ctx));
+			}
+			else
+			{
+				group->m_Children.push_back(SynthesizeParam(def, ctx));
+			}
+		}
+		for (size_t i = 0; i < parsed.size(); i++)
+		{
+			if (parsed[i] && defsByName.find(parsed[i]->m_MatchName) == defsByName.end())
+			{
+				group->m_Children.push_back(std::move(parsed[i]));
+			}
+		}
+		bool builtIn = false;
+		for (const auto& child : group->m_Children)
+		{
+			builtIn = builtIn || child->m_MatchName == "ADBE Effect Built In Params";
+		}
+		if (!builtIn)
+		{
+			auto params = std::make_unique<CPropertyNode>();
+			params->m_bGroup = true;
+			params->m_MatchName = "ADBE Effect Built In Params";
+			params->m_bSynthesized = true;
+			group->m_Children.push_back(std::move(params));
+		}
 		return group;
 	}
 
-	std::unique_ptr<CPropertyNode> ParseLeaf(const CChunk& tdbs, const std::string& matchName, const sLayerContext& ctx,
-		bool littleEndianValue)
+	static void ApplyParamDef(CPropertyNode& prop, const sParamDef& def)
 	{
+		prop.m_uControlType = def.m_Pard.m_uControlType;
+		if (const u32 type = EffectValueType(def.m_Pard.m_uControlType))
+		{
+			prop.m_uValueType = type;
+		}
+		if (def.m_bHasOptions)
+		{
+			prop.m_Options = def.m_Options;
+		}
+	}
+
+	/**
+	 * A parameter After Effects left out of the file while it sat at its default (synthesizeParam): the declared
+	 * default wins over the last value, which some plugins leave stale.
+	 */
+	static std::unique_ptr<CPropertyNode> SynthesizeParam(const sParamDef& def, const sLayerContext& ctx)
+	{
+		const sPard& pard = def.m_Pard;
+		const u32 type = pard.m_uControlType;
+		auto prop = std::make_unique<CPropertyNode>();
+		prop->m_MatchName = def.m_MatchName;
+		prop->m_bSynthesized = true;
+		if (type == CONTROL_POPUP || type == CONTROL_CHECKBOX)
+		{
+			const f64 d = pard.m_uDefaultCount ? pard.m_Default[0] : 0;
+			const f64 l = pard.m_uLastCount ? pard.m_Last[0] : 0;
+			prop->m_Value = CValue::Number(d != 0 && !std::isnan(d) ? d : l != 0 && !std::isnan(l) ? l : type == CONTROL_POPUP ? 1 : 0);
+		}
+		else if (type == CONTROL_POINT || type == CONTROL_POINT_3D)
+		{
+			if (pard.m_uLastCount)
+			{
+				const bool sized = ctx.m_fWidth != 0 && ctx.m_fHeight != 0;
+				const f64 scale[3] = { sized ? ctx.m_fWidth : 512, sized ? ctx.m_fHeight : 512, sized ? ctx.m_fHeight : 512 };
+				f64 v[4];
+				for (u32 i = 0; i < pard.m_uLastCount; i++)
+				{
+					v[i] = pard.m_Last[i] / 512 * scale[i];
+				}
+				prop->m_Value = CValue::Vector(v, pard.m_uLastCount);
+			}
+		}
+		else if (type == CONTROL_LAYER || type == CONTROL_PATH)
+		{
+			prop->m_Value = CValue::Number(0);
+		}
+		else if (EffectValueType(type) == PVT_NO_VALUE || type == CONTROL_ARBITRARY)
+		{
+			prop->m_Value = CValue();
+		}
+		else
+		{
+			const f64* v = pard.m_uDefaultCount ? pard.m_Default : pard.m_uLastCount ? pard.m_Last : nullptr;
+			const u32 n = pard.m_uDefaultCount ? pard.m_uDefaultCount : pard.m_uLastCount;
+			if (v)
+			{
+				prop->m_Value = n == 1 ? CValue::Number(v[0]) : CValue::Vector(v, n);
+			}
+		}
+		const u32 valueType = EffectValueType(type);
+		prop->m_uValueType = valueType ? valueType : PVT_ONE_D;
+		prop->m_bSpatial = type == CONTROL_POINT || type == CONTROL_POINT_3D;
+		ApplyParamDef(*prop, def);
+		return prop;
+	}
+
+	std::unique_ptr<CPropertyNode> ParseLeaf(const CChunk& tdbs, const std::string& matchName, const sLayerContext& ctx,
+		bool littleEndianValue, const sLeafOptions& options = sLeafOptions())
+	{
+		const sParamDef* def = options.Def(matchName);
+		const u32 controlType = def ? def->m_Pard.m_uControlType : CONTROL_NONE;
 		auto prop = std::make_unique<CPropertyNode>();
 		prop->m_MatchName = matchName;
+		prop->m_uControlType = controlType;
 		const CChunk* tdsbChunk = tdbs.Child(FCC("tdsb"));
 		const CChunk* tdb4Chunk = tdbs.Child(FCC("tdb4"));
 		sTdb4 tdb4;
@@ -1542,9 +1966,21 @@ private:
 		{
 			tdb4 = DecodeTdb4(*tdb4Chunk);
 		}
-		const CValueResolver resolver(matchName, tdb4Chunk ? &tdb4 : nullptr, ctx);
+		const CValueResolver resolver(matchName, tdb4Chunk ? &tdb4 : nullptr, ctx, options.m_bInEffect, controlType);
 		prop->m_Expression = TextOf(tdbs.Child(FCC("Utf8")));
 		prop->m_uValueType = tdb4Chunk ? ValueTypeFromFlags(tdb4) : PVT_NO_VALUE;
+		if (controlType != CONTROL_NONE)
+		{
+			if (const u32 type = EffectValueType(controlType))
+			{
+				prop->m_uValueType = type;
+			}
+		}
+		else if (options.m_bInEffect && tdb4Chunk && tdb4.m_bNoValue)
+		{
+			/** An undeclared effect-internal slot flagged value-less holds scratch bytes, not a number. */
+			prop->m_uValueType = PVT_NO_VALUE;
+		}
 
 		const CChunk* tdpi = tdbs.Child(FCC("tdpi"));
 		const CChunk* tdli = tdbs.Child(FCC("tdli"));

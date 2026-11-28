@@ -27,6 +27,20 @@ public:
 		U32(bits);
 	}
 
+	void F64(f64 v)
+	{
+		u64 bits;
+		std::memcpy(&bits, &v, 8);
+		U32(u32(bits));
+		U32(u32(bits >> 32));
+	}
+
+	void Str(const std::string& text)
+	{
+		U32(u32(text.size()));
+		m_Bytes.insert(m_Bytes.end(), text.begin(), text.end());
+	}
+
 	void Raw(const std::vector<u8>& data) { m_Bytes.insert(m_Bytes.end(), data.begin(), data.end()); }
 
 	std::vector<u8> m_Bytes;
@@ -140,6 +154,30 @@ void WriteMask(CWriter& w, const aevk::Mask& mask)
 	}
 }
 
+void WriteEffect(CWriter& w, const aevk::Effect& effect)
+{
+	w.Str(effect.matchName);
+	w.U32(u32(effect.params.size()));
+	for (const aevk::EffectParam& param : effect.params)
+	{
+		w.U32(param.index);
+		if (!param.index)
+		{
+			w.Str(param.matchName);
+		}
+		w.U32(u32(param.value.size()));
+		for (const float v : param.value)
+		{
+			w.F32(v);
+		}
+		w.U32(u32(param.menu.size()));
+		for (const u8 separator : param.menu)
+		{
+			w.U32(separator ? 1 : 0);
+		}
+	}
+}
+
 void WriteLayer(CWriter& w, const aevk::Layer& layer)
 {
 	w.U32(layer.adjustment ? 1 : 0);
@@ -155,6 +193,20 @@ void WriteLayer(CWriter& w, const aevk::Layer& layer)
 	for (const aevk::Mask& mask : layer.masks)
 	{
 		WriteMask(w, mask);
+	}
+	w.U32(u32(layer.effects.size()));
+	if (!layer.effects.empty())
+	{
+		const aevk::EffectLayer& info = layer.effectLayer;
+		w.F64(info.time);
+		w.F64(info.startTime);
+		w.F32(info.width);
+		w.F32(info.height);
+		w.U32(info.kind);
+		for (const aevk::Effect& effect : layer.effects)
+		{
+			WriteEffect(w, effect);
+		}
 	}
 	w.U32(layer.matteMode);
 	if (layer.matteMode != aevk::matte::None)

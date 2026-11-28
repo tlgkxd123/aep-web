@@ -7,6 +7,7 @@ import { describe, expect, it } from "vitest";
 import type { CompItem, Project } from "../src/aep/model.ts";
 import { parseProject } from "../src/aep/parse.ts";
 import "../src/expressions/install.ts";
+import { NATIVE_EFFECTS } from "../src/native/effects.ts";
 import { buildFramePlan, type FramePlan, type PlanContent, type PlanLayer } from "../src/native/plan.ts";
 import { GRADIENT_STOPS } from "../src/render/shapes.ts";
 import { decodePlan, encodePlan, PLAN_MAGIC } from "../src/native/wire.ts";
@@ -26,6 +27,7 @@ function solidLayer(width: number, height: number, color: [number, number, numbe
     masks: [],
     matrix: translation(x + 1, y + 1),
     zoom: 0,
+    effects: [],
   };
 }
 
@@ -41,6 +43,15 @@ function samplePlan(): Pick<FramePlan, "root" | "images"> {
     closed: true,
     vertices: [0, 0, 0, 0, 0, 0, 3, 0, 0, 0, 1, 0, 3, 3, 0, 0, 0, 0, 0, 3, 0, 0, 0, 0],
   });
+  red.effects.push({
+    matchName: "ADBE Box Blur2",
+    params: [
+      { matchName: "ADBE Box Blur2-0001", value: [2.5] },
+      { matchName: "Custom Param", value: [1, 2, 3, 4] },
+      { matchName: "ADBE Box Blur2-0003", value: [2], menu: [false, true, false] },
+    ],
+  });
+  red.effectLayer = { time: 1 / 3, startTime: -0.5, width: 4, height: 4, kind: 0 };
   const nested: PlanLayer = {
     ...solidLayer(2, 2, [0, 1, 0], 4, 2),
     blendMode: 5216,
@@ -78,6 +89,8 @@ describe("native render plan", () => {
     const [red, nested, image] = decoded.root.layers;
     expect(red.content).toMatchObject({ kind: "solid", width: 4, height: 4, color: [1, 0.25, 0] });
     expect(red.masks[0]).toMatchObject({ mode: 6813, closed: true, feather: 1.5 });
+    expect(red.effects).toEqual(samplePlan().root.layers[0].effects);
+    expect(red.effectLayer).toEqual({ time: 1 / 3, startTime: -0.5, width: 4, height: 4, kind: 0 });
     expect(nested.matte?.layer?.content.kind).toBe("solid");
     expect(nested.content.kind === "comp" && nested.content.comp.layers.length).toBe(1);
     expect(image.matte).toEqual({ mode: 4, opacity: 1, layer: null });
@@ -192,6 +205,12 @@ describe("native render plan", () => {
     const project = parseProject(new Uint8Array(readFileSync(resolve("refs/fixtures/adjust.aep"))));
     const comp = [...project.items.values()].find((i): i is CompItem => i.kind === "comp" && i.name === "adjust_blur")!;
     expect(buildFramePlan(project, comp, 0).unsupported).toEqual([expect.stringMatching(/^adjustment layer effects/)]);
+  });
+
+  it("lists the same effects for both planners (src/native/effects.ts, native/src/effects/list.inc)", () => {
+    const list = readFileSync(resolve("native/src/effects/list.inc"), "utf8");
+    const native = [...list.matchAll(/^AEVK_EFFECT\("([^"]+)", (true|false), (true|false)\)$/gm)].map((m) => [m[1], { scalable: m[2] === "true", passThrough: m[3] === "true" }]);
+    expect(native).toEqual([...NATIVE_EFFECTS]);
   });
 
   it("embeds SPIR-V compiled from the current shader sources (node scripts/generate/native-shaders.ts)", () => {

@@ -140,6 +140,52 @@ std::vector<const CPropertyNode*> EnabledEffects(const CLayer& layer)
 	return effects;
 }
 
+/** An effect the native engine renders (src/native/effects.ts nativeEffect). */
+struct sNativeEffect
+{
+	const char* m_pMatchName;
+	bool m_bScalable;
+	bool m_bPassThrough;
+};
+
+/** The declared index `n` of a parameter named "<effect>-000n" (src/native/wire.ts paramIndex), or 0. */
+u32 ParamIndex(const std::string& effect, const std::string& matchName)
+{
+	if (matchName.size() != effect.size() + 5 || matchName.compare(0, effect.size(), effect) != 0 || matchName[effect.size()] != '-')
+	{
+		return 0;
+	}
+	u32 index = 0;
+	for (size_t i = effect.size() + 1; i < matchName.size(); i++)
+	{
+		const char c = matchName[i];
+		if (c < '0' || c > '9')
+		{
+			return 0;
+		}
+		index = index * 10 + u32(c - '0');
+	}
+	return index;
+}
+
+const sNativeEffect* NativeEffect(const std::string& matchName)
+{
+	static const sNativeEffect s_Effects[] = {
+#define AEVK_EFFECT(name, scalable, passThrough) { name, scalable, passThrough },
+#include "../src/effects/list.inc"
+#undef AEVK_EFFECT
+	};
+	static const sNativeEffect s_Pseudo = { "Pseudo/", true, true };
+	for (const sNativeEffect& effect : s_Effects)
+	{
+		if (matchName == effect.m_pMatchName)
+		{
+			return &effect;
+		}
+	}
+	return matchName.rfind("Pseudo/", 0) == 0 ? &s_Pseudo : nullptr;
+}
+
 f64 NumberAt(const CPropertyNode* prop, f64 time, const CLayer& layer, f64 fallback)
 {
 	if (!prop)
@@ -332,15 +378,27 @@ bool CFramePlanner::Placed(const CLayer& layer, const CItem& comp, f64 time, con
 {
 	if (!adjustment)
 	{
-		const std::vector<const CPropertyNode*> effects = EnabledEffects(layer);
-		if (!effects.empty())
+		std::string missing;
+		bool unscalable = false;
+		for (const CPropertyNode* effect : EnabledEffects(layer))
 		{
-			std::string names;
-			for (size_t i = 0; i < effects.size(); i++)
+			const sNativeEffect* native = NativeEffect(effect->m_MatchName);
+			if (!native)
 			{
-				names += (i ? ", " : "") + effects[i]->m_EffectName;
+				missing += (missing.empty() ? "" : ", ") + (effect->m_EffectName.empty() ? effect->m_MatchName : effect->m_EffectName);
 			}
-			Unsupported("effects (" + names + " on \"" + layer.m_Name + "\")");
+			else if (!native->m_bScalable)
+			{
+				unscalable = true;
+			}
+		}
+		if (!missing.empty())
+		{
+			Unsupported("effects (" + missing + " on \"" + layer.m_Name + "\")");
+		}
+		else if (scale != 1 && unscalable)
+		{
+			Unsupported("effects at a reduced resolution (\"" + layer.m_Name + "\")");
 		}
 	}
 	if (!Content(layer, time, depth, scale, out.content))
@@ -378,7 +436,64 @@ bool CFramePlanner::Placed(const CLayer& layer, const CItem& comp, f64 time, con
 	StoreMatrix(matrix, out.matrix);
 	out.zoom = float(zoom);
 	Masks(layer, time, scale, out.masks);
+	out.effects.clear();
+	if (!adjustment)
+	{
+		Effects(layer, time, out.effects);
+	}
+	if (!out.effects.empty())
+	{
+		aevk::EffectLayer& info = out.effectLayer;
+		info.time = time;
+		info.startTime = layer.m_fStartTime;
+		info.width = float(layer.m_fWidth);
+		info.height = float(layer.m_fHeight);
+		info.kind = layer.m_eType == LAYER_AV ? 0 : layer.m_eType == LAYER_SHAPE ? 1 : 2;
+	}
 	return true;
+}
+
+void CFramePlanner::Effects(const CLayer& layer, f64 time, std::vector<aevk::Effect>& out)
+{
+	for (const CPropertyNode* effect : EnabledEffects(layer))
+	{
+		const sNativeEffect* native = NativeEffect(effect->m_MatchName);
+		if (!native || native->m_bPassThrough)
+		{
+			continue;
+		}
+		aevk::Effect planned;
+		planned.matchName = effect->m_MatchName;
+		for (const auto& child : effect->m_Children)
+		{
+			const CPropertyNode& node = *child;
+			if (node.m_bGroup)
+			{
+				continue;
+			}
+			const CValue value = CurrentValue(node, time, layer, effect);
+			if (!value.IsNumeric())
+			{
+				continue;
+			}
+			aevk::EffectParam param;
+			param.index = ParamIndex(effect->m_MatchName, node.m_MatchName);
+			if (!param.index)
+			{
+				param.matchName = node.m_MatchName;
+			}
+			for (u32 i = 0; i < value.Count(); i++)
+			{
+				param.value.push_back(float(value.m_V[i]));
+			}
+			for (const std::string& option : node.m_Options)
+			{
+				param.menu.push_back(option.rfind("(-", 0) == 0 ? 1 : 0);
+			}
+			planned.params.push_back(std::move(param));
+		}
+		out.push_back(std::move(planned));
+	}
 }
 
 bool CFramePlanner::Content(const CLayer& layer, f64 time, s32 depth, f64 scale, aevk::Content& out)

@@ -12,7 +12,7 @@
 namespace aevk {
 
 constexpr uint32_t kPlanMagic = 0x50564541;  // "AEVP"
-constexpr uint32_t kPlanVersion = 1;
+constexpr uint32_t kPlanVersion = 2;
 constexpr int kPad = 1;
 
 enum class ContentKind : uint32_t { Solid = 1, Comp = 2, Image = 3, Shape = 4 };
@@ -77,6 +77,40 @@ struct Content {
   std::vector<ShapePaint> paints;
 };
 
+/** One parameter of an effect, evaluated at the frame time. */
+struct EffectParam {
+  /** n for "<effect match name>-000n", 0 when the parameter has another match name (in `matchName`). */
+  uint32_t index = 0;
+  std::string matchName;
+  /** A number, a point, or straight RGBA for a colour; empty for parameters with no value. */
+  std::vector<float> value;
+  /** For popups: per menu entry, 1 for a "(-" separator the entry numbering skips. */
+  std::vector<uint8_t> menu;
+};
+
+/** An effect a layer renders through, with its parameters in declared order. */
+struct Effect {
+  std::string matchName;
+  std::vector<EffectParam> params;
+
+  /** The parameter declared n-th (match name ending "-000n"), or null. */
+  const EffectParam* param(uint32_t n) const {
+    for (const EffectParam& p : params)
+      if (p.index == n) return &p;
+    return nullptr;
+  }
+};
+
+/** What effects read of the layer they render on. */
+struct EffectLayer {
+  /** Composition time of the frame and the layer's start time, in seconds. */
+  double time = 0, startTime = 0;
+  /** Layer pixels. */
+  float width = 0, height = 0;
+  /** 0 an AV layer, 1 a shape layer, 2 anything else. */
+  uint32_t kind = 0;
+};
+
 struct Layer {
   bool adjustment = false;
   uint32_t blendMode = 5212;
@@ -87,6 +121,9 @@ struct Layer {
   float zoom = 0;
   Content content;
   std::vector<Mask> masks;
+  /** Applied in order after the masks; `effectLayer` is set when there are any. */
+  std::vector<Effect> effects;
+  EffectLayer effectLayer;
   uint32_t matteMode = matte::None;
   float matteOpacity = 1;
   std::unique_ptr<Layer> matte;

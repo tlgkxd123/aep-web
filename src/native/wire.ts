@@ -3,7 +3,8 @@
 //   plan    := magic "AEVP" u32 version, comp root, u32 imageCount, image*
 //   comp    := u32 width, u32 height, u32 layerCount, layer*
 //   layer   := u32 flags (1 adjustment), u32 blendMode, f32 opacity, f32[16] matrix (row-major), f32 zoom,
-//              content, u32 maskCount, mask*, u32 matteMode, [f32 matteOpacity, u32 hasMatte, [layer]]
+//              content, u32 maskCount, mask*, u32 effectCount, [effectLayer, effect*],
+//              u32 matteMode, [f32 matteOpacity, u32 hasMatte, [layer]]
 //   content := u32 kind (1 solid, 2 comp, 3 image, 4 shape), u32 width, u32 height, f32 originX, f32 originY, f32 scale,
 //              solid: f32 r, g, b | comp: comp | image: u32 index | shape: u32 paintCount, paint*
 //   paint   := u32 flags (1 stroke, 2 even-odd), f32[6] matrix (a b c d e f), f32 width, u32 cap, u32 join,
@@ -12,13 +13,27 @@
 //   path    := u32 closed, u32 vertexCount, f32[6] per vertex
 //   mask    := u32 mode, u32 inverted, f32 opacity, f32 feather, f32 expansion, u32 closed, u32 vertexCount,
 //              f32[6] per vertex (x, y, in x, in y, out x, out y)
+//   effectLayer := f64 time, f64 startTime, f32 width, f32 height, u32 kind (0 AV, 1 shape, 2 other)
+//   effect  := str matchName, u32 paramCount, param*
+//   param   := u32 index (n for "<effect match name>-000n", 0 for any other), [str matchName when 0],
+//              u32 valueCount, f32*, u32 menuCount, u32 per entry (1 separator)
+//   str     := u32 byteCount, UTF-8 bytes
 //   image   := u32 width, u32 height, u8[width * height * 4] straight RGBA, top row first
-import type { FramePlan, PlanComp, PlanContent, PlanImage, PlanLayer, PlanMask, ShapePaintPlan } from "./plan.ts";
+import type { FramePlan, PlanComp, PlanContent, PlanEffect, PlanImage, PlanLayer, PlanMask, PlanParam, ShapePaintPlan } from "./plan.ts";
 
 export const PLAN_MAGIC = 0x50564541; // "AEVP"
-export const PLAN_VERSION = 1;
+export const PLAN_VERSION = 2;
 
 const KIND = { solid: 1, comp: 2, image: 3, shape: 4 } as const;
+const utf8 = new TextEncoder();
+const fromUtf8 = new TextDecoder();
+
+/** The 1-based declared index a parameter's match name gives within its effect, or 0. */
+function paramIndex(effect: string, matchName: string): number {
+  if (matchName.length !== effect.length + 5 || !matchName.startsWith(effect) || matchName[effect.length] !== "-") return 0;
+  const digits = matchName.slice(effect.length + 1);
+  return /^\d{4}$/.test(digits) ? Number(digits) : 0;
+}
 
 class Writer {
   private buffer = new ArrayBuffer(4096);
@@ -46,10 +61,20 @@ class Writer {
     this.view.setFloat32(this.length, v, true);
     this.length += 4;
   }
+  f64(v: number): void {
+    this.reserve(8);
+    this.view.setFloat64(this.length, v, true);
+    this.length += 8;
+  }
   raw(data: Uint8Array): void {
     this.reserve(data.length);
     this.bytes.set(data, this.length);
     this.length += data.length;
+  }
+  str(text: string): void {
+    const data = utf8.encode(text);
+    this.u32(data.length);
+    this.raw(data);
   }
   result(): Uint8Array {
     return this.bytes.slice(0, this.length);
@@ -113,6 +138,20 @@ function writeMask(w: Writer, mask: PlanMask): void {
   for (const v of mask.vertices) w.f32(v);
 }
 
+function writeEffect(w: Writer, effect: PlanEffect): void {
+  w.str(effect.matchName);
+  w.u32(effect.params.length);
+  for (const param of effect.params) {
+    const index = paramIndex(effect.matchName, param.matchName);
+    w.u32(index);
+    if (!index) w.str(param.matchName);
+    w.u32(param.value.length);
+    for (const v of param.value) w.f32(v);
+    w.u32(param.menu?.length ?? 0);
+    for (const separator of param.menu ?? []) w.u32(separator ? 1 : 0);
+  }
+}
+
 function writeLayer(w: Writer, layer: PlanLayer): void {
   w.u32(layer.adjustment ? 1 : 0);
   w.u32(layer.blendMode);
@@ -122,6 +161,16 @@ function writeLayer(w: Writer, layer: PlanLayer): void {
   writeContent(w, layer.content);
   w.u32(layer.masks.length);
   for (const mask of layer.masks) writeMask(w, mask);
+  w.u32(layer.effects.length);
+  if (layer.effects.length) {
+    const info = layer.effectLayer!;
+    w.f64(info.time);
+    w.f64(info.startTime);
+    w.f32(info.width);
+    w.f32(info.height);
+    w.u32(info.kind);
+    for (const effect of layer.effects) writeEffect(w, effect);
+  }
   w.u32(layer.matte?.mode ?? 0);
   if (layer.matte) {
     w.f32(layer.matte.opacity);
@@ -168,6 +217,15 @@ class Reader {
     const v = this.view.getFloat32(this.offset, true);
     this.offset += 4;
     return v;
+  }
+  f64(): number {
+    this.need(8);
+    const v = this.view.getFloat64(this.offset, true);
+    this.offset += 8;
+    return v;
+  }
+  str(): string {
+    return fromUtf8.decode(this.raw(this.u32()));
   }
   raw(n: number): Uint8Array {
     this.need(n);
@@ -247,7 +305,25 @@ function readLayer(r: Reader): PlanLayer {
     const vertices = Array.from({ length: count * 6 }, () => r.f32());
     masks.push({ mode, inverted, opacity: maskOpacity, feather, expansion, closed, vertices });
   }
-  const layer: PlanLayer = { name: "", adjustment: (flags & 1) !== 0, blendMode, opacity, content, masks, matrix, zoom };
+  const layer: PlanLayer = { name: "", adjustment: (flags & 1) !== 0, blendMode, opacity, content, masks, matrix, zoom, effects: [] };
+  const effectCount = r.u32();
+  if (effectCount) {
+    layer.effectLayer = { time: r.f64(), startTime: r.f64(), width: r.f32(), height: r.f32(), kind: r.u32() };
+    for (let i = 0; i < effectCount; i++) {
+      const matchName = r.str();
+      const params: PlanParam[] = [];
+      for (let j = r.u32(); j > 0; j--) {
+        const index = r.u32();
+        const paramName = index ? `${matchName}-${String(index).padStart(4, "0")}` : r.str();
+        const value = Array.from({ length: r.u32() }, () => r.f32());
+        const menuCount = r.u32();
+        const param: PlanParam = { matchName: paramName, value };
+        if (menuCount) param.menu = Array.from({ length: menuCount }, () => r.u32() !== 0);
+        params.push(param);
+      }
+      layer.effects.push({ matchName, params });
+    }
+  }
   const matteMode = r.u32();
   if (matteMode) {
     const matteOpacity = r.f32();

@@ -50,6 +50,8 @@ private:
 		bool adjustment, aevk::Layer& out);
 	bool Content(const CLayer& layer, f64 time, s32 depth, f64 scale, aevk::Content& out);
 	void Masks(const CLayer& layer, f64 time, f64 scale, std::vector<aevk::Mask>& out);
+	/** The layer's enabled effects the engine renders, with their parameters at `time` (plan.ts effects). */
+	void Effects(const CLayer& layer, f64 time, std::vector<aevk::Effect>& out);
 	void Unsupported(const std::string& what);
 	void Warn(const std::string& what);
 	void NoteExpressions(const CLayer& layer);

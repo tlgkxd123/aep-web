@@ -22,6 +22,19 @@ class Reader {
     at_ += 4;
     return v;
   }
+  double f64() {
+    const uint64_t lo = u32(), hi = u32();
+    const uint64_t bits = lo | hi << 32;
+    double v;
+    std::memcpy(&v, &bits, 8);
+    return v;
+  }
+  std::string str() {
+    const uint32_t n = count(1);
+    std::string s(n, '\0');
+    if (n) bytes(reinterpret_cast<uint8_t*>(s.data()), n);
+    return s;
+  }
   float f32() {
     uint32_t bits = u32();
     float v;
@@ -141,6 +154,30 @@ void readLayer(Reader& r, Layer& layer, int depth) {
     uint32_t vertices = r.count(24);
     mask.vertices.resize(size_t(vertices) * 6);
     for (float& v : mask.vertices) v = r.f32();
+  }
+  const uint32_t effects = r.count(12);
+  if (effects) {
+    EffectLayer& info = layer.effectLayer;
+    info.time = r.f64();
+    info.startTime = r.f64();
+    info.width = r.f32();
+    info.height = r.f32();
+    info.kind = r.u32();
+    if (info.kind > 2) r.fail("unknown effect layer kind");
+    layer.effects.resize(effects);
+    for (Effect& effect : layer.effects) {
+      effect.matchName = r.str();
+      effect.params.resize(r.count(12));
+      for (EffectParam& param : effect.params) {
+        param.index = r.u32();
+        if (param.index > 9999) r.fail("effect parameter index beyond 9999");
+        if (!param.index) param.matchName = r.str();
+        param.value.resize(r.count(4));
+        for (float& v : param.value) v = r.f32();
+        param.menu.resize(r.count(4));
+        for (uint8_t& m : param.menu) m = r.u32() != 0;
+      }
+    }
   }
   layer.matteMode = r.u32();
   if (layer.matteMode > matte::LumaInverted) r.fail("unknown track matte mode");

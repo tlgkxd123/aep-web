@@ -11,6 +11,7 @@ import { anySolo, drawOrder, isActive, MATTE_MODES, matteLayerOf, MAX_DEPTH, NO_
 import { sourcePixelAspect } from "../render/footage.ts";
 import { MatteMode } from "../render/shaders.ts";
 import { planShapeLayer, type ShapePaintPlan } from "../render/shapes.ts";
+import { nativeEffect } from "./effects.ts";
 
 export type { ShapePaintPlan };
 
@@ -55,6 +56,32 @@ export interface PlanMask {
   vertices: number[];
 }
 
+/** An effect parameter's value at the frame's time: numbers; colours as straight RGBA 0..1; points in layer pixels. */
+export interface PlanParam {
+  /** The parameter's match name ("<effect match name>-0001" for the first declared one). */
+  matchName: string;
+  value: number[];
+  /** A popup's menu: per entry, whether it is a separator (popupChoice counts the stored value past them). */
+  menu?: boolean[];
+}
+
+export interface PlanEffect {
+  matchName: string;
+  params: PlanParam[];
+}
+
+/** What effects read of their layer besides their parameters. */
+export interface PlanEffectLayer {
+  /** Composition time the layer is drawn at, and the layer's start time, in seconds. */
+  time: number;
+  startTime: number;
+  /** The layer's own size (its source's, or the comp's for a shape layer). */
+  width: number;
+  height: number;
+  /** 0 AV layer, 1 shape layer, 2 other. */
+  kind: number;
+}
+
 export interface PlanLayer {
   name: string;
   /** Adjustment layer: its content and masks only say where the comp below shows through its blend mode. */
@@ -71,6 +98,10 @@ export interface PlanLayer {
   matrix: number[];
   /** Camera zoom in image pixels for a 3D layer; 0 for a 2D one. */
   zoom: number;
+  /** Effects in stack order, run after the masks and before the matrix; expression controls are left out. */
+  effects: PlanEffect[];
+  /** Present when `effects` is not empty. */
+  effectLayer?: PlanEffectLayer;
   matte?: { mode: number; opacity: number; layer: PlanLayer | null };
 }
 
@@ -163,7 +194,9 @@ class Planner {
   private placed(layer: Layer, comp: CompItem, time: number, camera: Camera | undefined, depth: number, scale: number, adjustment: boolean): PlanLayer | null {
     if (!adjustment) {
       const effects = enabledEffects(layer);
-      if (effects.length) this.unsupported.add(`effects (${effects.map((e) => e.effectName ?? e.matchName).join(", ")} on "${layer.name}")`);
+      const missing = effects.filter((e) => !nativeEffect(e.matchName));
+      if (missing.length) this.unsupported.add(`effects (${missing.map((e) => e.effectName ?? e.matchName).join(", ")} on "${layer.name}")`);
+      else if (scale !== 1 && effects.some((e) => !nativeEffect(e.matchName)!.scalable)) this.unsupported.add(`effects at a reduced resolution ("${layer.name}")`);
     }
     const content = this.content(layer, time, depth, scale);
     if (!content) return null;
@@ -185,7 +218,8 @@ class Planner {
       const toTarget = scale === 1 ? Mat4.translation(PAD, PAD, 0) : Mat4.translation(PAD, PAD, 0).mul(Mat4.scale(scale, scale, 1));
       matrix = toTarget.mul(world);
     }
-    return {
+    const effects = adjustment ? [] : this.effects(layer, time);
+    const placed: PlanLayer = {
       name: layer.name,
       adjustment,
       blendMode: 5212,
@@ -194,7 +228,34 @@ class Planner {
       masks: this.masks(layer, time, content.scale),
       matrix: matrix.m.slice(),
       zoom,
+      effects,
     };
+    if (effects.length) {
+      const kind = layer.layerType === "AVLayer" ? 0 : layer.layerType === "ShapeLayer" ? 1 : 2;
+      placed.effectLayer = { time, startTime: layer.startTime, width: layer.width, height: layer.height, kind };
+    }
+    return placed;
+  }
+
+  /** The layer's enabled effects the engine renders, with their parameters' values at `time`. */
+  private effects(layer: Layer, time: number): PlanEffect[] {
+    const planned: PlanEffect[] = [];
+    for (const effect of enabledEffects(layer)) {
+      const native = nativeEffect(effect.matchName);
+      if (!native || native.passThrough) continue;
+      const params: PlanParam[] = [];
+      for (const node of effect.children) {
+        if (node.kind !== "property") continue;
+        const v = currentValue(node, time, layer, effect.children);
+        const value = typeof v === "number" ? [v] : Array.isArray(v) && v.every((x) => typeof x === "number") ? (v as number[]) : null;
+        if (!value) continue;
+        const param: PlanParam = { matchName: node.matchName, value };
+        if (node.options) param.menu = node.options.map((o) => o.startsWith("(-"));
+        params.push(param);
+      }
+      planned.push({ matchName: effect.matchName, params });
+    }
+    return planned;
   }
 
   private content(layer: Layer, time: number, depth: number, scale: number): PlanContent | null {

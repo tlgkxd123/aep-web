@@ -85,6 +85,7 @@ if (!only && nested.length) {
       masks: [],
       matrix: [1, 0, 0, PAD, 0, 1, 0, PAD, 0, 0, 1, 0, 0, 0, 0, 1],
       zoom: 0,
+      effects: [],
     },
   ];
   for (const { comp, plan, scale } of nested) {
@@ -98,6 +99,7 @@ if (!only && nested.length) {
       masks: [],
       matrix: [fit, 0, 0, PAD + (WIDTH - comp.width * fit) / 2, 0, fit, 0, PAD, 0, 0, 1, 0, 0, 0, 0, 1],
       zoom: 0,
+      effects: [],
     });
   }
   const stack = { root: { width: WIDTH, height: 1080, layers }, images: [] };

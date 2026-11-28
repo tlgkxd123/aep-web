@@ -34,6 +34,18 @@ TEST(decodes_the_sample_plan) {
   CHECK(solid.masks[0].vertices.size() == 24);
   CHECK_NEAR(solid.masks[0].feather, 1.5, 0);
   CHECK_NEAR(solid.masks[0].vertices[6], 3, 0);
+  CHECK(solid.effects.size() == 1 && solid.effects[0].matchName == "ADBE Box Blur2");
+  CHECK_NEAR(solid.effectLayer.time, 1.0 / 3, 0);
+  CHECK_NEAR(solid.effectLayer.startTime, -0.5, 0);
+  CHECK(solid.effectLayer.width == 4 && solid.effectLayer.kind == 0);
+  const Effect& blur = solid.effects[0];
+  CHECK(blur.params.size() == 3);
+  CHECK(blur.param(1) && blur.param(1)->value.size() == 1);
+  CHECK_NEAR(blur.param(1)->value[0], 2.5, 0);
+  CHECK(blur.params[1].index == 0 && blur.params[1].matchName == "Custom Param" && blur.params[1].value.size() == 4);
+  CHECK(blur.param(3) && blur.param(3)->menu.size() == 3 && blur.param(3)->menu[1] == 1 && blur.param(3)->menu[0] == 0);
+  CHECK(!blur.param(2));
+  CHECK(plan.root.layers[1].effects.empty());
   const Layer& nested = plan.root.layers[1];
   CHECK(nested.content.kind == ContentKind::Comp && nested.content.comp);
   CHECK(nested.blendMode == 5216);
@@ -63,7 +75,7 @@ TEST(refuses_damaged_plans) {
   longer.push_back(0);
   CHECK(!decodePlan(longer.data(), longer.size(), plan, error));
   std::vector<uint8_t> version = bytes;
-  version[4] = 99;
+  version[4] = 99;  // kPlanVersion is 2
   CHECK(!decodePlan(version.data(), version.size(), plan, error));
   // A layer count far beyond what the bytes could hold.
   std::vector<uint8_t> count = bytes;
