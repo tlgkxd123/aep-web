@@ -201,7 +201,7 @@ void WriteEffect(CWriter& w, const aevk::Effect& effect)
 			w.U32(source.layer.kind);
 		}
 	}
-	w.U32((effect.hasAudio ? 1u : 0u) | (effect.hasPath ? 2u : 0u) | (effect.inputs.empty() ? 0u : 4u) | (effect.data.empty() ? 0u : 8u));
+	w.U32((effect.hasAudio ? 1u : 0u) | (effect.hasPath ? 2u : 0u) | (effect.inputs.empty() ? 0u : 4u) | (effect.data.empty() ? 0u : 8u) | (effect.hasParticles ? 16u : 0u));
 	if (effect.hasAudio)
 	{
 		w.U32(u32(effect.audio.size()));
@@ -256,6 +256,23 @@ void WriteEffect(CWriter& w, const aevk::Effect& effect)
 			w.U32(u32(data.bytes.size()));
 			w.Raw(data.bytes);
 		}
+	}
+	if (effect.hasParticles)
+	{
+		for (const std::vector<float>* splats : { &effect.particles.glow, &effect.particles.core })
+		{
+			w.U32(u32(splats->size() / 5));
+			for (const float v : *splats)
+			{
+				w.F32(v);
+			}
+		}
+		for (const float c : effect.particles.color)
+		{
+			w.F32(c);
+		}
+		w.U32(effect.particles.glowBlend);
+		w.U32(effect.particles.particleBlend);
 	}
 }
 

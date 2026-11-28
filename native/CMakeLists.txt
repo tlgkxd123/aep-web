@@ -21,6 +21,7 @@ option(AEVK_FFMPEG "Decode video footage with FFmpeg (libavformat, libavcodec, l
 add_library(aevk STATIC
   src/capi.cpp
   src/effects/audio_spectrum.cpp
+  src/effects/particular.cpp
   src/effects/blur.cpp
   src/effects/blur_sharpen.cpp
     src/effects/stylize_stock.cpp
@@ -119,6 +120,7 @@ add_library(aepcore STATIC
   core/evaluate.cpp
   core/model.cpp
   core/parse.cpp
+  core/particular.cpp
   core/planner.cpp
   core/riff.cpp
   core/shapes.cpp

@@ -151,6 +151,8 @@ export const NATIVE_EFFECTS: ReadonlyMap<string, NativeEffect> = new Map([
   ["ADBE Cineon Converter2", effect(true)],
   ["ADBE Compander", effect(true)],
   ["ADBE HDR ToneMap", effect(true)],
+  // Its particles are worked out by the planner (particularSim.ts); textured ones are left to WebGL.
+  ["tc Particular", effect(false)],
   // Draw their input unchanged (superpose.ts, channelUtility.ts).
   ["CC Overbrights", effect(true, true)],
   ["ADBE AudSpect", effect(true, false)],

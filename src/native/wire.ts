@@ -17,8 +17,10 @@
 //              f32[6] per vertex (x, y, in x, in y, out x, out y)
 //   effectLayer := f64 time, f64 startTime, f64 stretch, f32 width, f32 height, u32 kind (0 AV, 1 shape, 2 other)
 //   effect  := str matchName, u32 paramCount, param*, u32 sourceCount, source*, u32 flags (1 audio, 2 path, 4 inputs,
-//              8 data), [u32 audioCount, audio*], [u32 closed, u32 vertexCount, f32[6] per vertex],
-//              [u32 inputCount, input*], [u32 dataCount, (u32 param, u32 byteCount, u8*)*]
+//              8 data, 16 particles), [u32 audioCount, audio*], [u32 closed, u32 vertexCount, f32[6] per vertex],
+//              [u32 inputCount, input*], [u32 dataCount, (u32 param, u32 byteCount, u8*)*],
+//              [u32 glowCount, f32[5] per glow splat, u32 coreCount, f32[5] per particle splat, f32 r, g, b,
+//              u32 glowBlend, u32 particleBlend]
 //   input   := f64 time, u32 drawn, [content, u32 maskCount, mask*, u32 effectCount, effect*]
 //   source  := u32 param (declared index of a layer parameter), u32 drawn, [content, f32 width, f32 height, u32 kind]
 //   audio   := str file, f64 scale, f64 offset, f64 from, f64 to
@@ -175,7 +177,7 @@ function writeEffect(w: Writer, effect: PlanEffect): void {
     w.f32(source.height);
     w.u32(source.kind);
   }
-  w.u32((effect.audio ? 1 : 0) | (effect.path ? 2 : 0) | (effect.inputs ? 4 : 0) | (effect.data ? 8 : 0));
+  w.u32((effect.audio ? 1 : 0) | (effect.path ? 2 : 0) | (effect.inputs ? 4 : 0) | (effect.data ? 8 : 0) | (effect.particles ? 16 : 0));
   if (effect.audio) {
     w.u32(effect.audio.length);
     for (const a of effect.audio) {
@@ -211,6 +213,16 @@ function writeEffect(w: Writer, effect: PlanEffect): void {
       w.u32(bytes.length);
       w.raw(bytes);
     }
+  }
+  if (effect.particles) {
+    const p = effect.particles;
+    for (const splats of [p.glow, p.core]) {
+      w.u32(splats.length / 5);
+      for (const v of splats) w.f32(v);
+    }
+    for (const c of p.color) w.f32(c);
+    w.u32(p.glowBlend);
+    w.u32(p.particleBlend);
   }
 }
 
@@ -437,6 +449,12 @@ function readEffect(r: Reader): PlanEffect {
     }
   }
   if (flags & 8) effect.data = Array.from({ length: r.u32() }, () => ({ param: r.u32(), bytes: r.raw(r.u32()) }));
+  if (flags & 16) {
+    const glow = Array.from({ length: r.u32() * 5 }, () => r.f32());
+    const core = Array.from({ length: r.u32() * 5 }, () => r.f32());
+    const color: [number, number, number] = [r.f32(), r.f32(), r.f32()];
+    effect.particles = { glow, core, color, glowBlend: r.u32(), particleBlend: r.u32() };
+  }
   return effect;
 }
 

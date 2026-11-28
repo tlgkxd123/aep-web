@@ -14,7 +14,7 @@ projects at close to desktop speed.
 | Shape layers | `render/shapes.ts` | geometry in `native/core` (M1), raster in `native/src`; no dashes yet |
 | Text layers | not drawn yet (`renderer.ts` warns) | not drawn either; both planners list them |
 | Footage (images, video, audio) | `media/` 3.7k lines | stills and image sequences (PNG, BMP, TIFF) in `native/src/image.cpp`; video through FFmpeg on desktop (`native/src/video.cpp`); JPEG stills through FFmpeg on desktop; WAV for Audio Spectrum; no JPEG or video on Android yet |
-| Effects (54 files, built-in and third-party look-alikes) | `render/effects/` ~15k lines | 141 drawn and 17 passed through in `native/src/effects` (M5); Particular and the opt-in Sapphire and XMult look-alikes not yet |
+| Effects (54 files, built-in and third-party look-alikes) | `render/effects/` ~15k lines | 142 drawn and 17 passed through in `native/src/effects` (M5), Particular's dot particles included; its sprites and the opt-in Sapphire and XMult look-alikes not yet |
 | Editing (undo, layer ops, write back to `.aep`) | `edit/` 6.2k lines | not started |
 | UI | `ui/` 17k lines of React | Dear ImGui viewer on desktop and Android (M6); no editing |
 
@@ -159,6 +159,13 @@ calls (a referenced property's value, `toComp`, `wiggle`, the noise behind `rand
 - XMult and the Sapphire effects (S_Blur, S_BlurDirectional, S_Shake, S_Glow, S_ZGlow, S_Flicker) are skipped with
   a warning, as After Effects skips them without the plugins and the WebGL renderer does unless asked for its
   look-alikes; all 8 of their reference frames pass. The look-alikes themselves are not ported.
+- Particular's dot particles (effect flag 16): both planners run its seeded simulation, `particularSim.ts` and its C++
+  twin `native/core/particular.cpp`, and the plan carries the resulting splats, which the engine lays down with the
+  effect's own shaders and blend modes (glow halos, then particles). The two simulations agree on every planned frame
+  and on a 6-times-per-comp sweep. 11 of its 14 reference frames pass; the three that differ (Glow Blend set to Add,
+  and the Star, Circle and type 12 particle types) are the look-alike's own gaps, since the engine draws the same splats the
+  WebGL renderer computes. Textured particles (sprites and polygons, 6 frames) are listed as unsupported and left to
+  WebGL.
 - Adjustment layers' effects run on the composite below them in comp pixels, as `placeAdjustment` does; the layer's
   own image still only says where the result shows. All four `adjust_*` reference frames pass.
 

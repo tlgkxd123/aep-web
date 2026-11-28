@@ -123,6 +123,7 @@ export const FX_SHADERS: FxShaderSource[] = [
   shader("compander", "channelUtility.ts", "COMPANDER_FS"),
   shader("hdr_tonemap", "channelUtility.ts", "HDR_TONEMAP_FS"),
   program("capsule", "audioSpectrum.ts", "CAPSULE_VS", "CAPSULE_FS"),
+  program("splat", "particular.ts", "SPLAT_DATA_VS", "SPLAT_FS"),
   shader("spectrum_composite", "audioSpectrum.ts", "COMPOSITE_FS"),
   shader("copy", "fxextraUtil.ts", "COPY_FS"),
   layerPass("channel_blur_mix", 2, ref("blurNoise.ts", "CHANNEL_BLUR_MIX_DECLS"), ref("blurNoise.ts", "CHANNEL_BLUR_MIX_BODY")),

@@ -9,6 +9,7 @@
 #include <cstdio>
 
 #include "evaluate.h"
+#include "particular.h"
 #include "shapes.h"
 
 namespace aep
@@ -857,6 +858,26 @@ void CFramePlanner::Effects(const CLayer& layer, const CItem& comp, f64 time, s3
 			if (found != effect->m_InstanceData.end())
 			{
 				planned.data.push_back({ dataParam, found->second });
+			}
+		}
+		if (effect->m_MatchName == "tc Particular")
+		{
+			sParticularSplats splats;
+			if (!ParticularSplats(*effect, layer, comp, time, layer.m_fWidth, layer.m_fHeight, splats))
+			{
+				Unsupported("Particular sprites (\"" + layer.m_Name + "\")");
+			}
+			else
+			{
+				planned.hasParticles = true;
+				planned.particles.glow.assign(splats.m_Glow.begin(), splats.m_Glow.end());
+				planned.particles.core.assign(splats.m_Core.begin(), splats.m_Core.end());
+				for (u32 c = 0; c < 3; c++)
+				{
+					planned.particles.color[c] = float(splats.m_Color[c]);
+				}
+				planned.particles.glowBlend = splats.m_uGlowBlend;
+				planned.particles.particleBlend = splats.m_uParticleBlend;
 			}
 		}
 		out.push_back(std::move(planned));

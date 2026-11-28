@@ -13,6 +13,8 @@ import { footageFrameIndex, layerSourceTime, sourcePixelAspect } from "../render
 import { MatteMode } from "../render/shaders.ts";
 import { planShapeLayer, type ShapePaintPlan } from "../render/shapes.ts";
 import { instanceData } from "../render/effects/colorExtraMath.ts";
+import { PARTICULAR } from "../render/effects/particularCurves.ts";
+import { BLEND_ADD, BLEND_LIGHTEN, BLEND_SCREEN, particularFrame, particularSplats, type ParticularFrame } from "../render/effects/particularSim.ts";
 import { MISSING_PLUGINS, nativeEffect } from "./effects.ts";
 
 /** Footage stills the engine decodes itself (PNG, BMP and TIFF in native/src/image.cpp, JPEG through FFmpeg in native/src/video.cpp). */
@@ -27,6 +29,19 @@ const LAYER_CONTROL = 0;
 const AUDIO_LAYER_PARAMS: Readonly<Record<string, number>> = { "ADBE AudSpect": 1 };
 /** Effects that follow a mask of their layer: the declared index of their Path parameter (1-based mask, 0 none). */
 const PATH_PARAMS: Readonly<Record<string, number>> = { "ADBE AudSpect": 4 };
+/** Particular's blend mode as the engine takes it: 2 add, 3 screen, 4 lighten, 1 for anything else. */
+const particleBlend = (mode: number) => (mode === BLEND_ADD ? 2 : mode === BLEND_SCREEN ? 3 : mode === BLEND_LIGHTEN ? 4 : 1);
+
+/** A frame of dot particles as the plan carries it (ParticularSplats in native/core/particular.cpp). */
+function particles(frame: ParticularFrame): PlanParticles {
+  const { glow, core } = particularSplats(frame);
+  const channel = (k: number) => {
+    const c = frame.color[k];
+    return typeof c === "number" && !Number.isNaN(c) ? c : 1;
+  };
+  return { glow, core, color: [channel(0), channel(1), channel(2)], glowBlend: particleBlend(frame.glowBlend), particleBlend: particleBlend(frame.particleBlend) };
+}
+
 /** The parameters whose stored data an effect reads (instanceData in colorExtraMath.ts): Curves' tables, Colorama's cycle. */
 export const DATA_PARAMS: Readonly<Record<string, readonly number[]>> = { "ADBE CurvesCustom": [1], "APC Colorama": [12] };
 /** Comps nested deeper than this are not heard (mix.ts). */
@@ -132,6 +147,18 @@ export interface PlanEffect {
   inputs?: PlanEffectInput[];
   /** The data the effect stores for its DATA_PARAMS (instanceData), each by declared index; absent when it stores none. */
   data?: { param: number; bytes: Uint8Array }[];
+  /** Particular's dot particles at the frame's time (particularSplats), worked out here so the engine only draws them. */
+  particles?: PlanParticles;
+}
+
+/** Splats of a Particular frame, SPLAT_FLOATS each (cx, cy, outer, inner, opacity), far to near. */
+export interface PlanParticles {
+  glow: number[];
+  core: number[];
+  color: [number, number, number];
+  /** Particular's blend modes between halos and between particles: 1 normal, 2 add, 3 screen, 4 lighten. */
+  glowBlend: number;
+  particleBlend: number;
 }
 
 /**
@@ -501,6 +528,11 @@ class Planner {
         return bytes ? [{ param, bytes }] : [];
       });
       if (data.length) planned1.data = data;
+      if (effect.matchName === PARTICULAR) {
+        const frame = particularFrame(effect, layer, comp, time, layer.width, layer.height);
+        if (frame.textured) this.unsupported.add(`Particular sprites ("${layer.name}")`);
+        else planned1.particles = particles(frame);
+      }
       planned.push(planned1);
     }
     return planned;

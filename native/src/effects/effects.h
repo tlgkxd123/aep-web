@@ -7,6 +7,8 @@ namespace aevk {
 
 /** audio_spectrum.cpp */
 FxRenderer audioSpectrumRenderer();
+/** particular.cpp */
+FxRenderer particularRenderer();
 /** blur.cpp */
 FxRenderer channelBlurRenderer();
 FxRenderer crossBlurRenderer();

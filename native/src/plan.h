@@ -174,6 +174,17 @@ struct EffectData {
   std::vector<uint8_t> bytes;
 };
 
+/** Particular's dot particles, worked out by the planner (ParticularSplats in native/core/particular.cpp). */
+struct EffectParticles {
+  /** Glow halos then particles, far to near: cx, cy, outer, inner, opacity each, in the layer's pixels. */
+  std::vector<float> glow;
+  std::vector<float> core;
+  float color[3] = {1, 1, 1};
+  /** Between halos and between particles: 1 normal, 2 add, 3 screen, 4 lighten. */
+  uint32_t glowBlend = 1;
+  uint32_t particleBlend = 1;
+};
+
 struct Effect {
   std::string matchName;
   std::vector<EffectParam> params;
@@ -189,6 +200,9 @@ struct Effect {
   std::vector<EffectInput> inputs;
   /** The data the effect stores for a parameter (DATA_PARAMS in plan.ts): Curves' tables, Colorama's cycle. */
   std::vector<EffectData> data;
+  /** Particular's particles (PlanEffect.particles in plan.ts). */
+  bool hasParticles = false;
+  EffectParticles particles;
 
   /** The data stored for the parameter declared n-th, or null. */
   const std::vector<uint8_t>* stored(uint32_t n) const {

@@ -300,6 +300,31 @@ describe("native render plan", () => {
     expect(stored("color2_curves", "ADBE CurvesCustom")?.map((d) => [d.param, d.bytes.length >= 4 + 5 * 256])).toEqual([[1, true]]);
   });
 
+  it("carries Particular's dot particles through the wire and leaves its sprites to WebGL", () => {
+    const planOf = (file: string, name: string, time: number) => {
+      const project = parseProject(new Uint8Array(readFileSync(resolve(`refs/fixtures/${file}`))));
+      const comp = [...project.items.values()].find((i): i is CompItem => i.kind === "comp" && i.name === name)!;
+      return buildFramePlan(project, comp, time);
+    };
+    const particlesOf = (layers: PlanLayer[]) => layers.flatMap((l) => l.effects.filter((e) => e.matchName === "tc Particular").map((e) => e.particles));
+    const dots = planOf("particular.aep", "particular_glow_blend2", 156 / 30);
+    const planned = particlesOf(dots.root.layers);
+    expect(planned.length).toBeGreaterThan(0);
+    // Rows: add/normal, screen/screen, lighten/normal, add/screen (particle blend / glow blend).
+    expect(planned.map((p) => [p!.particleBlend, p!.glowBlend])).toEqual([
+      [2, 1],
+      [3, 3],
+      [4, 1],
+      [2, 3],
+    ]);
+    for (const p of planned) expect(p!.core.length % 5).toBe(0);
+    const decoded = particlesOf(decodePlan(encodePlan(dots)).root.layers);
+    expect(decoded.map((p) => p!.core.length)).toEqual(planned.map((p) => p!.core.length));
+    expect(decoded[0]!.core[0]).toBeCloseTo(planned[0]!.core[0], 3);
+    const sprites = planOf("particular_sprite.aep", "particular_sprite_types", 156 / 30);
+    expect(sprites.unsupported.some((u) => u.startsWith("Particular sprites"))).toBe(true);
+  });
+
   it("lists the same effects for both planners (src/native/effects.ts, native/src/effects/list.inc)", () => {
     const list = readFileSync(resolve("native/src/effects/list.inc"), "utf8");
     const native = [...list.matchAll(/^AEVK_EFFECT\("([^"]+)", (true|false), (true|false)\)$/gm)].map((m) => [m[1], { scalable: m[2] === "true", passThrough: m[3] === "true" }]);

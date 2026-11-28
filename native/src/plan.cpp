@@ -189,7 +189,7 @@ void readEffect(Reader& r, Effect& effect, int depth) {
     if (source.layer.kind > 2) r.fail("unknown effect source layer kind");
   }
   const uint32_t flags = r.u32();
-  if (flags & ~15u) r.fail("unknown effect flags");
+  if (flags & ~31u) r.fail("unknown effect flags");
   effect.hasAudio = (flags & 1) != 0;
   if (effect.hasAudio) {
     effect.audio.resize(r.count(36));
@@ -226,6 +226,17 @@ void readEffect(Reader& r, Effect& effect, int depth) {
       data.bytes.resize(r.count(1));
       if (!data.bytes.empty()) r.bytes(data.bytes.data(), data.bytes.size());
     }
+  }
+  effect.hasParticles = (flags & 16) != 0;
+  if (effect.hasParticles) {
+    for (std::vector<float>* splats : {&effect.particles.glow, &effect.particles.core}) {
+      splats->resize(size_t(r.count(20)) * 5);
+      for (float& v : *splats) v = r.f32();
+    }
+    for (float& c : effect.particles.color) c = r.f32();
+    effect.particles.glowBlend = r.u32();
+    effect.particles.particleBlend = r.u32();
+    if (effect.particles.glowBlend - 1 > 3 || effect.particles.particleBlend - 1 > 3) r.fail("unknown particle blend mode");
   }
 }
 

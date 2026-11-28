@@ -9,6 +9,7 @@
 #include <cstdint>
 #include <functional>
 #include <initializer_list>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -101,6 +102,10 @@ enum class FxBlend : uint8_t {
   Max,
   /** gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA): premultiplied over. */
   Over,
+  /** gl.blendFunc(gl.ONE, gl.ONE): the sum. */
+  Add,
+  /** gl.blendFuncSeparate(gl.ONE, gl.ONE_MINUS_SRC_COLOR, gl.ONE, gl.ONE_MINUS_SRC_ALPHA): screen on premultiplied colour. */
+  Screen,
 };
 
 /** One instanced draw of FxContext::draw, with its own uniforms. */
@@ -108,6 +113,8 @@ struct FxDraw {
   uint32_t vertices = 4;
   uint32_t instances = 1;
   FxSetter set;
+  /** This draw's blend in place of the call's, as when WebGL's blend state changes between draws. */
+  std::optional<FxBlend> blend;
 };
 
 /** A rectangle in WebGL's target pixels: x from the left, y from the bottom row. */

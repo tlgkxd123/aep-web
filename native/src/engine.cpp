@@ -448,7 +448,11 @@ struct Engine::Impl {
       const bool over = blendMode == FxBlend::Over;
       blend.srcColorBlendFactor = blend.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
       blend.dstColorBlendFactor = blend.dstAlphaBlendFactor = over ? VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA : VK_BLEND_FACTOR_ONE;
-      blend.colorBlendOp = blend.alphaBlendOp = over ? VK_BLEND_OP_ADD : VK_BLEND_OP_MAX;
+      blend.colorBlendOp = blend.alphaBlendOp = blendMode == FxBlend::Max ? VK_BLEND_OP_MAX : VK_BLEND_OP_ADD;
+      if (blendMode == FxBlend::Screen) {
+        blend.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_COLOR;
+        blend.dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+      }
     }
     VkPipelineColorBlendStateCreateInfo blending{VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO};
     blending.attachmentCount = 1;
@@ -948,6 +952,8 @@ struct Engine::Impl {
       if (flushes == before) break;
     }
     VkPipeline pipe = fxDrawPipeline(id, out.format, blend);
+    std::vector<VkPipeline> pipes;
+    for (const FxDraw& d : draws) pipes.push_back(d.blend ? fxDrawPipeline(id, out.format, *d.blend) : pipe);
     beginPass(out);
     VkViewport viewport{0, 0, float(out.width), float(out.height), 0, 1};
     vk::vkCmdSetViewport(cmd, 0, 1, &viewport);
@@ -960,11 +966,15 @@ struct Engine::Impl {
       rect = {{int32_t(x0), int32_t(y0)}, {uint32_t(std::max<int64_t>(0, x1 - x0)), uint32_t(std::max<int64_t>(0, y1 - y0))}};
     }
     vk::vkCmdSetScissor(cmd, 0, 1, &rect);
-    vk::vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipe);
     const FxPush push{{float(out.width), float(out.height)}, out.format == kColorFormat ? 1 : 0};
-    vk::vkCmdPushConstants(cmd, fxPipelineLayout, VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof push, &push);
+    VkPipeline bound = VK_NULL_HANDLE;
     for (size_t i = 0; i < draws.size(); i++) {
       if (!draws[i].instances || !draws[i].vertices || !rect.extent.width || !rect.extent.height) continue;
+      if (pipes[i] != bound) {
+        vk::vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipes[i]);
+        vk::vkCmdPushConstants(cmd, fxPipelineLayout, VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof push, &push);
+        bound = pipes[i];
+      }
       vk::vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, fxPipelineLayout, 0, 1, &sets[i], 0, nullptr);
       vk::vkCmdDraw(cmd, draws[i].vertices, draws[i].instances, 0, 0);
     }
