@@ -5,7 +5,7 @@ import type { LayerImage, RenderContext } from "../registry.ts";
 import { grown, mapPass, PASS_HEADER } from "./fxextraUtil.ts";
 import { COLOR_LIB, compOf, imageRect, layerPass, layerRect, registerStock } from "./stockUtil.ts";
 
-const FILL_FS = `${PASS_HEADER}
+export const FILL_FS = `${PASS_HEADER}
 uniform vec3 u_color;
 uniform float u_opacity;
 void main() {

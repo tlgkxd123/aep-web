@@ -20,6 +20,20 @@ struct FxRect {
 /** An image's content rectangle (imageRect). */
 FxRect imageRect(const FxImage& image);
 
+/**
+ * The layer's own rectangle in the input's pixels (layerRect): an AV layer's source box, a shape layer's comp-sized box
+ * centred on its origin, else the input image's extent.
+ */
+FxRect layerRect(const EffectLayer& layer, const FxImage& input);
+
+FxRect unionRect(const FxRect& a, const FxRect& b);
+
+/** An effect point in layer pixels: points are measured from the top left of the layer's box (layerPoint in generateExtra.ts). */
+std::array<double, 2> effectPoint(const EffectLayer& layer, const std::vector<double>& point);
+
+/** The default of an effect's centre point: the middle of the layer's box. */
+inline std::vector<double> layerMiddle(const EffectLayer& layer) { return {layer.width / 2.0, layer.height / 2.0}; }
+
 /** Reads an effect's parameters by 1-based index (Params in stockUtil.ts). */
 class FxParams {
  public:
@@ -46,6 +60,12 @@ class FxParams {
  */
 FxImage layerPass(FxContext& ctx, const FxRect& rect, std::initializer_list<FxImage> sources, fx::Id shader, const FxSetter& set = {},
                   float scale = -1);
+
+/**
+ * Runs a PASS_HEADER shader (sampling u_source at v_uv) over an image of the input's size, with u_size and u_pad set
+ * and `extra` as u_extra0...; releases `input` (mapPass in fxextraUtil.ts).
+ */
+FxImage mapPass(FxContext& ctx, FxImage input, fx::Id shader, const FxSetter& set = {}, std::initializer_list<FxImage> extra = {});
 
 /** layerPass over the input's own rectangle with the input as source 0, keeping its scale; releases `input`. */
 FxImage pixelPass(FxContext& ctx, FxImage input, fx::Id shader, const FxSetter& set = {});

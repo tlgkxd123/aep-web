@@ -16,6 +16,38 @@ double jsRound(double v) { return std::floor(v + 0.5); }
 
 FxRect imageRect(const FxImage& image) { return {image.originX, image.originY, double(image.width), double(image.height)}; }
 
+FxRect layerRect(const EffectLayer& layer, const FxImage& input) {
+  const double k = input.scale;
+  double x0, y0;
+  if (layer.width > 0 && layer.height > 0 && layer.kind == 0) {
+    x0 = 0;
+    y0 = 0;
+  } else if (layer.width > 0 && layer.height > 0 && layer.kind == 1) {
+    x0 = -std::floor(layer.width / 2.0);
+    y0 = -std::floor(layer.height / 2.0);
+  } else {
+    return imageRect(input);
+  }
+  const double x1 = std::ceil((x0 + layer.width) * k - 1e-6);
+  const double y1 = std::ceil((y0 + layer.height) * k - 1e-6);
+  const double fx = std::floor(x0 * k + 1e-6);
+  const double fy = std::floor(y0 * k + 1e-6);
+  return {fx, fy, x1 - fx, y1 - fy};
+}
+
+FxRect unionRect(const FxRect& a, const FxRect& b) {
+  const double x = std::min(a.x, b.x);
+  const double y = std::min(a.y, b.y);
+  return {x, y, std::max(a.x + a.width, b.x + b.width) - x, std::max(a.y + a.height, b.y + b.height) - y};
+}
+
+std::array<double, 2> effectPoint(const EffectLayer& layer, const std::vector<double>& point) {
+  const double x = point.empty() ? 0 : point[0];
+  const double y = point.size() > 1 ? point[1] : 0;
+  if (layer.kind == 1 && layer.width > 0 && layer.height > 0) return {x - std::floor(layer.width / 2.0), y - std::floor(layer.height / 2.0)};
+  return {x, y};
+}
+
 double FxParams::num(uint32_t index, double fallback) const {
   const double v = fxNumber(effect_, index, fallback);
   return std::isfinite(v) ? v : fallback;
@@ -81,6 +113,31 @@ FxImage layerPass(FxContext& ctx, const FxRect& rect, std::initializer_list<FxIm
     default: ctx.warn("layerPass: unsupported source count"); break;
   }
   return out;
+}
+
+FxImage mapPass(FxContext& ctx, FxImage input, fx::Id shader, const FxSetter& set, std::initializer_list<FxImage> extra) {
+  const uint32_t w = ctx.width(input.target);
+  const uint32_t h = ctx.height(input.target);
+  Target* out = ctx.acquire(w, h, FxFormat::Color, false);
+  const Target* t[8] = {input.target};
+  size_t n = 1;
+  for (const FxImage& e : extra) t[n++] = e.target;
+  const auto bind = [&](FxUniforms& u) {
+    u.i("u_source", 0);
+    for (size_t i = 1; i < n; i++) u.i(("u_extra" + std::to_string(i - 1)).c_str(), int32_t(i));
+    u.f("u_size", float(w), float(h));
+    u.f("u_pad", float(ctx.pad));
+    if (set) set(u);
+  };
+  switch (n) {
+    case 1: ctx.pass(shader, *out, {t[0]}, bind); break;
+    case 2: ctx.pass(shader, *out, {t[0], t[1]}, bind); break;
+    case 3: ctx.pass(shader, *out, {t[0], t[1], t[2]}, bind); break;
+    default: ctx.warn("mapPass: unsupported source count"); break;
+  }
+  ctx.release(input.target);
+  input.target = out;
+  return input;
 }
 
 FxImage pixelPass(FxContext& ctx, FxImage input, fx::Id shader, const FxSetter& set) {

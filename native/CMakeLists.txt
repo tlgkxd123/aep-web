@@ -21,7 +21,9 @@ add_library(aevk STATIC
   src/capi.cpp
   src/effects/box_blur.cpp
   src/effects/deep_glow.cpp
+  src/effects/generate.cpp
   src/effects/registry.cpp
+  src/effects/simple.cpp
   src/effects/stock.cpp
   src/effects/stylize.cpp
   src/engine.cpp

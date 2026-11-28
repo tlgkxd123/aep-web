@@ -9,6 +9,18 @@ namespace aevk {
 FxRenderer boxBlurRenderer();
 /** deep_glow.cpp */
 FxRenderer deepGlowRenderer();
+/** generate.cpp */
+FxRenderer checkerboardRenderer();
+FxRenderer circleRenderer();
+FxRenderer gridRenderer();
+FxRenderer ellipseRenderer();
+FxRenderer beamRenderer();
+FxRenderer lightSweepRenderer();
+/** simple.cpp */
+FxRenderer fillRenderer();
+FxRenderer polarRenderer();
+FxRenderer mirrorRenderer();
+FxRenderer rampRenderer();
 /** stylize.cpp */
 FxRenderer strobeRenderer();
 

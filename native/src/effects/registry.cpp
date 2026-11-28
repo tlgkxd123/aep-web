@@ -15,6 +15,16 @@ FxRenderer fxRenderer(const std::string& matchName) {
       {"ADBE Box Blur2", boxBlurRenderer},
       {"ADBE Strobe", strobeRenderer},
       {"PEDG2", deepGlowRenderer},
+      {"ADBE Checkerboard", checkerboardRenderer},
+      {"ADBE Circle", circleRenderer},
+      {"ADBE Grid", gridRenderer},
+      {"ADBE ELLIPSE", ellipseRenderer},
+      {"ADBE Laser", beamRenderer},
+      {"CC Light Sweep", lightSweepRenderer},
+      {"ADBE Fill", fillRenderer},
+      {"ADBE Polar Coordinates", polarRenderer},
+      {"ADBE Mirror", mirrorRenderer},
+      {"ADBE Ramp", rampRenderer},
   };
   for (const Entry& e : entries)
     if (matchName == e.matchName) return e.renderer();

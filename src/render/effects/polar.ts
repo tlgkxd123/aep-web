@@ -10,7 +10,7 @@
 import { effectNumber } from "../effectParams.ts";
 import { registerEffect } from "../registry.ts";
 
-const POLAR_FS = `#version 300 es
+export const POLAR_FS = `#version 300 es
 precision highp float;
 uniform sampler2D u_source;
 uniform vec2 u_size;

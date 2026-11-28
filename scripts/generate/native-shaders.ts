@@ -17,7 +17,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { convertFx } from "../lib/fx-convert.ts";
 import { FX_HEADER, shaderHash, SHADER_DIR, SHADER_HEADER, shaderSymbol } from "../lib/native.ts";
-import { FX_SHADERS, fxHash, fxSource } from "../lib/native-fx.ts";
+import { describeFx, FX_SHADERS, fxHash, fxSource } from "../lib/native-fx.ts";
 
 const args = process.argv.slice(2);
 const option = (name: string) => {
@@ -130,7 +130,7 @@ try {
     names.add(entry.name);
     const source = await fxSource(entry);
     const hash = fxHash(source);
-    const label = `${entry.module} ${entry.export}${entry.args ? `(${entry.args.map((a) => JSON.stringify(a)).join(", ")})` : ""}`;
+    const label = describeFx(entry.source);
     const converted = convertFx(source, label);
     let block = reuseFx.get(`${entry.name} ${hash}`);
     if (!block) {
