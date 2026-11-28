@@ -1,7 +1,7 @@
 /**
  * Generate effects, ported from src/render/effects/generateExtra.ts with the same shaders: Checkerboard, Circle and
- * Grid (a pattern's coverage laid over the layer by its Blending Mode), Ellipse and Beam (glowing strokes) and CC Light
- * Sweep.
+ * Grid (a pattern's coverage laid over the layer by its Blending Mode), Ellipse and Beam (glowing strokes), CC Light
+ * Sweep and Eyedropper Fill.
  */
 #include <algorithm>
 #include <cmath>
@@ -224,6 +224,36 @@ FxImage lightSweep(FxImage input, const Effect& effect, const EffectLayer& layer
   return out;
 }
 
+/** Eyedropper Fill's Average Pixel Colors choices. */
+enum EyedropperAverage : int32_t { kAverageSkipEmpty = 1 };
+
+/**
+ * Eyedropper Fill: the layer's pixels whose centres lie within Sample Radius of Sample Point, averaged by one fragment
+ * into a 1 x 1 image, fill the layer (keeping its alpha with Maintain Original Alpha), mixed with the original by Blend
+ * With Original.
+ */
+FxImage eyedropperFill(FxImage input, const Effect& effect, const EffectLayer& layer, FxContext& ctx) {
+  const FxParams p(effect);
+  const double k = input.scale;
+  const std::array<double, 2> point = effectPoint(layer, p.vec(1, {0, 0}));
+  const double radius = std::max(0.5, p.num(2, 10)) * k;
+  const int32_t mode = p.choice(3, kAverageSkipEmpty, {"Skip Empty", "All", "All Premultiplied", "Including Alpha"});
+  const int32_t reach = int32_t(std::ceil(radius));
+  FxImage averaged = layerPass(ctx, FxRect{0, 0, 1, 1}, {input}, fx::eyedropper_sample, [&](FxUniforms& u) {
+    u.f("u_point", float(point[0] * k), float(point[1] * k));
+    u.f("u_radius", float(radius));
+    u.i("u_reach", reach);
+    u.i("u_mode", mode);
+  });
+  FxImage out = layerPass(ctx, imageRect(input), {input, averaged}, fx::eyedropper_fill, [&](FxUniforms& u) {
+    u.i("u_keepAlpha", p.flag(4, false) ? 1 : 0);
+    u.f("u_blend", float(std::min(1.0, std::max(0.0, p.num(5, 0)))));
+  }, input.scale);
+  ctx.release(averaged.target);
+  ctx.release(input.target);
+  return out;
+}
+
 }  // namespace
 
 FxRenderer checkerboardRenderer() { return checkerboard; }
@@ -232,5 +262,6 @@ FxRenderer gridRenderer() { return grid; }
 FxRenderer ellipseRenderer() { return ellipse; }
 FxRenderer beamRenderer() { return beam; }
 FxRenderer lightSweepRenderer() { return lightSweep; }
+FxRenderer eyedropperFillRenderer() { return eyedropperFill; }
 
 }  // namespace aevk

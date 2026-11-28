@@ -163,25 +163,12 @@ function cellSize(p: Params, anchor: number[], cornerIndex: number, widthIndex: 
 /** Eyedropper Fill's Average Pixel Colors: 1 Skip Empty, 2 All, 3 All Premultiplied, 4 Including Alpha. */
 const Average = { SKIP_EMPTY: 1, ALL: 2, ALL_PREMULTIPLIED: 3, INCLUDING_ALPHA: 4 } as const;
 
-// Eyedropper Fill: the layer's pixels whose centres lie within Sample Radius of Sample Point, averaged by one
-// fragment into a 1 x 1 image, fill the layer (keeping its alpha with Maintain Original Alpha), mixed with the
-// original by Blend With Original.
-registerStock("ADBE Eyedropper Fill", (input, p, ctx, layer) => {
-  const k = input.scale ?? 1;
-  const point = layerPoint(layer, p.vec(1, [0, 0]));
-  const radius = Math.max(0.5, p.num(2, 10)) * k;
-  const mode = p.choice(3, Average.SKIP_EMPTY, ["Skip Empty", "All", "All Premultiplied", "Including Alpha"]);
-  const sample: LayerImage = { target: ctx.pool.acquire(1 + 2 * ctx.pad, 1 + 2 * ctx.pad, true), width: 1, height: 1, origin: [0, 0] };
-  const reach = Math.ceil(radius);
-  const averaged = layerPass(
-    ctx,
-    imageRect(sample),
-    [input],
-    `uniform vec2 u_point;
+/** Eyedropper Fill's shaders (also embedded by the native engine). */
+export const EYEDROPPER_SAMPLE_DECLS = `uniform vec2 u_point;
 uniform float u_radius;
 uniform int u_reach;
-uniform int u_mode;`,
-    `  vec2 centre = floor(u_point) + 0.5;
+uniform int u_mode;`;
+export const EYEDROPPER_SAMPLE_BODY = `  vec2 centre = floor(u_point) + 0.5;
   vec4 sum = vec4(0.0);
   float n = 0.0;
   for (int j = -u_reach; j <= u_reach; j++) {
@@ -197,7 +184,30 @@ uniform int u_mode;`,
   vec4 m = n > 0.0 ? sum / n : vec4(0.0);
   if (u_mode == ${Average.SKIP_EMPTY} || u_mode == ${Average.ALL}) outColor = vec4(m.rgb, 1.0);
   else if (u_mode == ${Average.ALL_PREMULTIPLIED}) outColor = vec4(m.rgb, 1.0);
-  else outColor = m;`,
+  else outColor = m;`;
+export const EYEDROPPER_FILL_DECLS = `uniform int u_keepAlpha;
+uniform float u_blend;`;
+export const EYEDROPPER_FILL_BODY = `  vec4 c = at(0, p);
+  vec4 fill = at(1, vec2(0.5));
+  vec4 f = u_keepAlpha == 1 ? vec4(fill.a > 0.0 ? fill.rgb / fill.a : vec3(0.0), 1.0) * c.a : fill;
+  outColor = mix(f, c, u_blend);`;
+
+// Eyedropper Fill: the layer's pixels whose centres lie within Sample Radius of Sample Point, averaged by one
+// fragment into a 1 x 1 image, fill the layer (keeping its alpha with Maintain Original Alpha), mixed with the
+// original by Blend With Original.
+registerStock("ADBE Eyedropper Fill", (input, p, ctx, layer) => {
+  const k = input.scale ?? 1;
+  const point = layerPoint(layer, p.vec(1, [0, 0]));
+  const radius = Math.max(0.5, p.num(2, 10)) * k;
+  const mode = p.choice(3, Average.SKIP_EMPTY, ["Skip Empty", "All", "All Premultiplied", "Including Alpha"]);
+  const sample: LayerImage = { target: ctx.pool.acquire(1 + 2 * ctx.pad, 1 + 2 * ctx.pad, true), width: 1, height: 1, origin: [0, 0] };
+  const reach = Math.ceil(radius);
+  const averaged = layerPass(
+    ctx,
+    imageRect(sample),
+    [input],
+    EYEDROPPER_SAMPLE_DECLS,
+    EYEDROPPER_SAMPLE_BODY,
     (u) => {
       ctx.gl.uniform2f(u("u_point"), point[0] * k, (point[1] ?? 0) * k);
       ctx.gl.uniform1f(u("u_radius"), radius);
@@ -210,12 +220,8 @@ uniform int u_mode;`,
     ctx,
     imageRect(input),
     [input, averaged],
-    `uniform int u_keepAlpha;
-uniform float u_blend;`,
-    `  vec4 c = at(0, p);
-  vec4 fill = at(1, vec2(0.5));
-  vec4 f = u_keepAlpha == 1 ? vec4(fill.a > 0.0 ? fill.rgb / fill.a : vec3(0.0), 1.0) * c.a : fill;
-  outColor = mix(f, c, u_blend);`,
+    EYEDROPPER_FILL_DECLS,
+    EYEDROPPER_FILL_BODY,
     (u) => {
       ctx.gl.uniform1i(u("u_keepAlpha"), p.bool(4, false) ? 1 : 0);
       ctx.gl.uniform1f(u("u_blend"), Math.min(1, Math.max(0, p.num(5, 0))));

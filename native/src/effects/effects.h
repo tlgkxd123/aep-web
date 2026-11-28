@@ -54,6 +54,8 @@ FxRenderer noiseHlsRenderer();
 FxRenderer noiseHlsAutoRenderer();
 FxRenderer vignetteRenderer();
 FxRenderer minimaxRenderer();
+FxRenderer keylightRenderer();
+FxRenderer eyedropperFillRenderer();
 FxRenderer linearColorKeyRenderer();
 FxRenderer colorKeyRenderer();
 FxRenderer lumaKeyRenderer();

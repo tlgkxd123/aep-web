@@ -49,6 +49,8 @@ FxRenderer fxRenderer(const std::string& matchName) {
       {"ADBE Noise HLS Auto2", noiseHlsAutoRenderer},
       {"CS Vignette", vignetteRenderer},
       {"ADBE Minimax", minimaxRenderer},
+      {"Keylight 906", keylightRenderer},
+      {"ADBE Eyedropper Fill", eyedropperFillRenderer},
       {"ADBE Linear Color Key2", linearColorKeyRenderer},
       {"ADBE Color Key", colorKeyRenderer},
       {"ADBE Luma Key", lumaKeyRenderer},

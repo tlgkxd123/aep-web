@@ -224,6 +224,9 @@ export const FX_SHADERS: FxShaderSource[] = [
   shader("minimax_unpremultiply", "minimax.ts", "UNPREMULTIPLY_FS"),
   shader("minimax_premultiply", "minimax.ts", "PREMULTIPLY_FS"),
   shader("minimax", "minimax.ts", "MINMAX_FS"),
+  shader("keylight", "keylight.ts", "KEYLIGHT_FS"),
+  layerPass("eyedropper_sample", 1, ref("generateExtra.ts", "EYEDROPPER_SAMPLE_DECLS"), ref("generateExtra.ts", "EYEDROPPER_SAMPLE_BODY")),
+  layerPass("eyedropper_fill", 2, ref("generateExtra.ts", "EYEDROPPER_FILL_DECLS"), ref("generateExtra.ts", "EYEDROPPER_FILL_BODY")),
   layerPass("mosaic", 1, ref("stylize.ts", "MOSAIC_DECLS"), ref("stylize.ts", "MOSAIC_BODY")),
   layerPass("noise", 1, ref("stylize.ts", "NOISE_DECLS"), ref("stylize.ts", "NOISE_BODY")),
 ];

@@ -30,6 +30,7 @@ add_library(aevk STATIC
     src/effects/displace.cpp
     src/effects/blur_noise.cpp
     src/effects/vignette_minimax.cpp
+    src/effects/keylight.cpp
   src/effects/transitions.cpp
   src/effects/box_blur.cpp
   src/effects/channel.cpp
