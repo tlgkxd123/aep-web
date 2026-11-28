@@ -70,7 +70,12 @@ function compile(file: string): Uint32Array {
     const glslang = option("--glslang") ?? "glslangValidator";
     compiler = `${glslang} + spirv-opt`;
     const raw = `${file}.raw.spv`;
-    execFileSync(glslang, ["-V", "--target-env", "vulkan1.0", "-o", raw, file], { stdio: ["ignore", "ignore", "inherit"] });
+    try {
+      // glslangValidator reports errors on stdout.
+      execFileSync(glslang, ["-V", "--target-env", "vulkan1.0", "-o", raw, file], { stdio: ["ignore", "pipe", "inherit"] });
+    } catch (error) {
+      throw new Error(`${file} does not compile:\n${String((error as { stdout?: Buffer }).stdout ?? "")}`);
+    }
     execFileSync("spirv-opt", ["-O", "--target-env=vulkan1.0", "-o", out, raw], { stdio: "inherit" });
   }
   const spirv = readFileSync(out);

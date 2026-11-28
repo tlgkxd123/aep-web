@@ -12,6 +12,21 @@ namespace {
 /** Math.round: half up. */
 double jsRound(double v) { return std::floor(v + 0.5); }
 
+/** ctx.pass with the first `n` of `t` as inputs: it takes an initializer list, so the counts effects use are spelled out. */
+void passInputs(FxContext& ctx, fx::Id shader, Target& out, const Target* const* t, size_t n, const FxSetter& bind, const char* caller) {
+  switch (n) {
+    case 1: ctx.pass(shader, out, {t[0]}, bind); break;
+    case 2: ctx.pass(shader, out, {t[0], t[1]}, bind); break;
+    case 3: ctx.pass(shader, out, {t[0], t[1], t[2]}, bind); break;
+    case 4: ctx.pass(shader, out, {t[0], t[1], t[2], t[3]}, bind); break;
+    case 5: ctx.pass(shader, out, {t[0], t[1], t[2], t[3], t[4]}, bind); break;
+    case 6: ctx.pass(shader, out, {t[0], t[1], t[2], t[3], t[4], t[5]}, bind); break;
+    case 7: ctx.pass(shader, out, {t[0], t[1], t[2], t[3], t[4], t[5], t[6]}, bind); break;
+    case 8: ctx.pass(shader, out, {t[0], t[1], t[2], t[3], t[4], t[5], t[6], t[7]}, bind); break;
+    default: ctx.warn(std::string(caller) + ": unsupported source count"); break;
+  }
+}
+
 }  // namespace
 
 FxRect imageRect(const FxImage& image) { return {image.originX, image.originY, double(image.width), double(image.height)}; }
@@ -103,10 +118,10 @@ FxImage layerPass(FxContext& ctx, const FxRect& rect, std::initializer_list<FxIm
   out.originY = float(jsRound(rect.y));
   out.scale = scale < 0 ? 1 : scale;
   out.target = ctx.acquire(out.width + 2 * ctx.pad, out.height + 2 * ctx.pad, FxFormat::Color, false);
-  const Target* t[8] = {};
+  const Target* t[kMaxPassSources] = {};
   size_t n = 0;
-  for (const FxImage& s : sources) t[n++] = s.target;
-  /** ctx.pass takes an initializer list: spell out the counts layerPass shaders are built for. */
+  for (const FxImage& s : sources)
+    if (n < kMaxPassSources) t[n++] = s.target;
   const auto bind = [&](FxUniforms& u) {
     u.f("u_size", float(ctx.width(out.target)), float(ctx.height(out.target)));
     u.f("u_pad", float(ctx.pad));
@@ -122,13 +137,7 @@ FxImage layerPass(FxContext& ctx, const FxRect& rect, std::initializer_list<FxIm
     }
     if (set) set(u);
   };
-  switch (n) {
-    case 1: ctx.pass(shader, *out.target, {t[0]}, bind); break;
-    case 2: ctx.pass(shader, *out.target, {t[0], t[1]}, bind); break;
-    case 3: ctx.pass(shader, *out.target, {t[0], t[1], t[2]}, bind); break;
-    case 4: ctx.pass(shader, *out.target, {t[0], t[1], t[2], t[3]}, bind); break;
-    default: ctx.warn("layerPass: unsupported source count"); break;
-  }
+  passInputs(ctx, shader, *out.target, t, sources.size() <= kMaxPassSources ? n : 0, bind, "layerPass");
   return out;
 }
 
@@ -136,9 +145,10 @@ FxImage mapPass(FxContext& ctx, FxImage input, fx::Id shader, const FxSetter& se
   const uint32_t w = ctx.width(input.target);
   const uint32_t h = ctx.height(input.target);
   Target* out = ctx.acquire(w, h, FxFormat::Color, false);
-  const Target* t[8] = {input.target};
+  const Target* t[kMaxPassSources] = {input.target};
   size_t n = 1;
-  for (const FxImage& e : extra) t[n++] = e.target;
+  for (const FxImage& e : extra)
+    if (n < kMaxPassSources) t[n++] = e.target;
   const auto bind = [&](FxUniforms& u) {
     u.i("u_source", 0);
     for (size_t i = 1; i < n; i++) u.i(("u_extra" + std::to_string(i - 1)).c_str(), int32_t(i));
@@ -146,12 +156,7 @@ FxImage mapPass(FxContext& ctx, FxImage input, fx::Id shader, const FxSetter& se
     u.f("u_pad", float(ctx.pad));
     if (set) set(u);
   };
-  switch (n) {
-    case 1: ctx.pass(shader, *out, {t[0]}, bind); break;
-    case 2: ctx.pass(shader, *out, {t[0], t[1]}, bind); break;
-    case 3: ctx.pass(shader, *out, {t[0], t[1], t[2]}, bind); break;
-    default: ctx.warn("mapPass: unsupported source count"); break;
-  }
+  passInputs(ctx, shader, *out, t, extra.size() < kMaxPassSources ? n : 0, bind, "mapPass");
   ctx.release(input.target);
   input.target = out;
   return input;

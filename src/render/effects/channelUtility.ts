@@ -79,6 +79,15 @@ function bindSecond(gl: WebGL2RenderingContext, u: (name: string) => WebGLUnifor
   gl.uniform4f(u(`u_clamp${n}`), x0, y0, x1, y1);
 }
 
+/**
+ * withSeconds' layerPass declarations: `decls` after the second layers' placement uniforms, with `vec4 second<n>(vec2 p)`
+ * reading second layer n from source `slots[n]` (also embedded by the native engine, which gives each its own source).
+ */
+export function secondsDecls(slots: number[], decls: string): string {
+  const reads = slots.map((slot, n) => `vec4 second${n}(vec2 p) { return at(${slot}, ${secondPoint(n)}); }`).join("\n");
+  return `${slots.map((_, n) => SECOND_UNIFORMS(n)).join("")}${CHANNEL_LIB}${decls}\nvec4 at(int i, vec2 q);\n${reads}`;
+}
+
 /** A pass over the input's pixels reading the input (source 0) and `seconds` (sources 1..), each at its own placement. */
 function withSeconds(ctx: RenderContext, input: LayerImage, seconds: Second[], decls: string, body: string, setUniforms?: Uniforms): LayerImage {
   const images = [input];
@@ -88,14 +97,11 @@ function withSeconds(ctx: RenderContext, input: LayerImage, seconds: Second[], d
     if (i < 0) i = images.push(s.image) - 1;
     slots.push(i);
   }
-  const reads = seconds
-    .map((_, n) => `vec4 second${n}(vec2 p) { return at(${slots[n]}, ${secondPoint(n)}); }`)
-    .join("\n");
   const out = layerPass(
     ctx,
     imageRect(input),
     images,
-    `${seconds.map((_, n) => SECOND_UNIFORMS(n)).join("")}${CHANNEL_LIB}${decls}\nvec4 at(int i, vec2 q);\n${reads}`,
+    secondsDecls(slots, decls),
     body,
     (u) => {
       seconds.forEach((s, n) => bindSecond(ctx.gl, u, n, s));
@@ -144,6 +150,17 @@ float channelValue(int channel, vec4 c) {
   return 0.0;
 }`;
 
+/** Set Channels' withSeconds shader, over four second layers. */
+export const SET_CHANNELS_DECLS = `${CHANNEL_VALUE}
+uniform ivec4 u_channels;
+uniform ivec4 u_empty;`;
+export const SET_CHANNELS_BODY = `  vec4 v = vec4(
+    u_empty.x == 1 ? 0.0 : channelValue(u_channels.x, second0(p)),
+    u_empty.y == 1 ? 0.0 : channelValue(u_channels.y, second1(p)),
+    u_empty.z == 1 ? 0.0 : channelValue(u_channels.z, second2(p)),
+    u_empty.w == 1 ? 0.0 : channelValue(u_channels.w, second3(p)));
+  outColor = vec4(v.rgb * v.a, v.a);`;
+
 // Set Channels: each of the layer's channels from a channel of a source layer (the layer itself when none is chosen).
 registerStock(
   "ADBE Set Channels",
@@ -160,15 +177,8 @@ registerStock(
       ctx,
       input,
       seconds,
-      `${CHANNEL_VALUE}
-uniform ivec4 u_channels;
-uniform ivec4 u_empty;`,
-      `  vec4 v = vec4(
-    u_empty.x == 1 ? 0.0 : channelValue(u_channels.x, second0(p)),
-    u_empty.y == 1 ? 0.0 : channelValue(u_channels.y, second1(p)),
-    u_empty.z == 1 ? 0.0 : channelValue(u_channels.z, second2(p)),
-    u_empty.w == 1 ? 0.0 : channelValue(u_channels.w, second3(p)));
-  outColor = vec4(v.rgb * v.a, v.a);`,
+      SET_CHANNELS_DECLS,
+      SET_CHANNELS_BODY,
       (u) => {
         ctx.gl.uniform4i(u("u_channels"), channels[0], channels[1], channels[2], channels[3]);
         ctx.gl.uniform4i(u("u_empty"), empty[0], empty[1], empty[2], empty[3]);
@@ -192,24 +202,16 @@ const From = {
 /** Channel Combiner's To popup (stored values, separators counted). */
 const To = { RED: 1, GREEN: 2, BLUE: 3, ALPHA: 4, HUE: 6, LIGHTNESS: 7, SATURATION: 8, RED_ONLY: 10, GREEN_ONLY: 11, BLUE_ONLY: 12, ALPHA_ONLY: 13, HUE_ONLY: 15, LIGHTNESS_ONLY: 16, SATURATION_ONLY: 17 } as const;
 
-registerStock(
-  "ADBE Channel Combiner",
-  (input, p, ctx, layer, time) => {
-    const second = p.bool(2, false) ? secondImage(ctx, layer, input, p.num(3, 0), true, time) : null;
-    const source = second ?? { image: input, scale: [1, 1] as [number, number], offset: [0, 0] as [number, number], owned: false };
-    const out = withSeconds(
-      ctx,
-      input,
-      [source],
-      `uniform int u_from;
+/** Channel Combiner's withSeconds shader, over one second layer. */
+export const CHANNEL_COMBINER_DECLS = `uniform int u_from;
 uniform int u_to;
 uniform int u_invert;
 uniform int u_solid;
 // BT.601 at studio range: Y over 16..235, U and V about 128.
 const mat3 TO_YUV = mat3(0.25679, -0.14822, 0.43922, 0.50413, -0.29099, -0.36779, 0.09791, 0.43922, -0.07143);
 const vec3 YUV_OFFSET = vec3(16.0, 127.5, 127.5) / 255.0;
-const mat3 FROM_YUV = mat3(1.16438, 1.16438, 1.16438, 0.0, -0.39176, 2.01723, 1.59603, -0.81297, 0.0);`,
-      `  vec4 c = at(0, p);
+const mat3 FROM_YUV = mat3(1.16438, 1.16438, 1.16438, 0.0, -0.39176, 2.01723, 1.59603, -0.81297, 0.0);`;
+export const CHANNEL_COMBINER_BODY = `  vec4 c = at(0, p);
   vec4 m = second0(p);
   vec3 s = straight(c);
   vec3 ms = straight(m);
@@ -260,7 +262,19 @@ const mat3 FROM_YUV = mat3(1.16438, 1.16438, 1.16438, 0.0, -0.39176, 2.01723, 1.
     else rgb = hsl2rgb(vec3(0.0, v, 0.5));
   }
   rgb = clamp(rgb, 0.0, 1.0);
-  outColor = vec4(rgb * a, a);`,
+  outColor = vec4(rgb * a, a);`;
+
+registerStock(
+  "ADBE Channel Combiner",
+  (input, p, ctx, layer, time) => {
+    const second = p.bool(2, false) ? secondImage(ctx, layer, input, p.num(3, 0), true, time) : null;
+    const source = second ?? { image: input, scale: [1, 1] as [number, number], offset: [0, 0] as [number, number], owned: false };
+    const out = withSeconds(
+      ctx,
+      input,
+      [source],
+      CHANNEL_COMBINER_DECLS,
+      CHANNEL_COMBINER_BODY,
       (u) => {
         const gl = ctx.gl;
         gl.uniform1i(u("u_from"), Math.round(p.num(5, From.RGB_TO_HLS)));
@@ -280,7 +294,7 @@ const mat3 FROM_YUV = mat3(1.16438, 1.16438, 1.16438, 0.0, -0.39176, 2.01723, 1.
 
 const Arith = { AND: 1, OR: 2, XOR: 3, ADD: 4, SUBTRACT: 5, DIFFERENCE: 6, MIN: 7, MAX: 8, BLOCK_ABOVE: 9, BLOCK_BELOW: 10, SLICE: 11, MULTIPLY: 12, SCREEN: 13 } as const;
 
-const ARITHMETIC_FS = `${PASS_HEADER}${COLOR_LIB}${STRAIGHT8}
+export const ARITHMETIC_FS = `${PASS_HEADER}${COLOR_LIB}${STRAIGHT8}
 uniform int u_op;
 uniform ivec3 u_value;
 uniform int u_clip;
@@ -376,13 +390,13 @@ vec4 compound(vec4 c, vec4 m, float fade) {
  * The operator's results before overflow, unclamped, in a float image the input's size (u_extra0: the second layer,
  * aligned; u_extra1: its edge fade).
  */
-const COMPOUND_RAW_FS = `${PASS_HEADER}${COMPOUND_OP}
+export const COMPOUND_RAW_FS = `${PASS_HEADER}${COMPOUND_OP}
 uniform sampler2D u_extra0;
 uniform sampler2D u_extra1;
 void main() { outColor = compound(texture(u_source, v_uv), texture(u_extra0, v_uv), texture(u_extra1, v_uv).r); }`;
 
 /** Each channel's minimum (u_max 0) or maximum over 8 x 8 blocks of a float image of u_from pixels. */
-const MINMAX_FS = `#version 300 es
+export const MINMAX_FS = `#version 300 es
 precision highp float;
 uniform sampler2D u_source;
 uniform ivec2 u_from;
@@ -418,7 +432,7 @@ function reduceMinMax(ctx: RenderContext, image: Target, max: boolean): Target {
   return from;
 }
 
-const COMPOUND_FS = `${PASS_HEADER}${COMPOUND_OP}
+export const COMPOUND_FS = `${PASS_HEADER}${COMPOUND_OP}
 uniform sampler2D u_extra0;
 uniform sampler2D u_extra1;
 uniform sampler2D u_extra2;
@@ -476,6 +490,14 @@ vec4 straightAt(vec2 q) {
 }
 `;
 
+/** Compound Arithmetic's passes over the second layer: its straight colour aligned with the layer, and its edge fade. */
+export const COMPOUND_ALIGNED_DECLS = SECOND_UNIFORMS(0) + STRAIGHT_AT;
+export const COMPOUND_ALIGNED_BODY = `  outColor = straightAt(${secondPoint(0)});`;
+export const COMPOUND_FADE_DECLS = SECOND_UNIFORMS(0);
+export const COMPOUND_FADE_BODY = `  float edge = at(0, ${secondPoint(0)}).a;
+  float a = at(0, p * u_scale0 + u_offset0).a;
+  outColor = vec4(a >= edge ? 1.0 : a / edge);`;
+
 // Compound Arithmetic: the layer combined channel by channel with a second layer (stretched over the layer's box or
 // at its top left), on the colour channels, the alpha or both, at 1 - Blend With Original.
 registerStock(
@@ -485,17 +507,15 @@ registerStock(
     if (!second) return input;
     const bind = (u: (name: string) => WebGLUniformLocation | null) => bindSecond(ctx.gl, u, 0, second);
     // Straight colour, not premultiplied.
-    const aligned = layerPass(ctx, imageRect(input), [second.image], SECOND_UNIFORMS(0) + STRAIGHT_AT, `  outColor = straightAt(${secondPoint(0)});`, bind, input.scale);
+    const aligned = layerPass(ctx, imageRect(input), [second.image], COMPOUND_ALIGNED_DECLS, COMPOUND_ALIGNED_BODY, bind, input.scale);
     // A stretched layer's edges keep their colour but fade out in alpha: the factor, apart so the colour keeps 8 bits.
     const fade = second.clampTo
       ? layerPass(
           ctx,
           imageRect(input),
           [second.image],
-          SECOND_UNIFORMS(0),
-          `  float edge = at(0, ${secondPoint(0)}).a;
-  float a = at(0, p * u_scale0 + u_offset0).a;
-  outColor = vec4(a >= edge ? 1.0 : a / edge);`,
+          COMPOUND_FADE_DECLS,
+          COMPOUND_FADE_BODY,
           bind,
           input.scale,
         )
@@ -547,18 +567,10 @@ registerStock(
 
 const BlendFx = { CROSSFADE: 1, COLOR_ONLY: 2, TINT_ONLY: 3, DARKEN_ONLY: 4, LIGHTEN_ONLY: 5 } as const;
 
-registerStock(
-  "ADBE Blend",
-  (input, p, ctx, layer, time) => {
-    const second = secondImage(ctx, layer, input, p.num(1, 0), p.num(4, 1) === 2, time);
-    if (!second) return input;
-    const out = withSeconds(
-      ctx,
-      input,
-      [second],
-      `uniform int u_mode;
-uniform float u_original;`,
-      `  vec4 c = at(0, p);
+/** Blend's withSeconds shader, over one second layer. */
+export const BLEND_DECLS = `uniform int u_mode;
+uniform float u_original;`;
+export const BLEND_BODY = `  vec4 c = at(0, p);
   vec4 m = second0(p);
   vec4 r;
   if (u_mode == ${BlendFx.CROSSFADE}) r = m;
@@ -575,7 +587,19 @@ uniform float u_original;`,
     // The result has the second layer's coverage, whatever the mode.
     r = vec4(v * m.a, m.a);
   }
-  outColor = mix(r, c, u_original);`,
+  outColor = mix(r, c, u_original);`;
+
+registerStock(
+  "ADBE Blend",
+  (input, p, ctx, layer, time) => {
+    const second = secondImage(ctx, layer, input, p.num(1, 0), p.num(4, 1) === 2, time);
+    if (!second) return input;
+    const out = withSeconds(
+      ctx,
+      input,
+      [second],
+      BLEND_DECLS,
+      BLEND_BODY,
       (u) => {
         ctx.gl.uniform1i(u("u_mode"), Math.round(p.num(2, BlendFx.CROSSFADE)));
         ctx.gl.uniform1f(u("u_original"), Math.min(1, Math.max(0, p.num(3, 0))));
@@ -694,6 +718,24 @@ vec4 calcChannel(vec4 c, int channel, int invert) {
   return vec4(v * c.a, c.a);
 }`;
 
+/** Calculations' withSeconds shader, over one second layer. */
+export const CALCULATIONS_DECLS = `${CALC_CHANNEL}${COMPOSITE_LIB}
+uniform int u_inChannel;
+uniform int u_inInvert;
+uniform int u_secondChannel;
+uniform int u_secondInvert;
+uniform int u_hasSecond;
+uniform float u_opacity;
+uniform int u_mode;
+uniform int u_copy;
+uniform int u_preserve;`;
+export const CALCULATIONS_BODY = `  vec4 c = at(0, p);
+  vec4 base = calcChannel(c, u_inChannel, u_inInvert);
+  vec4 top = u_hasSecond == 1 ? calcChannel(second0(p), u_secondChannel, u_secondInvert) * u_opacity : vec4(0.0);
+  vec4 r = u_copy == 1 ? top : composite(top, base, u_mode);
+  if (u_preserve == 1) r = mix(base, r, base.a);
+  outColor = r;`;
+
 registerStock(
   "ADBE Calculations",
   (input, p, ctx, layer, time) => {
@@ -703,22 +745,8 @@ registerStock(
       ctx,
       input,
       second ? [second] : [{ image: input, scale: [1, 1], offset: [0, 0], owned: false }],
-      `${CALC_CHANNEL}${COMPOSITE_LIB}
-uniform int u_inChannel;
-uniform int u_inInvert;
-uniform int u_secondChannel;
-uniform int u_secondInvert;
-uniform int u_hasSecond;
-uniform float u_opacity;
-uniform int u_mode;
-uniform int u_copy;
-uniform int u_preserve;`,
-      `  vec4 c = at(0, p);
-  vec4 base = calcChannel(c, u_inChannel, u_inInvert);
-  vec4 top = u_hasSecond == 1 ? calcChannel(second0(p), u_secondChannel, u_secondInvert) * u_opacity : vec4(0.0);
-  vec4 r = u_copy == 1 ? top : composite(top, base, u_mode);
-  if (u_preserve == 1) r = mix(base, r, base.a);
-  outColor = r;`,
+      CALCULATIONS_DECLS,
+      CALCULATIONS_BODY,
       (u) => {
         const gl = ctx.gl;
         gl.uniform1i(u("u_inChannel"), Math.round(p.num(2, 1)));
@@ -748,7 +776,7 @@ const SOLID_MODES: Record<number, number> = {
   11: B.CLASSIC_COLOR_BURN, 13: B.DARKEN, 14: B.LIGHTEN, 15: B.CLASSIC_DIFFERENCE, 16: B.EXCLUSION, 18: B.HUE, 19: B.SATURATION, 20: B.COLOR, 21: B.LUMINOSITY,
 };
 
-const SOLID_COMPOSITE_FS = `${PASS_HEADER}${COLOR_LIB}${COMPOSITE_LIB}
+export const SOLID_COMPOSITE_FS = `${PASS_HEADER}${COLOR_LIB}${COMPOSITE_LIB}
 uniform float u_sourceOpacity;
 uniform vec3 u_color;
 uniform float u_opacity;
@@ -790,6 +818,22 @@ function ownSource(ctx: RenderContext, layer: Layer, time: number): LayerImage |
   return ctx.layerImage(self, time, false);
 }
 
+/** CC Composite's withSeconds shader, over the layer's source. */
+export const CC_COMPOSITE_DECLS = `${COMPOSITE_LIB}
+uniform int u_op;
+uniform int u_mode;
+uniform float u_opacity;
+uniform int u_rgbOnly;`;
+export const CC_COMPOSITE_BODY = `  vec4 c = at(0, p);
+  vec4 o = second0(p) * u_opacity;
+  vec4 r;
+  if (u_op == 1) r = o;
+  else if (u_op == 2) r = c + o * (1.0 - c.a);
+  else if (u_op == 3) r = o + c * (1.0 - o.a);
+  else r = composite(o, c, u_mode);
+  if (u_rgbOnly == 1) r = r.a > 0.0 ? vec4(r.rgb / r.a * c.a, c.a) : vec4(0.0);
+  outColor = r;`;
+
 // CC Composite: the layer before its effects (its source) composited with the effects' result, at Opacity.
 registerStock(
   "CC Composite",
@@ -804,20 +848,8 @@ registerStock(
       ctx,
       input,
       [second],
-      `${COMPOSITE_LIB}
-uniform int u_op;
-uniform int u_mode;
-uniform float u_opacity;
-uniform int u_rgbOnly;`,
-      `  vec4 c = at(0, p);
-  vec4 o = second0(p) * u_opacity;
-  vec4 r;
-  if (u_op == 1) r = o;
-  else if (u_op == 2) r = c + o * (1.0 - c.a);
-  else if (u_op == 3) r = o + c * (1.0 - o.a);
-  else r = composite(o, c, u_mode);
-  if (u_rgbOnly == 1) r = r.a > 0.0 ? vec4(r.rgb / r.a * c.a, c.a) : vec4(0.0);
-  outColor = r;`,
+      CC_COMPOSITE_DECLS,
+      CC_COMPOSITE_BODY,
       (u) => {
         const gl = ctx.gl;
         gl.uniform1i(u("u_op"), mode <= 3 ? mode : 0);
@@ -850,7 +882,7 @@ const Cineon = { LINEAR_TO_LOG: 1, LOG_TO_LINEAR: 2, LOG_TO_LOG: 3 } as const;
 
 // Codes are 10-bit. Linear light is (10^((code - white) k) - o) / (1 - o), o its value at the black point, with
 // k = 0.0034 / gamma; Highlight Rolloff R eases the codes from white - R to white + 2R into white - R to white.
-const CINEON_FS = `${PASS_HEADER}${COLOR_LIB}
+export const CINEON_FS = `${PASS_HEADER}${COLOR_LIB}
 uniform int u_type;
 uniform float u_black;
 uniform float u_white;
@@ -917,7 +949,7 @@ registerStock("CC Overbrights", (input) => input);
 
 const Compander = { COMPRESS: 1, EXPAND: 2 } as const;
 
-const COMPANDER_FS = `${PASS_HEADER}${COLOR_LIB}
+export const COMPANDER_FS = `${PASS_HEADER}${COLOR_LIB}
 uniform int u_mode;
 uniform float u_gain;
 uniform float u_gamma;
@@ -943,7 +975,7 @@ vec3 srgbToLinear(vec3 v) { return mix(v / 12.92, pow((v + 0.055) / 1.055, vec3(
 vec3 linearToSrgb(vec3 v) { return mix(v * 12.92, 1.055 * pow(v, vec3(1.0 / 2.4)) - 0.055, step(0.0031308, v)); }`;
 
 // HDR Highlight Compression: a pixel's linear light scaled by 1 / (1 + its Rec. 601 luminance), mixed in by Amount.
-const HDR_TONEMAP_FS = `${PASS_HEADER}${COLOR_LIB}${SRGB_LIB}
+export const HDR_TONEMAP_FS = `${PASS_HEADER}${COLOR_LIB}${SRGB_LIB}
 uniform float u_amount;
 void main() {
   vec4 c = texture(u_source, v_uv);

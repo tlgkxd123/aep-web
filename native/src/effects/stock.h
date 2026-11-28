@@ -46,6 +46,9 @@ std::array<double, 2> effectPoint(const EffectLayer& layer, const std::vector<do
 /** The default of an effect's centre point: the middle of the layer's box. */
 inline std::vector<double> layerMiddle(const EffectLayer& layer) { return {layer.width / 2.0, layer.height / 2.0}; }
 
+/** The most images one effect pass reads (layerPass sources, or mapPass's input and extras). */
+constexpr size_t kMaxPassSources = 8;
+
 /** Reads an effect's parameters by 1-based index (Params in stockUtil.ts). */
 class FxParams {
  public:

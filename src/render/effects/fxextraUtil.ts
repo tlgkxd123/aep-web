@@ -35,14 +35,8 @@ export function copyImage(ctx: RenderContext, input: LayerImage): LayerImage {
   return { ...input, target: out };
 }
 
-/** A copy of `input` grown by `grow` pixels on every side (content keeps its layer-space position). */
-export function grown(ctx: RenderContext, input: LayerImage, grow: number): LayerImage {
-  const g = Math.max(0, Math.ceil(grow));
-  if (!g) return input;
-  const width = input.width + 2 * g;
-  const height = input.height + 2 * g;
-  const out = ctx.pool.acquire(width + 2 * ctx.pad, height + 2 * ctx.pad);
-  const fragment = `${PASS_HEADER}
+/** grown()'s pass (also embedded by the native engine). */
+export const GROWN_FS = `${PASS_HEADER}
 uniform vec2 u_outSize;
 uniform vec2 u_inSize;
 uniform float u_grow;
@@ -50,7 +44,15 @@ void main() {
   vec2 p = v_uv * u_outSize - u_grow;
   outColor = (p.x < 0.0 || p.y < 0.0 || p.x > u_inSize.x || p.y > u_inSize.y) ? vec4(0.0) : texture(u_source, p / u_inSize);
 }`;
-  ctx.pass(ctx.program(fragment), out, [input.target], (uniform) => {
+
+/** A copy of `input` grown by `grow` pixels on every side (content keeps its layer-space position). */
+export function grown(ctx: RenderContext, input: LayerImage, grow: number): LayerImage {
+  const g = Math.max(0, Math.ceil(grow));
+  if (!g) return input;
+  const width = input.width + 2 * g;
+  const height = input.height + 2 * g;
+  const out = ctx.pool.acquire(width + 2 * ctx.pad, height + 2 * ctx.pad);
+  ctx.pass(ctx.program(GROWN_FS), out, [input.target], (uniform) => {
     ctx.gl.uniform1i(uniform("u_source"), 0);
     ctx.gl.uniform2f(uniform("u_outSize"), out.width, out.height);
     ctx.gl.uniform2f(uniform("u_inSize"), input.target.width, input.target.height);

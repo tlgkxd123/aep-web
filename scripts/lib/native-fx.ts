@@ -13,7 +13,7 @@ export interface FxRef {
   export: string;
   args?: FxArg[];
 }
-export type FxArg = number | string | boolean | FxRef;
+export type FxArg = number | string | boolean | FxRef | FxArg[];
 
 export interface FxShaderSource {
   /** C++ identifier: fx::<name>. */
@@ -32,6 +32,17 @@ const layerPass = (name: string, count: number, decls: FxArg, body: FxArg): FxSh
 const stylize = (name: string, count: number, prefix: string): FxShaderSource => layerPass(name, count, ref("stylizeExtra.ts", `${prefix}_DECLS`), ref("stylizeExtra.ts", `${prefix}_BODY`));
 /** A warp shader (stockUtil.ts warp()): `decls` declares `vec2 map(vec2 p)`. */
 const warp = (name: string, decls: FxArg, post = ""): FxShaderSource => layerPass(name, 1, decls, ref("stockUtil.ts", "warpBody", post));
+/**
+ * A withSeconds shader of channelUtility.ts over the input and `seconds` second layers, each from its own source
+ * (1, 2, ...), from its PREFIX_DECLS and PREFIX_BODY exports.
+ */
+const withSeconds = (name: string, seconds: number, prefix: string): FxShaderSource =>
+  layerPass(
+    name,
+    seconds + 1,
+    ref("channelUtility.ts", "secondsDecls", Array.from({ length: seconds }, (_, i) => i + 1), ref("channelUtility.ts", `${prefix}_DECLS`)),
+    ref("channelUtility.ts", `${prefix}_BODY`),
+  );
 /** A generator of generateExtra.ts (generate()): its pattern's declarations and body. */
 const generator = (name: string, prefix: string): FxShaderSource =>
   layerPass(name, 1, ref("generateExtra.ts", "generateDecls", ref("generateExtra.ts", `${prefix}_DECLS`)), ref("generateExtra.ts", "generateBody", ref("generateExtra.ts", `${prefix}_BODY`)));
@@ -72,10 +83,27 @@ export const FX_SHADERS: FxShaderSource[] = [
   shader("polar", "polar.ts", "POLAR_FS"),
   shader("mirror", "mirrorRamp.ts", "MIRROR_FS"),
   shader("ramp", "mirrorRamp.ts", "RAMP_FS"),
+  shader("grown", "fxextraUtil.ts", "GROWN_FS"),
+  withSeconds("set_channels", 4, "SET_CHANNELS"),
+  withSeconds("channel_combiner", 1, "CHANNEL_COMBINER"),
+  shader("arithmetic", "channelUtility.ts", "ARITHMETIC_FS"),
+  layerPass("compound_aligned", 1, ref("channelUtility.ts", "COMPOUND_ALIGNED_DECLS"), ref("channelUtility.ts", "COMPOUND_ALIGNED_BODY")),
+  layerPass("compound_fade", 1, ref("channelUtility.ts", "COMPOUND_FADE_DECLS"), ref("channelUtility.ts", "COMPOUND_FADE_BODY")),
+  shader("compound_raw", "channelUtility.ts", "COMPOUND_RAW_FS"),
+  shader("min_max", "channelUtility.ts", "MINMAX_FS"),
+  shader("compound", "channelUtility.ts", "COMPOUND_FS"),
+  withSeconds("blend", 1, "BLEND"),
+  withSeconds("calculations", 1, "CALCULATIONS"),
+  shader("solid_composite", "channelUtility.ts", "SOLID_COMPOSITE_FS"),
+  withSeconds("cc_composite", 1, "CC_COMPOSITE"),
+  shader("cineon", "channelUtility.ts", "CINEON_FS"),
+  shader("compander", "channelUtility.ts", "COMPANDER_FS"),
+  shader("hdr_tonemap", "channelUtility.ts", "HDR_TONEMAP_FS"),
 ];
 
 async function value(arg: FxArg): Promise<unknown> {
   if (typeof arg !== "object") return arg;
+  if (Array.isArray(arg)) return Promise.all(arg.map(value));
   const module = (await import(pathToFileURL(resolve(arg.module)).href)) as Record<string, unknown>;
   const exported = module[arg.export];
   if (exported === undefined) throw new Error(`${arg.module} does not export ${arg.export}`);
@@ -94,6 +122,7 @@ export async function fxSource(entry: FxShaderSource): Promise<string> {
 /** Where a shader comes from, for the generated header: `module export(args)`. */
 export function describeFx(arg: FxArg): string {
   if (typeof arg !== "object") return JSON.stringify(arg);
+  if (Array.isArray(arg)) return `[${arg.map(describeFx).join(", ")}]`;
   const name = arg.module.replace(/^src\/render\/effects\//, "");
   return `${name} ${arg.export}${arg.args ? `(${arg.args.map(describeFx).join(", ")})` : ""}`;
 }

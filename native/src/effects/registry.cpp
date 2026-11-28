@@ -34,6 +34,18 @@ FxRenderer fxRenderer(const std::string& matchName) {
       {"CC Kaleida", kaleidaRenderer},
       {"CS HexTile", hexTileRenderer},
       {"CS BlockLoad", blockLoadRenderer},
+      {"ADBE Set Channels", setChannelsRenderer},
+      {"ADBE Channel Combiner", channelCombinerRenderer},
+      {"ADBE Arithmetic", arithmeticRenderer},
+      {"ADBE Compound Arithmetic", compoundArithmeticRenderer},
+      {"ADBE Blend", blendRenderer},
+      {"ADBE Calculations", calculationsRenderer},
+      {"ADBE Solid Composite", solidCompositeRenderer},
+      {"CC Composite", ccCompositeRenderer},
+      {"ADBE GROW BOUNDS", growBoundsRenderer},
+      {"ADBE Cineon Converter2", cineonRenderer},
+      {"ADBE Compander", companderRenderer},
+      {"ADBE HDR ToneMap", hdrToneMapRenderer},
   };
   for (const Entry& e : entries)
     if (matchName == e.matchName) return e.renderer();

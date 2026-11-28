@@ -7,6 +7,19 @@ namespace aevk {
 
 /** box_blur.cpp */
 FxRenderer boxBlurRenderer();
+/** channel.cpp */
+FxRenderer setChannelsRenderer();
+FxRenderer channelCombinerRenderer();
+FxRenderer arithmeticRenderer();
+FxRenderer compoundArithmeticRenderer();
+FxRenderer blendRenderer();
+FxRenderer calculationsRenderer();
+FxRenderer solidCompositeRenderer();
+FxRenderer ccCompositeRenderer();
+FxRenderer growBoundsRenderer();
+FxRenderer cineonRenderer();
+FxRenderer companderRenderer();
+FxRenderer hdrToneMapRenderer();
 /** deep_glow.cpp */
 FxRenderer deepGlowRenderer();
 /** generate.cpp */

@@ -86,6 +86,8 @@ export function convertFx(input: string, label: string): ConvertedFx {
     if (new RegExp(`\\b${unsupported}\\b`).test(source)) throw new Error(`${label}: ${unsupported} is not converted yet`);
   source = source.replace(/^\s*#version\s+300\s+es[^\n]*\n/, "");
   source = source.replace(/^\s*precision\s+\w+\s+\w+\s*;[^\n]*$/gm, "");
+  // A declaration may follow a library's closing brace on the same line (`}uniform int u_x;`): give it its own line.
+  source = source.replace(/([;}])[ \t]*(uniform\s)/g, "$1\n$2");
   for (const word of KEYWORDS_450) source = source.replace(new RegExp(`\\b${word}\\b`, "g"), `fx_${word}`);
 
   const samplers: string[] = [];
