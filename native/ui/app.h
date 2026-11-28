@@ -31,6 +31,11 @@ struct sAppHost
 	 * Without it the app shows its own folder browser.
 	 */
 	std::function<void()> m_ChooseProject;
+	/**
+	 * Asks the platform to let the user choose the folder a project's footage is in; it answers later with
+	 * CApp::AddMediaFolder. Without it footage is only looked for next to the project.
+	 */
+	std::function<void()> m_ChooseFootageFolder;
 	/** Saves a file the user asked for (a frame as PNG); without it the app writes next to the project. */
 	std::function<bool(const std::string& name, const std::vector<u8>& bytes, std::string& error)> m_SaveFile;
 	/** A touch screen: larger targets, no hover. */
@@ -59,6 +64,8 @@ public:
 	bool OpenFile(const std::string& path);
 	/** Opens a project from its bytes; `mediaFolder` (may be empty) is searched for its footage and sounds. */
 	bool OpenBytes(const std::string& name, std::vector<u8> bytes, const std::string& mediaFolder);
+	/** Looks for footage and sounds in `folder` too, and draws the frames shown so far again. */
+	void AddMediaFolder(const std::string& folder);
 	/** Starts or pauses playback of the current comp. */
 	void SetPlaying(bool playing);
 	/** Shows a message in the app (a project the platform could not read...). */

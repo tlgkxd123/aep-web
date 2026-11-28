@@ -100,6 +100,9 @@ public:
 	/** The comp being shown, or null. */
 	const CItem* CompItem() const { return m_pComp; }
 
+	/** Forgets every planned and rendered frame, so they are drawn again (footage found in a folder added since). */
+	void ForgetFrames();
+
 	/** Asks the next Tick to present even when the playhead has not moved (after a resize or expose). */
 	void Invalidate() { m_bDirty = true; }
 

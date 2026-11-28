@@ -1,4 +1,4 @@
-/** Video footage decoding (video.h): FFmpeg on the desktop, where the build has it. */
+/** Video footage decoding (video.h): FFmpeg on the desktop, where the build has it; Android has video_android.cpp. */
 #include "video.h"
 
 #include <algorithm>
@@ -363,7 +363,7 @@ bool decodeStill(const std::string& path, uint32_t& width, uint32_t& height, std
   return finish(true);
 }
 
-#else
+#elif !defined(__ANDROID__)
 
 bool canDecodeVideo() { return false; }
 

@@ -113,6 +113,15 @@ u32 CPlaybackSession::DefaultComp() const
 	return m_Comps.empty() ? 0 : m_Comps.front().m_uId;
 }
 
+void CPlaybackSession::ForgetFrames()
+{
+	m_Player.invalidate("");
+	m_Unsupported.clear();
+	m_pCurrent.reset();
+	m_iShownFrame = -1;
+	m_bDirty = true;
+}
+
 bool CPlaybackSession::SelectComp(u32 id)
 {
 	const CItem* comp = m_pProject->Item(id);

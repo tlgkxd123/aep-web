@@ -424,6 +424,15 @@ void CApp::CloseProject()
 	m_Pan = ImVec2(0, 0);
 }
 
+void CApp::AddMediaFolder(const std::string& folder)
+{
+	m_Engine.addMediaFolder(folder);
+	if (m_pSession)
+	{
+		m_pSession->ForgetFrames();
+	}
+}
+
 void CApp::Notify(const std::string& message)
 {
 	m_Toasts.push_back({ message, m_fNow + 5 });
@@ -1098,6 +1107,14 @@ void CApp::DrawProjectPanel()
 	ImGui::Dummy(ImVec2(0, 4 * s));
 	if (ImGui::CollapsingHeader("Footage"))
 	{
+		if (m_Host.m_ChooseFootageFolder)
+		{
+			if (ImGui::Button("Choose footage folder", ImVec2(-FLT_MIN, 0)))
+			{
+				m_Host.m_ChooseFootageFolder();
+			}
+			ImGui::SetItemTooltip("The folder this project's images, videos and sounds are in");
+		}
 		for (const auto& entry : project.m_Items)
 		{
 			const CItem& item = *entry.second;

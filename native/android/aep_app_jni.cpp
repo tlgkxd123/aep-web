@@ -69,6 +69,7 @@ enum eAppEvent
 	APP_EVENT_NOTIFY,
 	APP_EVENT_SAFE_AREA,
 	APP_EVENT_BACK,
+	APP_EVENT_MEDIA_FOLDER,
 };
 
 struct sAppEvent
@@ -123,6 +124,7 @@ private:
 	void PostFrame();
 	bool Handle(sAppEvent& event);
 	void ChooseProject();
+	void ChooseFootageFolder();
 	bool SaveFile(const std::string& name, const std::vector<u8>& bytes, std::string& error);
 
 	JavaVM* m_pVm = nullptr;
@@ -267,6 +269,7 @@ void CAndroidApp::Run()
 		host.m_SettingsFolder = m_SettingsFolder;
 		host.m_Platform = "Android";
 		host.m_ChooseProject = [this] { ChooseProject(); };
+		host.m_ChooseFootageFolder = [this] { ChooseFootageFolder(); };
 		host.m_SaveFile = [this](const std::string& name, const std::vector<u8>& bytes, std::string& saveError) {
 			return SaveFile(name, bytes, saveError);
 		};
@@ -411,6 +414,9 @@ bool CAndroidApp::Handle(sAppEvent& event)
 		return true;
 	case APP_EVENT_BACK:
 		return m_pApp->Back();
+	case APP_EVENT_MEDIA_FOLDER:
+		m_pApp->AddMediaFolder(event.m_Name);
+		return true;
 	}
 	return false;
 }
@@ -477,6 +483,21 @@ void CAndroidApp::ChooseProject()
 {
 	jclass type = m_pEnv->GetObjectClass(m_Activity);
 	jmethodID choose = m_pEnv->GetMethodID(type, "chooseProject", "()V");
+	if (choose)
+	{
+		m_pEnv->CallVoidMethod(m_Activity, choose);
+	}
+	if (m_pEnv->ExceptionCheck())
+	{
+		m_pEnv->ExceptionClear();
+	}
+	m_pEnv->DeleteLocalRef(type);
+}
+
+void CAndroidApp::ChooseFootageFolder()
+{
+	jclass type = m_pEnv->GetObjectClass(m_Activity);
+	jmethodID choose = m_pEnv->GetMethodID(type, "chooseFootageFolder", "()V");
 	if (choose)
 	{
 		m_pEnv->CallVoidMethod(m_Activity, choose);
@@ -700,6 +721,18 @@ JNIEXPORT void JNICALL Java_com_zionschxma_aev3_NativeApp_nativeNotify(JNIEnv* e
 		aep::sAppEvent event;
 		event.m_eType = aep::APP_EVENT_NOTIFY;
 		event.m_Name = StringOf(env, message);
+		app->Post(std::move(event));
+	}
+}
+
+/** Adds a folder of footage files (a copy of the folder the user chose) where projects' footage is looked for. */
+JNIEXPORT void JNICALL Java_com_zionschxma_aev3_NativeApp_nativeMediaFolder(JNIEnv* env, jclass, jlong handle, jstring folder)
+{
+	if (aep::CAndroidApp* app = AppOf(handle))
+	{
+		aep::sAppEvent event;
+		event.m_eType = aep::APP_EVENT_MEDIA_FOLDER;
+		event.m_Name = StringOf(env, folder);
 		app->Post(std::move(event));
 	}
 }

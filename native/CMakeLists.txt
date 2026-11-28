@@ -59,8 +59,10 @@ add_library(aevk STATIC
 target_include_directories(aevk PUBLIC include src)
 
 if(ANDROID)
-  # The NDK's sysroot holds the Vulkan headers; the loader is opened at run time.
-  target_link_libraries(aevk PUBLIC android log)
+  # The NDK's sysroot holds the Vulkan headers; the loader is opened at run time. Video footage goes through the
+  # phone's own decoders (mediandk); stills through AImageDecoder, found at run time in libjnigraphics.
+  target_sources(aevk PRIVATE src/video_android.cpp)
+  target_link_libraries(aevk PUBLIC android log mediandk)
   set(AEVK_TOOLS OFF)
 else()
   find_package(Vulkan QUIET)

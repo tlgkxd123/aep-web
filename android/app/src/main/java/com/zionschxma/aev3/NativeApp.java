@@ -12,7 +12,7 @@ final class NativeApp {
     private NativeApp() {}
 
     /**
-     * Starts the app for `activity`, whose {@code chooseProject()} and {@code saveFile(String, byte[])} it calls from its
+     * Starts the app for `activity`, whose {@code chooseProject()}, {@code chooseFootageFolder()} and {@code saveFile(String, byte[])} it calls from its
      * own thread; 0 when it cannot start ({@link #nativeCreateError} says why). `density` is the display's (1 at 160
      * dpi); the recent list is kept in `settingsFolder`.
      */
@@ -34,6 +34,8 @@ final class NativeApp {
     static native void nativeSafeArea(long handle, float left, float top, float right, float bottom);
     static native void nativeOpen(long handle, String name, byte[] project);
     static native void nativeNotify(long handle, String message);
+    /** Adds a folder of real files (a copy of the footage folder the user chose) where projects' footage is looked for. */
+    static native void nativeMediaFolder(long handle, String folder);
     /** True when the app closed something; false when the back button should leave the screen. */
     static native boolean nativeBack(long handle);
 }

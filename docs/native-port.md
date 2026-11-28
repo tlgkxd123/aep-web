@@ -13,7 +13,7 @@ projects at close to desktop speed.
 | Compositing (solids, precomps, shapes, masks, mattes, blend modes, 3D) | `render/renderer.ts` (WebGL2) | `native/src` (Vulkan), from a plan |
 | Shape layers | `render/shapes.ts` | geometry in `native/core` (M1), raster in `native/src`; no dashes yet |
 | Text layers | not drawn yet (`renderer.ts` warns) | not drawn either; both planners list them |
-| Footage (images, video, audio) | `media/` 3.7k lines | stills and image sequences (PNG, BMP, TIFF) in `native/src/image.cpp`; video through FFmpeg on desktop (`native/src/video.cpp`); JPEG stills through FFmpeg on desktop; WAV for Audio Spectrum; no JPEG or video on Android yet |
+| Footage (images, video, audio) | `media/` 3.7k lines | stills and image sequences (PNG, BMP, TIFF) in `native/src/image.cpp`; video through FFmpeg on desktop (`native/src/video.cpp`); JPEG stills through FFmpeg on desktop; WAV for Audio Spectrum; on Android, video through the phone's decoders (`native/src/video_android.cpp`) and JPEG/WebP/HEIF stills through AImageDecoder (Android 11+), written but not yet compiled |
 | Effects (54 files, built-in and third-party look-alikes) | `render/effects/` ~15k lines | 142 drawn and 17 passed through in `native/src/effects` (M5), Particular's dot particles included; its sprites and the opt-in Sapphire and XMult look-alikes not yet |
 | Editing (undo, layer ops, write back to `.aep`) | `edit/` 6.2k lines | not started |
 | UI | `ui/` 17k lines of React | Dear ImGui viewer on desktop and Android (M6); no editing |
@@ -134,7 +134,8 @@ calls (a referenced property's value, `toComp`, `wiggle`, the noise behind `rand
   sequence fixture passes; `footage_tiff` and `footage_tiff_assoc` fail exactly as the WebGL renderer does on master.
   The web app's own native bridge (`src/native/engine.ts`) leaves footage frames to WebGL, because there the files
   belong to the browser. JPEG stills decode through FFmpeg on desktop (`decodeStill` in `native/src/video.cpp`, full-range
-  BT.601 as browsers decode JFIF); the three JPEG fixtures pass. Android has no JPEG decoder yet.
+  BT.601 as browsers decode JFIF); the three JPEG fixtures pass. On Android, `decodeStill` in `native/src/video_android.cpp` uses AImageDecoder (found at
+  run time in libjnigraphics, so it needs Android 11; older phones get a warning and the layer draws nothing).
 - Video (done on desktop): plan v6 adds the seconds of the file's own time whose picture shows (the frame index over
   the file's native rate, as `footageStore.videoFrame` reads it). `native/src/video.cpp` opens the file with FFmpeg
   (when CMake finds libavformat, libavcodec and libswscale; `-DAEVK_FFMPEG=OFF` leaves it out), lists the samples'
@@ -142,8 +143,13 @@ calls (a referenced property's value, `toComp`, `wiggle`, the noise behind `rand
   it stopped (seeking to the key frame only for a jump back or more than 2 s ahead). 8-bit 4:2:0, 4:2:2, 4:4:4 and
   NV12 pictures keep their planes and upload as bytes; `shaders/footage_yuv.frag` converts them as `INTERPRET_FS`
   does (After Effects' matrix, bilinear chroma). Other formats go through swscale to RGBA. All `footage_video`
-  reference frames pass. Android still needs `AMediaCodec` behind the same `VideoReader`, and before that a way to
-  reach the project's footage folder (below).
+  reference frames pass. On Android the same `VideoReader` is `native/src/video_android.cpp`: AMediaExtractor lists the
+  sample times, AMediaCodec decodes (in hardware where the phone has it) into an AImageReader, frames before the one
+  asked for are dropped without being drawn, and the picture's planes are copied out as the FFmpeg reader lays them
+  (NV12 kept interleaved, crop applied, the codec's colour range read). Seeking follows the desktop rule. Because
+  Android hands apps folders as documents, not paths, the Project panel's "Choose footage folder" button (Android
+  only) copies the chosen folder's media files into the app's cache, keeping files whose size has not changed, and
+  adds that copy where footage is looked for. Written and checked only against stub NDK headers: there is no NDK here.
 - Plan v7 adds each effect layer's Time Stretch, so effects that run on the layer's own clock (Ripple's waves) see
   the same time the TypeScript renderer gives them.
 - Plan v8 adds the Time effects' other frames: Posterize Time, Echo, CC Wide Time, CC Force Motion Blur, Time

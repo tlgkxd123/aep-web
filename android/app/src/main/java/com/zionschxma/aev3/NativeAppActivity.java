@@ -8,6 +8,7 @@ import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Environment;
+import android.provider.DocumentsContract;
 import android.provider.MediaStore;
 import android.provider.OpenableColumns;
 import android.view.MotionEvent;
@@ -24,6 +25,7 @@ import java.io.File;
 import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.util.Locale;
 
 /**
  * The app's native screen: the interface in native/ui (Project, the viewer, playback controls, the Timeline and layer
@@ -34,6 +36,14 @@ import java.io.OutputStream;
 public class NativeAppActivity extends Activity implements SurfaceHolder.Callback {
 
     private static final int CHOOSE_PROJECT = 1;
+    private static final int CHOOSE_FOOTAGE = 2;
+    /** The files a project's footage and sounds can be: what the engine decodes, and what it may one day. */
+    private static final String[] FOOTAGE_EXTENSIONS = {
+        "png", "jpg", "jpeg", "bmp", "tif", "tiff", "gif", "webp", "heic", "psd", "exr",
+        "mp4", "mov", "m4v", "3gp", "webm", "mkv", "avi", "wav", "aif", "aiff", "mp3", "m4a", "aac", "ogg", "flac",
+    };
+    /** Folder levels below the chosen one that are searched. */
+    private static final int FOOTAGE_DEPTH = 8;
 
     private volatile long handle;
     private SurfaceView surface;
@@ -215,6 +225,120 @@ public class NativeAppActivity extends Activity implements SurfaceHolder.Callbac
     }
 
     /**
+     * Called from the app's thread: lets the user choose the folder that holds a project's footage. Android hands apps
+     * folders as documents, not paths, so its media files are copied into the app's cache (once; unchanged files are
+     * kept) and that copy goes to the app, which looks for footage there as it does next to a project on the desktop.
+     */
+    @SuppressWarnings("unused")
+    void chooseFootageFolder() {
+        runOnUiThread(() -> {
+            Intent pick = new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE);
+            try {
+                startActivityForResult(pick, CHOOSE_FOOTAGE);
+            } catch (android.content.ActivityNotFoundException e) {
+                NativeApp.nativeNotify(handle, "This device has no file picker to choose a folder with.");
+            }
+        });
+    }
+
+    /** Copies the media files under the folder `tree` into the cache, then hands the copy to the app. */
+    private void addFootageFolder(Uri tree) {
+        final long app = handle;
+        new Thread(() -> {
+            try {
+                String id = DocumentsContract.getTreeDocumentId(tree);
+                File root = new File(new File(getCacheDir(), "footage"), safeName(tree.getAuthority() + "_" + id));
+                int[] copied = {0};
+                copyFootage(tree, id, root, 0, copied);
+                if (handle == app && app != 0) {
+                    NativeApp.nativeMediaFolder(app, root.getAbsolutePath());
+                    NativeApp.nativeNotify(app, copied[0] == 0 ? "No footage files were found in that folder." : "Looking for footage in the chosen folder.");
+                }
+            } catch (Exception e) {
+                if (handle == app && app != 0) {
+                    NativeApp.nativeNotify(app, "The folder could not be read: " + e.getMessage());
+                }
+            }
+        }, "aep-footage").start();
+    }
+
+    private void copyFootage(Uri tree, String parentId, File into, int depth, int[] copied) throws java.io.IOException {
+        if (depth > FOOTAGE_DEPTH) {
+            return;
+        }
+        Uri children = DocumentsContract.buildChildDocumentsUriUsingTree(tree, parentId);
+        String[] columns = {
+            DocumentsContract.Document.COLUMN_DOCUMENT_ID,
+            DocumentsContract.Document.COLUMN_DISPLAY_NAME,
+            DocumentsContract.Document.COLUMN_MIME_TYPE,
+            DocumentsContract.Document.COLUMN_SIZE,
+        };
+        try (Cursor cursor = getContentResolver().query(children, columns, null, null, null)) {
+            if (cursor == null) {
+                return;
+            }
+            while (cursor.moveToNext()) {
+                String id = cursor.getString(0);
+                String name = cursor.getString(1);
+                if (id == null || name == null || name.startsWith(".")) {
+                    continue;
+                }
+                File target = new File(into, safeName(name));
+                if (DocumentsContract.Document.MIME_TYPE_DIR.equals(cursor.getString(2))) {
+                    copyFootage(tree, id, target, depth + 1, copied);
+                    continue;
+                }
+                if (!isFootage(name)) {
+                    continue;
+                }
+                long size = cursor.isNull(3) ? -1 : cursor.getLong(3);
+                copied[0]++;
+                if (size >= 0 && target.length() == size) {
+                    continue;
+                }
+                File parent = target.getParentFile();
+                if (parent != null && !parent.isDirectory() && !parent.mkdirs()) {
+                    throw new java.io.IOException("the app's cache has no room for " + name);
+                }
+                File partial = new File(target.getPath() + ".part");
+                try (InputStream in = getContentResolver().openInputStream(DocumentsContract.buildDocumentUriUsingTree(tree, id));
+                     OutputStream out = new FileOutputStream(partial)) {
+                    if (in == null) {
+                        continue;
+                    }
+                    byte[] buffer = new byte[1 << 16];
+                    for (int read; (read = in.read(buffer)) > 0; ) {
+                        out.write(buffer, 0, read);
+                    }
+                }
+                if (!partial.renameTo(target)) {
+                    throw new java.io.IOException(name + " could not be copied");
+                }
+            }
+        }
+    }
+
+    private static boolean isFootage(String name) {
+        int dot = name.lastIndexOf('.');
+        if (dot < 0) {
+            return false;
+        }
+        String extension = name.substring(dot + 1).toLowerCase(Locale.ROOT);
+        for (String e : FOOTAGE_EXTENSIONS) {
+            if (e.equals(extension)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** A document's name or id as a single file name: no separators, nothing that climbs out of the folder. */
+    private static String safeName(String name) {
+        String safe = name.replaceAll("[/\\\\:\\u0000]", "_");
+        return safe.equals(".") || safe.equals("..") || safe.isEmpty() ? "_" : safe;
+    }
+
+    /**
      * Called from the app's thread: saves a file the user asked for (a frame as PNG) in Pictures/aep; null when it was
      * saved, otherwise why not.
      */
@@ -256,6 +380,8 @@ public class NativeAppActivity extends Activity implements SurfaceHolder.Callbac
         super.onActivityResult(requestCode, resultCode, data);
         if (requestCode == CHOOSE_PROJECT && resultCode == RESULT_OK && data != null && data.getData() != null) {
             open(data.getData());
+        } else if (requestCode == CHOOSE_FOOTAGE && resultCode == RESULT_OK && data != null && data.getData() != null) {
+            addFootageFolder(data.getData());
         }
     }
 
