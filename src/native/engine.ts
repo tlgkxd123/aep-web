@@ -8,7 +8,7 @@
 import { Capacitor, registerPlugin } from "@capacitor/core";
 import type { CompItem, Project } from "../aep/model.ts";
 import { registerPendingSource } from "../media/pending.ts";
-import { buildFramePlan } from "./plan.ts";
+import { buildFramePlan, type PlanComp, type PlanContent, type PlanLayer } from "./plan.ts";
 import { encodePlan } from "./wire.ts";
 
 /** What the app found out about the device's Vulkan engine. */
@@ -136,6 +136,15 @@ const PENDING = "native";
  * Renders RAM preview frames natively. A frame in flight is pending work under key `<view>:<frame>:<generation>`;
  * its bitmap goes to the sink unless the content changed meanwhile.
  */
+/** Whether a comp, its nested comps, mattes or effects' other layers show footage the engine would read from disk. */
+function hasFootage(comp: PlanComp): boolean {
+  const shows = (content: PlanContent | null | undefined): boolean =>
+    !!content && (content.kind === "footage" || (content.kind === "comp" && hasFootage(content.comp)));
+  const layerShows = (layer: PlanLayer): boolean =>
+    shows(layer.content) || (!!layer.matte?.layer && layerShows(layer.matte.layer)) || layer.effects.some((e) => e.sources?.some((s) => shows(s.content)));
+  return comp.layers.some(layerShows);
+}
+
 export class NativeFrames {
   private device: Promise<NativeDevice> | undefined;
   private known: NativeDevice | undefined;
@@ -219,6 +228,8 @@ export class NativeFrames {
     if (!this.inFlight.has(key)) {
       if (this.inFlight.size >= MAX_IN_FLIGHT) return `${PENDING}\n${this.inFlight.keys().next().value}`;
       const plan = buildFramePlan(project, comp, time, { scale });
+      // The engine reads footage files from disk; here they are the browser's, so footage frames stay with WebGL.
+      if (!plan.unsupported.length && hasFootage(plan.root)) plan.unsupported.push("footage (its files are the web app's)");
       if (plan.unsupported.length) {
         this.refused.add(view);
         this.lastRefusal = `left to WebGL: ${plan.unsupported.join("; ")}`;

@@ -12,10 +12,10 @@
 namespace aevk {
 
 constexpr uint32_t kPlanMagic = 0x50564541;  // "AEVP"
-constexpr uint32_t kPlanVersion = 4;
+constexpr uint32_t kPlanVersion = 5;
 constexpr int kPad = 1;
 
-enum class ContentKind : uint32_t { Solid = 1, Comp = 2, Image = 3, Shape = 4 };
+enum class ContentKind : uint32_t { Solid = 1, Comp = 2, Image = 3, Shape = 4, Footage = 5 };
 
 namespace matte {
 constexpr uint32_t None = 0, Alpha = 1, AlphaInverted = 2, Luma = 3, LumaInverted = 4;
@@ -64,6 +64,21 @@ struct ShapePaint {
 
 struct Comp;
 
+/**
+ * A still image or a sequence frame a footage layer shows (src/render/footage.ts): its file and the Interpret Footage
+ * alpha settings. The content's size is the source's at the plan's scale; at a reduced scale (below 1) each image
+ * pixel averages the source pixels it covers, as INTERPRET_FS does.
+ */
+struct FootageFrame {
+  std::string file;
+  /** The source's size as the project records it. */
+  uint32_t sourceWidth = 0, sourceHeight = 0;
+  bool hasAlpha = false, invertAlpha = false;
+  /** 0 straight, 1 premultiplied (against `matte`), 2 ignore. */
+  uint32_t alphaMode = 0;
+  std::array<float, 3> matte{};
+};
+
 struct Content {
   ContentKind kind = ContentKind::Solid;
   uint32_t width = 0, height = 0;
@@ -75,6 +90,8 @@ struct Content {
   uint32_t image = 0;
   /** Bottom first. */
   std::vector<ShapePaint> paints;
+  /** Footage: the frame's file as the project records it (the engine relinks it), and how to interpret it. */
+  FootageFrame footage;
 };
 
 /** One parameter of an effect, evaluated at the frame time. */

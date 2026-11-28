@@ -6,11 +6,13 @@
 #pragma once
 #include <cstddef>
 #include <cstdint>
+#include <list>
 #include <map>
 #include <memory>
 #include <string>
 #include <vector>
 
+#include "image.h"
 #include "plan.h"
 
 namespace aevk {
@@ -34,6 +36,13 @@ class MediaLibrary {
   std::string locate(const std::string& recorded);
   /** The decoded sound of the file `recorded` names, cached; null when it is not found or not a sound the engine decodes. */
   const AudioData* audio(const std::string& recorded);
+  /**
+   * The decoded still image or sequence frame the file `recorded` names, from a cache of recently used ones; null with
+   * `error` set when it is not found or cannot be decoded (footage.ts: the layer then draws nothing).
+   */
+  std::shared_ptr<const ImageData> image(const std::string& recorded, std::string& error);
+  /** Bytes of decoded images kept at most (the least recently used beyond it are dropped). */
+  void setImageBudget(size_t bytes);
 
  private:
   void index();
@@ -44,6 +53,13 @@ class MediaLibrary {
   /** By the name a plan recorded, and the sounds decoded by the file found (several names can find one file). */
   std::map<std::string, const AudioData*> audio_;
   std::map<std::string, std::unique_ptr<AudioData>> decoded_;
+  /** Decoded images by the file found, most recently used first, and why files failed. */
+  std::list<std::pair<std::string, std::shared_ptr<const ImageData>>> images_;
+  std::map<std::string, std::list<std::pair<std::string, std::shared_ptr<const ImageData>>>::iterator> imageIndex_;
+  std::map<std::string, std::string> imageErrors_;
+  std::map<std::string, std::string> located_;
+  size_t imageBytes_ = 0, imageBudget_ = size_t(512) << 20;
+  void trimImages();
 };
 
 /** One decoded sound heard in a layer's mix: source seconds = scale * t + offset for t in [from, to) (Contribution). */

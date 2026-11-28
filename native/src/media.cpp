@@ -108,6 +108,7 @@ void MediaLibrary::addFolder(const std::string& folder) {
   indexed_ = false;
   // Names not found before may be found in the new folder.
   for (auto it = audio_.begin(); it != audio_.end();) it = it->second ? std::next(it) : audio_.erase(it);
+  for (auto it = located_.begin(); it != located_.end();) it = !it->second.empty() ? std::next(it) : located_.erase(it);
 }
 
 void MediaLibrary::index() {
@@ -167,6 +168,57 @@ const AudioData* MediaLibrary::audio(const std::string& recorded) {
   }
   audio_[recorded] = result;
   return result;
+}
+
+std::shared_ptr<const ImageData> MediaLibrary::image(const std::string& recorded, std::string& error) {
+  auto at = located_.find(recorded);
+  if (at == located_.end()) at = located_.emplace(recorded, locate(recorded)).first;
+  const std::string& path = at->second;
+  if (path.empty()) {
+    error = "the file is not in the media folders";
+    return nullptr;
+  }
+  const auto hit = imageIndex_.find(path);
+  if (hit != imageIndex_.end()) {
+    images_.splice(images_.begin(), images_, hit->second);
+    return hit->second->second;
+  }
+  const auto failed = imageErrors_.find(path);
+  if (failed != imageErrors_.end()) {
+    error = failed->second;
+    return nullptr;
+  }
+  std::ifstream in(path, std::ios::binary);
+  const std::vector<uint8_t> bytes((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+  auto data = std::make_shared<ImageData>();
+  if (!in.good() && !in.eof()) {
+    error = "the file cannot be read";
+  } else if (!decodeImage(bytes.data(), bytes.size(), *data, error)) {
+    data.reset();
+  }
+  if (!data) {
+    imageErrors_[path] = error;
+    return nullptr;
+  }
+  images_.emplace_front(path, data);
+  imageIndex_[path] = images_.begin();
+  imageBytes_ += data->pixels.size();
+  trimImages();
+  return data;
+}
+
+void MediaLibrary::setImageBudget(size_t bytes) {
+  imageBudget_ = bytes;
+  trimImages();
+}
+
+void MediaLibrary::trimImages() {
+  // The image just used stays, whatever its size.
+  while (imageBytes_ > imageBudget_ && images_.size() > 1) {
+    imageBytes_ -= images_.back().second->pixels.size();
+    imageIndex_.erase(images_.back().first);
+    images_.pop_back();
+  }
 }
 
 std::vector<float> mixWindow(const LayerAudio& audio, double first, size_t length) {

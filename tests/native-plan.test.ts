@@ -110,6 +110,23 @@ describe("native render plan", () => {
     expect(decoded.images[0].pixels).toEqual(new Uint8Array([10, 20, 30, 255]));
   });
 
+  it("plans footage stills and sequence frames for the engine to decode", () => {
+    const project = parseProject(new Uint8Array(readFileSync(resolve("refs/fixtures/footage.aep"))));
+    const comp = (name: string) => [...project.items.values()].find((i): i is CompItem => i.kind === "comp" && i.name === name)!;
+    const still = buildFramePlan(project, comp("footage_png_premul"), 0);
+    expect(still.unsupported).toEqual([]);
+    const footage = still.root.layers.map((l) => l.content).find((c) => c?.kind === "footage");
+    expect(footage).toMatchObject({ kind: "footage", width: 96, height: 72, scale: 1, alphaMode: 1, hasAlpha: true });
+    const frame = buildFramePlan(project, comp("footage_seq_30fps"), 5 / 24).root.layers.map((l) => l.content).find((c) => c?.kind === "footage");
+    expect(frame?.kind === "footage" && frame.file.split(/[\\/]/).pop()).toMatch(/^seq_\d{4}\.png$/);
+    const half = buildFramePlan(project, comp("footage_png_premul"), 0, { scale: 0.5 }).root.layers.map((l) => l.content).find((c) => c?.kind === "footage");
+    expect(half).toMatchObject({ width: 48, height: 36, scale: 0.5 });
+    const back = decodePlan(encodePlan(still)).root.layers.map((l) => l.content).find((c) => c?.kind === "footage");
+    expect(back).toEqual(footage?.kind === "footage" ? { ...footage, matte: footage.matte.map(Math.fround) } : footage);
+    // Video stays with the WebGL renderer.
+    expect(buildFramePlan(project, comp("footage_jpeg"), 0).unsupported).toEqual(['footage ("photo.jpg")']);
+  });
+
   it("refuses truncated or foreign bytes", () => {
     const bytes = encodePlan(samplePlan());
     expect(() => decodePlan(bytes.subarray(0, bytes.length - 3))).toThrow(/truncated/);

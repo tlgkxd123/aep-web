@@ -136,6 +136,17 @@ void WriteContent(CWriter& w, const aevk::Content& content)
 			WritePaint(w, paint);
 		}
 		break;
+	case aevk::ContentKind::Footage:
+		w.Str(content.footage.file);
+		w.U32(content.footage.sourceWidth);
+		w.U32(content.footage.sourceHeight);
+		w.U32((content.footage.hasAlpha ? 1u : 0u) | (content.footage.invertAlpha ? 2u : 0u));
+		w.U32(content.footage.alphaMode);
+		for (const float c : content.footage.matte)
+		{
+			w.F32(c);
+		}
+		break;
 	}
 }
 

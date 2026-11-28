@@ -13,7 +13,7 @@ projects at close to desktop speed.
 | Compositing (solids, precomps, shapes, masks, mattes, blend modes, 3D) | `render/renderer.ts` (WebGL2) | `native/src` (Vulkan), from a plan |
 | Shape layers | `render/shapes.ts` | geometry in `native/core` (M1), raster in `native/src`; no dashes yet |
 | Text layers | `render/` + fonts | none |
-| Footage (images, video, audio) | `media/` 3.7k lines | none |
+| Footage (images, video, audio) | `media/` 3.7k lines | stills and image sequences (PNG, BMP, TIFF) in `native/src/image.cpp`; WAV for Audio Spectrum; no JPEG or video yet |
 | Effects (54 files, built-in and third-party look-alikes) | `render/effects/` ~15k lines | none |
 | Editing (undo, layer ops, write back to `.aep`) | `edit/` 6.2k lines | none |
 | UI | `ui/` 17k lines of React | none |
@@ -125,7 +125,15 @@ calls (a referenced property's value, `toComp`, `wiggle`, the noise behind `rand
 **M4. Text and footage**
 
 - Text: FreeType for glyphs and HarfBuzz for shaping, laid out as `src/render` lays it out, drawn as shape paints.
-- Images: stb_image (PNG, JPEG, TGA...), with the decoded frames uploaded once and kept in the engine's pool.
+- Images (done for PNG, BMP and TIFF): decoded by the engine's own code in `native/src/image.cpp` (inflate, PNG
+  filters, palettes and tRNS, Adam7, BMP, and a port of `src/media/tiff.ts`), with no library. Plan v5 carries a
+  `footage` content kind: the frame's recorded file (a sequence's frame resolved by both planners as
+  `footageStore.frame` does), the source size and the Interpret Footage alpha settings. The engine relinks the file
+  through its media folders, keeps decoded frames in a 512 MB LRU, and interprets them on the GPU
+  (`shaders/footage.frag`, a port of `INTERPRET_FS`, reduced-resolution averaging included). Every PNG, BMP and
+  sequence fixture passes; `footage_tiff` and `footage_tiff_assoc` fail exactly as the WebGL renderer does on master.
+  The web app's own native bridge (`src/native/engine.ts`) leaves footage frames to WebGL, because there the files
+  belong to the browser. JPEG is still left to WebGL (a baseline decoder would need to match the browser's IDCT).
 - Video: Android `AMediaCodec` straight into a hardware buffer the engine imports, FFmpeg on desktop. This is where
   phones gain the most over a WebView, which copies every decoded frame at least twice.
 

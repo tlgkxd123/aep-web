@@ -195,7 +195,8 @@ struct Engine::Impl {
   std::map<VkFormat, VkRenderPass> passes;
   std::vector<VkShaderModule> modules;
   VkShaderModule layerVert = VK_NULL_HANDLE, fullscreenVert = VK_NULL_HANDLE, layerFrag = VK_NULL_HANDLE;
-  VkPipeline layerPipe = VK_NULL_HANDLE, compositePipe = VK_NULL_HANDLE, maskPipe = VK_NULL_HANDLE, premultiplyPipe = VK_NULL_HANDLE;
+  VkPipeline layerPipe = VK_NULL_HANDLE, compositePipe = VK_NULL_HANDLE, maskPipe = VK_NULL_HANDLE, premultiplyPipe = VK_NULL_HANDLE,
+             footagePipe = VK_NULL_HANDLE;
   VkPipeline coveragePipe = VK_NULL_HANDLE, featherPipe = VK_NULL_HANDLE, combinePipe = VK_NULL_HANDLE, paintPipe = VK_NULL_HANDLE;
   VkPipeline straightPipe = VK_NULL_HANDLE;
   VkDescriptorSetLayout fxSetLayout = VK_NULL_HANDLE;
@@ -553,6 +554,7 @@ struct Engine::Impl {
     compositePipe = pipeline(fullscreenVert, shader(kShader_composite_frag, sizeof kShader_composite_frag), color, false);
     maskPipe = pipeline(fullscreenVert, shader(kShader_mask_frag, sizeof kShader_mask_frag), color, false);
     premultiplyPipe = pipeline(fullscreenVert, shader(kShader_premultiply_frag, sizeof kShader_premultiply_frag), color, false);
+    footagePipe = pipeline(fullscreenVert, shader(kShader_footage_frag, sizeof kShader_footage_frag), color, false);
     coveragePipe = pipeline(fullscreenVert, shader(kShader_coverage_frag, sizeof kShader_coverage_frag), coverage, false);
     featherPipe = pipeline(fullscreenVert, shader(kShader_feather_frag, sizeof kShader_feather_frag), coverage, false);
     combinePipe = pipeline(fullscreenVert, shader(kShader_combine_frag, sizeof kShader_combine_frag), coverage, false);
@@ -1179,8 +1181,66 @@ struct Engine::Impl {
       case ContentKind::Shape:
         image.target = shapeImage(content, w, h);
         break;
+      case ContentKind::Footage:
+        footageImage(content, image);
+        break;
     }
     return image;
+  }
+
+  /**
+   * A footage frame as a layer image (interpret in src/render/footage.ts): the file decoded (or found in the cache),
+   * uploaded as stored and interpreted on the way in. A file that is missing or cannot be decoded draws nothing, as
+   * in the WebGL renderer, with a warning.
+   */
+  void footageImage(const Content& content, LayerImage& image) {
+    const FootageFrame& f = content.footage;
+    std::string error;
+    std::shared_ptr<const ImageData> data = media.image(f.file, error);
+    const size_t slash = f.file.find_last_of("/\\");
+    const std::string name = slash == std::string::npos ? f.file : f.file.substr(slash + 1);
+    if (!data || !data->width || !data->height) {
+      warn("footage \"" + name + "\" draws nothing: " + (error.empty() ? "it is empty" : error));
+      image.target = cleared(content.width + 2 * kPad, content.height + 2 * kPad);
+      return;
+    }
+    const float scale = content.scale;
+    const bool reduced = scale < 1;
+    const auto side = [reduced, scale](uint32_t s) { return reduced ? std::max<uint32_t>(1, uint32_t(std::ceil(double(s) * scale - 1e-6))) : s; };
+    image.width = side(data->width);
+    image.height = side(data->height);
+    image.scale = reduced ? scale : 1;
+    Target* source = uploadStraight(data->pixels.data(), data->pixels.size(), data->width, data->height);
+    struct {
+      int32_t outSize[2];
+      int32_t pad, mode, hasAlpha, invert, taps;
+      float scale;
+      float matte[4];
+    } push{{int32_t(image.width), int32_t(image.height)}, kPad, int32_t(f.alphaMode), f.hasAlpha ? 1 : 0, f.invertAlpha ? 1 : 0,
+           reduced ? std::min(8, int32_t(std::ceil(1.0 / scale - 1e-6))) : 1, scale, {f.matte[0], f.matte[1], f.matte[2], 0}};
+    Target* out = acquire(image.width + 2 * kPad, image.height + 2 * kPad);
+    pass(*out, footagePipe, {source}, &push, sizeof push, 3);
+    release(source);
+    flush();
+    image.target = out;
+  }
+
+  /** Straight RGBA8 pixels, top row first, into an image of their own size (no border). */
+  Target* uploadStraight(const uint8_t* pixels, size_t bytes, uint32_t width, uint32_t height) {
+    Target* straight = acquire(width, height);
+    // The staging buffer is shared: what is recorded so far must have run before it is written.
+    flush();
+    Buffer& buffer = stagingFor(bytes);
+    std::memcpy(buffer.mapped, pixels, bytes);
+    barrier(straight->image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0,
+            VK_PIPELINE_STAGE_TRANSFER_BIT, VK_ACCESS_TRANSFER_WRITE_BIT);
+    VkBufferImageCopy region{};
+    region.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+    region.imageExtent = {width, height, 1};
+    vk::vkCmdCopyBufferToImage(cmd, buffer.buffer, straight->image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
+    barrier(straight->image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_TRANSFER_BIT,
+            VK_ACCESS_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, VK_ACCESS_SHADER_READ_BIT);
+    return straight;
   }
 
   /** Straight pixels into a padded premultiplied image. */
@@ -1766,7 +1826,7 @@ struct Engine::Impl {
       uiTextures.clear();
       if (uiPipelineLayout) vk::vkDestroyPipelineLayout(device, uiPipelineLayout, nullptr);
       if (uiSetLayout) vk::vkDestroyDescriptorSetLayout(device, uiSetLayout, nullptr);
-      for (VkPipeline p : {layerPipe, compositePipe, maskPipe, premultiplyPipe, coveragePipe, featherPipe, combinePipe, paintPipe, straightPipe})
+      for (VkPipeline p : {layerPipe, compositePipe, maskPipe, premultiplyPipe, footagePipe, coveragePipe, featherPipe, combinePipe, paintPipe, straightPipe})
         if (p) vk::vkDestroyPipeline(device, p, nullptr);
       for (VkShaderModule m : modules) vk::vkDestroyShaderModule(device, m, nullptr);
       for (auto& [format, pass] : passes) vk::vkDestroyRenderPass(device, pass, nullptr);

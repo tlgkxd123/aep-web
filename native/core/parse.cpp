@@ -1241,6 +1241,21 @@ private:
 			displayFrameRate = b.U16(152) + b.U16(154) / 65536.0;
 			const f64 conformFactor = conformFrameRate != 0 ? nativeFrameRate / conformFrameRate : 1;
 			item.m_fDuration = duration * conformFactor * (loop ? loop : 1);
+			/** Interpret Footage (footage.ts interpretation): alpha mode byte 3 marks footage without alpha. */
+			sFootageSource& footage = item.m_Footage;
+			const u8 alphaMode = b.U8(73);
+			footage.m_bHasAlpha = alphaMode != 3;
+			footage.m_uAlphaMode = !footage.m_bHasAlpha ? ALPHA_STRAIGHT
+				: alphaMode == 0 ? ALPHA_STRAIGHT
+				: alphaMode == 1 ? ALPHA_PREMULTIPLIED
+				: ALPHA_IGNORE;
+			footage.m_bInvertAlpha = b.Bit(69, 1);
+			for (s32 i = 0; i < 3; i++)
+			{
+				footage.m_PremulColor[i] = b.U8(70 + i) / 255.0;
+			}
+			footage.m_bIsStill = duration == 0;
+			footage.m_uLoop = loop ? loop : 1;
 		}
 		item.m_fFrameRate = displayFrameRate;
 		/** With "use proxy" on (idta byte 22, bit 0), AE reports the proxy's audio (footage.ts). */
@@ -1340,6 +1355,14 @@ private:
 			{
 				FrameNumberOf(fileNames.back(), endFrame);
 			}
+	sFootageSource& footage = item.m_Footage;
+			footage.m_bSequence = true;
+			footage.m_SequencePrefix = prefix;
+			footage.m_SequenceExtension = extension;
+			footage.m_uStartFrame = startFrame;
+			footage.m_uEndFrame = endFrame;
+			footage.m_uFramePadding = padding;
+			footage.m_FileNames = fileNames;
 		}
 		const auto pad = [padding](u32 frame)
 		{

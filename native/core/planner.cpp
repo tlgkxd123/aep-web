@@ -4,6 +4,7 @@
 #include "planner.h"
 
 #include <algorithm>
+#include <cctype>
 #include <cmath>
 
 #include "evaluate.h"
@@ -282,6 +283,71 @@ f64 SourcePixelAspect(const CLayer& layer, const CItem& comp, const CProject& pr
 	return source / target;
 }
 
+/** The layer's source time at comp time `time`: Time Remap when enabled, else start time and stretch (footage.ts). */
+f64 LayerSourceTime(const CLayer& layer, f64 time)
+{
+	if (layer.m_bTimeRemapEnabled)
+	{
+		if (const CPropertyNode* remap = layer.m_Properties.FindProperty("ADBE Time Remapping"))
+		{
+			const CValue value = CurrentValue(*remap, time, layer);
+			if (value.IsNumber())
+			{
+				return value.m_V[0];
+			}
+		}
+	}
+	return LayerTimeAt(layer, time);
+}
+
+/** The frame of footage shown at `sourceTime` seconds of footage time, after loops (footage.ts footageFrameIndex). */
+u32 FootageFrameIndex(const CItem& item, f64 sourceTime)
+{
+	const sFootageSource& footage = item.m_Footage;
+	if (footage.m_bIsStill || item.m_fFrameRate == 0 || std::isnan(item.m_fFrameRate))
+	{
+		return 0;
+	}
+	const f64 loops = footage.m_uLoop ? footage.m_uLoop : 1;
+	const f64 perLoop = std::max(1.0, std::floor((item.m_fDuration / loops) * item.m_fFrameRate + 0.5));
+	const f64 frame = std::min(std::max(std::floor(sourceTime * item.m_fFrameRate + 1e-6), 0.0), perLoop * loops - 1);
+	return u32(std::fmod(frame, perLoop));
+}
+
+/** Footage files the engine decodes itself (native/src/image.cpp): PNG, BMP and TIFF, by extension (plan.ts NATIVE_IMAGE). */
+bool IsNativeImage(const std::string& file)
+{
+	const size_t dot = file.find_last_of('.');
+	if (dot == std::string::npos)
+	{
+		return false;
+	}
+	std::string ext = file.substr(dot + 1);
+	for (char& c : ext)
+	{
+		c = char(std::tolower(static_cast<unsigned char>(c)));
+	}
+	return ext == "png" || ext == "bmp" || ext == "tif" || ext == "tiff";
+}
+
+/** The file a footage item shows at `sourceTime`, or empty for video and files the engine does not decode (plan.ts footagePlan). */
+std::string FootageFile(const CItem& item, f64 sourceTime)
+{
+	if (item.m_eSource != SOURCE_FILE)
+	{
+		return std::string();
+	}
+	std::string file = item.m_File;
+	const sFootageSource& footage = item.m_Footage;
+	if (footage.m_bSequence)
+	{
+		const size_t slash = file.find_last_of("/\\");
+		const std::string folder = slash == std::string::npos ? file : file.substr(0, slash);
+		file = folder + "/" + footage.FrameName(footage.m_uStartFrame + FootageFrameIndex(item, sourceTime));
+	}
+	return IsNativeImage(file) ? file : std::string();
+}
+
 u32 MatteMode(u32 trackMatteType)
 {
 	switch (trackMatteType)
@@ -500,7 +566,8 @@ bool CFramePlanner::Placed(const CLayer& layer, const CItem& comp, f64 time, con
 	out.opacity = 1;
 	StoreMatrix(matrix, out.matrix);
 	out.zoom = float(zoom);
-	Masks(layer, time, scale, out.masks);
+	/** As plan.ts: the content's own scale (footage is not drawn above its size). */
+	Masks(layer, time, out.content.kind == aevk::ContentKind::Footage && scale >= 1 ? 1.0 : scale, out.masks);
 	out.effects.clear();
 	if (!adjustment)
 	{
@@ -752,6 +819,29 @@ bool CFramePlanner::Content(const CLayer& layer, f64 time, s32 depth, f64 scale,
 		}
 		else if (source->m_fWidth > 0)
 		{
+			const std::string file = FootageFile(*source, LayerSourceTime(layer, time));
+			if (!file.empty())
+			{
+				const sFootageSource& footage = source->m_Footage;
+				const bool reduced = scale < 1;
+				const auto side = [reduced, scale](f64 size)
+				{
+					return reduced ? std::max(1.0, std::ceil(size * scale - 1e-6)) : size;
+				};
+				out.kind = aevk::ContentKind::Footage;
+				out.width = ToUint32(side(source->m_fWidth));
+				out.height = ToUint32(side(source->m_fHeight));
+				out.scale = float(reduced ? scale : 1);
+				aevk::FootageFrame& frame = out.footage;
+				frame.file = file;
+				frame.sourceWidth = ToUint32(source->m_fWidth);
+				frame.sourceHeight = ToUint32(source->m_fHeight);
+				frame.hasAlpha = footage.m_bHasAlpha;
+				frame.invertAlpha = footage.m_bInvertAlpha;
+				frame.alphaMode = footage.m_uAlphaMode == ALPHA_IGNORE ? 2 : footage.m_uAlphaMode == ALPHA_PREMULTIPLIED ? 1 : 0;
+				frame.matte = { float(footage.m_PremulColor[0]), float(footage.m_PremulColor[1]), float(footage.m_PremulColor[2]) };
+				return true;
+			}
 			Unsupported("footage (\"" + source->m_Name + "\")");
 		}
 	}

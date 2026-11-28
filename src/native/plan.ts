@@ -5,13 +5,17 @@
 // Images are in their own pixels, y down, with the renderer's 1 px transparent border (PAD) around them. A plan the
 // engine cannot render faithfully lists why in `unsupported`; the frame is then left to the WebGL renderer.
 import { currentValue, layerTimeAt, setExpressionScope, valueAtTime } from "../aep/evaluate.ts";
-import { isShapeValue, type CompItem, type Layer, type Project, type Property, type PropertyGroup, type PropertyNode } from "../aep/model.ts";
+import { sequenceFrameName } from "../aep/footage.ts";
+import { AlphaMode, isShapeValue, type CompItem, type FootageItem, type Layer, type Project, type Property, type PropertyGroup, type PropertyNode } from "../aep/model.ts";
 import { cameraAt, localTransform, Mat4, worldMatrix, type Camera } from "../aep/transform.ts";
 import { anySolo, drawOrder, isActive, MATTE_MODES, matteLayerOf, MAX_DEPTH, NO_MATTE, PAD, scaledSize } from "../render/composition.ts";
-import { sourcePixelAspect } from "../render/footage.ts";
+import { footageFrameIndex, layerSourceTime, sourcePixelAspect } from "../render/footage.ts";
 import { MatteMode } from "../render/shaders.ts";
 import { planShapeLayer, type ShapePaintPlan } from "../render/shapes.ts";
 import { nativeEffect } from "./effects.ts";
+
+/** Footage files the engine decodes itself (native/src/image.cpp); other files and video are left to WebGL. */
+const NATIVE_IMAGE = /\.(png|bmp|tiff?)$/i;
 
 /** PF_Param_LAYER: an effect parameter naming a layer of the comp by index. */
 const LAYER_CONTROL = 0;
@@ -56,7 +60,27 @@ export type PlanContent =
   | (ContentBase & { kind: "solid"; color: [number, number, number] })
   | (ContentBase & { kind: "comp"; comp: PlanComp })
   | (ContentBase & { kind: "image"; image: number })
-  | (ContentBase & { kind: "shape"; paints: ShapePaintPlan[] });
+  | (ContentBase & { kind: "shape"; paints: ShapePaintPlan[] })
+  | (ContentBase & FootagePlan);
+
+/**
+ * A still image or a sequence frame a footage layer shows (src/render/footage.ts): its file and the Interpret Footage
+ * alpha settings. The content's size is the source's at the plan's scale; at a reduced scale each image pixel
+ * averages the source pixels it covers, as INTERPRET_FS does.
+ */
+export interface FootagePlan {
+  kind: "footage";
+  /** The frame's file as the project records it; the engine relinks it (the most trailing folders in common). */
+  file: string;
+  /** The source's size as the project records it. */
+  sourceWidth: number;
+  sourceHeight: number;
+  hasAlpha: boolean;
+  invertAlpha: boolean;
+  /** 0 straight, 1 premultiplied (against `matte`), 2 ignore. */
+  alphaMode: 0 | 1 | 2;
+  matte: [number, number, number];
+}
 
 export interface PlanMask {
   /** ExtendScript MaskMode (6813 Add ... 6818 Difference). */
@@ -224,6 +248,24 @@ function maskPath(layer: Layer, index: number, time: number): PlanEffect["path"]
     vertices.push(v[0], v[1], inT[0], inT[1], outT[0], outT[1]);
   });
   return { closed: shape.closed, vertices };
+}
+
+/**
+ * The frame a file footage item shows at `sourceTime` seconds of footage time (the frame footageStore.frame reads):
+ * undefined for video and for files the engine does not decode.
+ */
+function footagePlan(item: FootageItem, sourceTime: number): FootagePlan | undefined {
+  const source = item.mainSource;
+  if (source.sourceType !== "FileSource") return undefined;
+  let file = source.file;
+  if (source.sequence) {
+    const folder = file.replace(/[\\/][^\\/]*$/, "");
+    file = `${folder}/${sequenceFrameName(source.sequence, source.sequence.startFrame + footageFrameIndex(item, sourceTime))}`;
+  }
+  if (!NATIVE_IMAGE.test(file)) return undefined;
+  const alphaMode = source.alphaMode === AlphaMode.IGNORE ? 2 : source.alphaMode === AlphaMode.PREMULTIPLIED ? 1 : 0;
+  const [r, g, b] = source.premulColor;
+  return { kind: "footage", file, sourceWidth: item.width, sourceHeight: item.height, hasAlpha: source.hasAlpha, invertAlpha: source.invertAlpha, alphaMode, matte: [r, g, b] };
 }
 
 class Planner {
@@ -419,7 +461,15 @@ class Planner {
     if (source?.kind === "footage") {
       // As the WebGL renderer: a placeholder and footage without video (audio) draw nothing.
       if (source.mainSource.sourceType === "PlaceholderSource") this.warnings.add(`placeholder "${source.name}" has no footage; After Effects refuses to render it`);
-      else if (source.hasVideo) this.unsupported.add(`footage ("${source.name}")`);
+      else if (source.hasVideo) {
+        const footage = footagePlan(source, layerSourceTime(layer, time));
+        if (footage) {
+          const reduced = scale < 1;
+          const size = (side: number) => (reduced ? Math.max(1, Math.ceil(side * scale - 1e-6)) : side);
+          return { ...footage, width: size(footage.sourceWidth), height: size(footage.sourceHeight), origin: [0, 0], scale: reduced ? scale : 1 };
+        }
+        this.unsupported.add(`footage ("${source.name}")`);
+      }
     }
     return null;
   }

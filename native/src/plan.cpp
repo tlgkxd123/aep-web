@@ -128,6 +128,20 @@ void readContent(Reader& r, Content& content, int depth) {
       for (ShapePaint& paint : content.paints) readPaint(r, paint);
       break;
     }
+    case uint32_t(ContentKind::Footage): {
+      content.kind = ContentKind::Footage;
+      FootageFrame& f = content.footage;
+      f.file = r.str();
+      f.sourceWidth = r.side();
+      f.sourceHeight = r.side();
+      const uint32_t flags = r.u32();
+      f.hasAlpha = (flags & 1) != 0;
+      f.invertAlpha = (flags & 2) != 0;
+      f.alphaMode = r.u32();
+      if (f.alphaMode > 2) r.fail("unknown footage alpha mode");
+      for (float& c : f.matte) c = r.f32();
+      break;
+    }
     default:
       r.fail("unknown content kind");
   }

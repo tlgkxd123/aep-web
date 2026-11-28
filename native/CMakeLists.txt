@@ -31,6 +31,7 @@ add_library(aevk STATIC
   src/engine.cpp
   src/fx.cpp
   src/geometry.cpp
+  src/image.cpp
   src/media.cpp
   src/plan.cpp
   src/playback.cpp
@@ -237,7 +238,7 @@ if(AEVK_TOOLS)
   endif()
 
   enable_testing()
-  add_executable(aevk-tests tests/main.cpp tests/plan_test.cpp tests/media_test.cpp tests/playback_test.cpp tests/render_test.cpp)
+  add_executable(aevk-tests tests/main.cpp tests/plan_test.cpp tests/media_test.cpp tests/image_test.cpp tests/playback_test.cpp tests/render_test.cpp)
   target_link_libraries(aevk-tests PRIVATE aevk)
   target_compile_definitions(aevk-tests PRIVATE AEVK_TEST_DATA="${CMAKE_CURRENT_SOURCE_DIR}/tests/data")
   add_test(NAME aevk-tests COMMAND aevk-tests)

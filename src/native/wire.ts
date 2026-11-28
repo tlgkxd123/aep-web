@@ -5,8 +5,10 @@
 //   layer   := u32 flags (1 adjustment), u32 blendMode, f32 opacity, f32[16] matrix (row-major), f32 zoom,
 //              content, u32 maskCount, mask*, u32 effectCount, [effectLayer, effect*],
 //              u32 matteMode, [f32 matteOpacity, u32 hasMatte, [layer]]
-//   content := u32 kind (1 solid, 2 comp, 3 image, 4 shape), u32 width, u32 height, f32 originX, f32 originY, f32 scale,
-//              solid: f32 r, g, b | comp: comp | image: u32 index | shape: u32 paintCount, paint*
+//   content := u32 kind (1 solid, 2 comp, 3 image, 4 shape, 5 footage), u32 width, u32 height, f32 originX, f32 originY,
+//              f32 scale, solid: f32 r, g, b | comp: comp | image: u32 index | shape: u32 paintCount, paint* |
+//              footage: str file, u32 sourceWidth, u32 sourceHeight, u32 flags (1 has alpha, 2 invert alpha),
+//              u32 alphaMode (0 straight, 1 premultiplied, 2 ignore), f32[3] matte
 //   paint   := u32 flags (1 stroke, 2 even-odd), f32[6] matrix (a b c d e f), f32 width, u32 cap, u32 join,
 //              f32 miterLimit, f32[4] color, u32 gradient (0 none, 1 linear, 2 radial),
 //              [f32[2] start, f32[2] end, f32[2] focus, u32 stopCount, f32[4] per stop], u32 pathCount, path*
@@ -25,9 +27,9 @@
 import type { FramePlan, PlanComp, PlanContent, PlanEffect, PlanImage, PlanLayer, PlanMask, PlanParam, ShapePaintPlan } from "./plan.ts";
 
 export const PLAN_MAGIC = 0x50564541; // "AEVP"
-export const PLAN_VERSION = 4;
+export const PLAN_VERSION = 5;
 
-const KIND = { solid: 1, comp: 2, image: 3, shape: 4 } as const;
+const KIND = { solid: 1, comp: 2, image: 3, shape: 4, footage: 5 } as const;
 const utf8 = new TextEncoder();
 const fromUtf8 = new TextDecoder();
 
@@ -101,7 +103,14 @@ function writeContent(w: Writer, content: PlanContent): void {
   if (content.kind === "solid") for (const c of content.color) w.f32(c);
   else if (content.kind === "comp") writeComp(w, content.comp);
   else if (content.kind === "image") w.u32(content.image);
-  else {
+  else if (content.kind === "footage") {
+    w.str(content.file);
+    w.u32(content.sourceWidth);
+    w.u32(content.sourceHeight);
+    w.u32((content.hasAlpha ? 1 : 0) | (content.invertAlpha ? 2 : 0));
+    w.u32(content.alphaMode);
+    for (const c of content.matte) w.f32(c);
+  } else {
     w.u32(content.paints.length);
     for (const paint of content.paints) writePaint(w, paint);
   }
@@ -286,6 +295,14 @@ function readContent(r: Reader): PlanContent {
     const paints: ShapePaintPlan[] = [];
     for (let i = r.u32(); i > 0; i--) paints.push(readPaint(r));
     return { ...base, kind: "shape", paints };
+  }
+  if (kind === KIND.footage) {
+    const file = r.str();
+    const sourceWidth = r.u32();
+    const sourceHeight = r.u32();
+    const flags = r.u32();
+    const alphaMode = r.u32() as 0 | 1 | 2;
+    return { ...base, kind: "footage", file, sourceWidth, sourceHeight, hasAlpha: (flags & 1) !== 0, invertAlpha: (flags & 2) !== 0, alphaMode, matte: [r.f32(), r.f32(), r.f32()] };
   }
   throw new Error(`unknown content kind ${kind}`);
 }
