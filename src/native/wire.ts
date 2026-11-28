@@ -14,7 +14,8 @@
 //   mask    := u32 mode, u32 inverted, f32 opacity, f32 feather, f32 expansion, u32 closed, u32 vertexCount,
 //              f32[6] per vertex (x, y, in x, in y, out x, out y)
 //   effectLayer := f64 time, f64 startTime, f32 width, f32 height, u32 kind (0 AV, 1 shape, 2 other)
-//   effect  := str matchName, u32 paramCount, param*
+//   effect  := str matchName, u32 paramCount, param*, u32 sourceCount, source*
+//   source  := u32 param (declared index of a layer parameter), u32 drawn, [content, f32 width, f32 height, u32 kind]
 //   param   := u32 index (n for "<effect match name>-000n", 0 for any other), [str matchName when 0],
 //              u32 valueCount, f64*, u32 menuCount, u32 per entry (1 separator)
 //   str     := u32 byteCount, UTF-8 bytes
@@ -22,7 +23,7 @@
 import type { FramePlan, PlanComp, PlanContent, PlanEffect, PlanImage, PlanLayer, PlanMask, PlanParam, ShapePaintPlan } from "./plan.ts";
 
 export const PLAN_MAGIC = 0x50564541; // "AEVP"
-export const PLAN_VERSION = 2;
+export const PLAN_VERSION = 3;
 
 const KIND = { solid: 1, comp: 2, image: 3, shape: 4 } as const;
 const utf8 = new TextEncoder();
@@ -149,6 +150,16 @@ function writeEffect(w: Writer, effect: PlanEffect): void {
     for (const v of param.value) w.f64(v);
     w.u32(param.menu?.length ?? 0);
     for (const separator of param.menu ?? []) w.u32(separator ? 1 : 0);
+  }
+  w.u32(effect.sources?.length ?? 0);
+  for (const source of effect.sources ?? []) {
+    w.u32(source.param);
+    w.u32(source.content ? 1 : 0);
+    if (!source.content) continue;
+    writeContent(w, source.content);
+    w.f32(source.width);
+    w.f32(source.height);
+    w.u32(source.kind);
   }
 }
 
@@ -321,7 +332,15 @@ function readLayer(r: Reader): PlanLayer {
         if (menuCount) param.menu = Array.from({ length: menuCount }, () => r.u32() !== 0);
         params.push(param);
       }
-      layer.effects.push({ matchName, params });
+      const effect: PlanEffect = { matchName, params };
+      const sourceCount = r.u32();
+      if (sourceCount) effect.sources = [];
+      for (let j = 0; j < sourceCount; j++) {
+        const param = r.u32();
+        const content = r.u32() ? readContent(r) : null;
+        effect.sources!.push(content ? { param, content, width: r.f32(), height: r.f32(), kind: r.u32() } : { param, content, width: 0, height: 0, kind: 0 });
+      }
+      layer.effects.push(effect);
     }
   }
   const matteMode = r.u32();

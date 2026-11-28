@@ -52,6 +52,10 @@ function samplePlan(): Pick<FramePlan, "root" | "images"> {
       { matchName: "Custom Param", value: [1, 2, 3, 4] },
       { matchName: "ADBE Box Blur2-0003", value: [2], menu: [false, true, false] },
     ],
+    sources: [
+      { param: 4, content: { kind: "solid", width: 2, height: 3, origin: [0, 0], scale: 1, color: [0, 0, 1] }, width: 2, height: 3, kind: 0 },
+      { param: 5, content: null, width: 0, height: 0, kind: 0 },
+    ],
   });
   red.effectLayer = { time: 1 / 3, startTime: -0.5, width: 4, height: 4, kind: 0 };
   const nested: PlanLayer = {

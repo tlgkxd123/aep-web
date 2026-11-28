@@ -439,7 +439,7 @@ bool CFramePlanner::Placed(const CLayer& layer, const CItem& comp, f64 time, con
 	out.effects.clear();
 	if (!adjustment)
 	{
-		Effects(layer, time, out.effects);
+		Effects(layer, comp, time, depth, out.effects);
 	}
 	if (!out.effects.empty())
 	{
@@ -453,7 +453,7 @@ bool CFramePlanner::Placed(const CLayer& layer, const CItem& comp, f64 time, con
 	return true;
 }
 
-void CFramePlanner::Effects(const CLayer& layer, f64 time, std::vector<aevk::Effect>& out)
+void CFramePlanner::Effects(const CLayer& layer, const CItem& comp, f64 time, s32 depth, std::vector<aevk::Effect>& out)
 {
 	for (const CPropertyNode* effect : EnabledEffects(layer))
 	{
@@ -490,7 +490,45 @@ void CFramePlanner::Effects(const CLayer& layer, f64 time, std::vector<aevk::Eff
 			{
 				param.menu.push_back(option.rfind("(-", 0) == 0 ? 1 : 0);
 			}
+			const u32 index = param.index;
+			const f64 named = value.m_V[0];
 			planned.params.push_back(std::move(param));
+			if (node.m_uControlType != CONTROL_LAYER || !index)
+			{
+				continue;
+			}
+			/** As the effects' layer parameters read it: another layer of the comp by index, never the layer itself. */
+			const f64 i = JsRound(named);
+			const CLayer* other = nullptr;
+			if (i > 0)
+			{
+				for (const auto& candidate : comp.m_Layers)
+				{
+					if (candidate->m_iIndex == i && candidate.get() != &layer)
+					{
+						other = candidate.get();
+						break;
+					}
+				}
+			}
+			if (!other)
+			{
+				continue;
+			}
+			aevk::EffectSource source;
+			source.param = index;
+			source.drawn = Content(*other, time, depth, 1, source.content);
+			if (source.drawn)
+			{
+				source.layer.width = float(other->m_fWidth);
+				source.layer.height = float(other->m_fHeight);
+				source.layer.kind = other->m_eType == LAYER_AV ? 0 : other->m_eType == LAYER_SHAPE ? 1 : 2;
+			}
+			else
+			{
+				source.content = aevk::Content();
+			}
+			planned.sources.push_back(std::move(source));
 		}
 		out.push_back(std::move(planned));
 	}

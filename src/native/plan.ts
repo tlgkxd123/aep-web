@@ -13,6 +13,16 @@ import { MatteMode } from "../render/shaders.ts";
 import { planShapeLayer, type ShapePaintPlan } from "../render/shapes.ts";
 import { nativeEffect } from "./effects.ts";
 
+/** PF_Param_LAYER: an effect parameter naming a layer of the comp by index. */
+const LAYER_CONTROL = 0;
+
+/** n for a parameter match name "<effect match name>-000n", else 0. */
+function declaredIndex(effect: string, matchName: string): number {
+  if (matchName.length !== effect.length + 5 || !matchName.startsWith(effect) || matchName[effect.length] !== "-") return 0;
+  const digits = matchName.slice(effect.length + 1);
+  return /^\d{4}$/.test(digits) ? Number(digits) : 0;
+}
+
 export type { ShapePaintPlan };
 
 const MASK_NONE = 6812;
@@ -68,6 +78,22 @@ export interface PlanParam {
 export interface PlanEffect {
   matchName: string;
   params: PlanParam[];
+  /** The other layers its layer parameters name; absent when none does. */
+  sources?: PlanEffectSource[];
+}
+
+/**
+ * The layer an effect's layer parameter names (another layer of the comp, not the effect's own), as its content alone,
+ * before its masks and effects (ctx.layerImage(other, time, false)): null content when it draws nothing.
+ */
+export interface PlanEffectSource {
+  /** The layer parameter's declared index. */
+  param: number;
+  content: PlanContent | null;
+  /** The other layer's size and kind, for its box (layerRect). */
+  width: number;
+  height: number;
+  kind: number;
 }
 
 /** What effects read of their layer besides their parameters. */
@@ -218,7 +244,7 @@ class Planner {
       const toTarget = scale === 1 ? Mat4.translation(PAD, PAD, 0) : Mat4.translation(PAD, PAD, 0).mul(Mat4.scale(scale, scale, 1));
       matrix = toTarget.mul(world);
     }
-    const effects = adjustment ? [] : this.effects(layer, time);
+    const effects = adjustment ? [] : this.effects(layer, comp, time, depth);
     const placed: PlanLayer = {
       name: layer.name,
       adjustment,
@@ -237,13 +263,17 @@ class Planner {
     return placed;
   }
 
-  /** The layer's enabled effects the engine renders, with their parameters' values at `time`. */
-  private effects(layer: Layer, time: number): PlanEffect[] {
+  /**
+   * The layer's enabled effects the engine renders, with their parameters' values at `time` and the content of the
+   * other layers their layer parameters name.
+   */
+  private effects(layer: Layer, comp: CompItem, time: number, depth: number): PlanEffect[] {
     const planned: PlanEffect[] = [];
     for (const effect of enabledEffects(layer)) {
       const native = nativeEffect(effect.matchName);
       if (!native || native.passThrough) continue;
       const params: PlanParam[] = [];
+      const sources: PlanEffectSource[] = [];
       for (const node of effect.children) {
         if (node.kind !== "property") continue;
         const v = currentValue(node, time, layer, effect.children);
@@ -252,8 +282,17 @@ class Planner {
         const param: PlanParam = { matchName: node.matchName, value };
         if (node.options) param.menu = node.options.map((o) => o.startsWith("(-"));
         params.push(param);
+        const index = declaredIndex(effect.matchName, node.matchName);
+        if (node.controlType !== LAYER_CONTROL || !index) continue;
+        // As the effects' layer parameters read it: another layer of the comp by index, never the layer itself.
+        const i = Math.round(value[0]);
+        const other = i > 0 ? comp.layers.find((l) => l.index === i && l !== layer) : undefined;
+        if (!other) continue;
+        const content = this.content(other, time, depth, 1);
+        const kind = other.layerType === "AVLayer" ? 0 : other.layerType === "ShapeLayer" ? 1 : 2;
+        sources.push(content ? { param: index, content, width: other.width, height: other.height, kind } : { param: index, content, width: 0, height: 0, kind: 0 });
       }
-      planned.push({ matchName: effect.matchName, params });
+      planned.push(sources.length ? { matchName: effect.matchName, params, sources } : { matchName: effect.matchName, params });
     }
     return planned;
   }

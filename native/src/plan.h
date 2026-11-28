@@ -12,7 +12,7 @@
 namespace aevk {
 
 constexpr uint32_t kPlanMagic = 0x50564541;  // "AEVP"
-constexpr uint32_t kPlanVersion = 2;
+constexpr uint32_t kPlanVersion = 3;
 constexpr int kPad = 1;
 
 enum class ContentKind : uint32_t { Solid = 1, Comp = 2, Image = 3, Shape = 4 };
@@ -88,19 +88,6 @@ struct EffectParam {
   std::vector<uint8_t> menu;
 };
 
-/** An effect a layer renders through, with its parameters in declared order. */
-struct Effect {
-  std::string matchName;
-  std::vector<EffectParam> params;
-
-  /** The parameter declared n-th (match name ending "-000n"), or null. */
-  const EffectParam* param(uint32_t n) const {
-    for (const EffectParam& p : params)
-      if (p.index == n) return &p;
-    return nullptr;
-  }
-};
-
 /** What effects read of the layer they render on. */
 struct EffectLayer {
   /** Composition time of the frame and the layer's start time, in seconds. */
@@ -109,6 +96,42 @@ struct EffectLayer {
   float width = 0, height = 0;
   /** 0 an AV layer, 1 a shape layer, 2 anything else. */
   uint32_t kind = 0;
+};
+
+/**
+ * The layer an effect's layer parameter names (another layer of the comp, not the effect's own), as its content alone,
+ * before its masks and effects (ctx.layerImage(other, time, false) in renderer.ts).
+ */
+struct EffectSource {
+  /** The layer parameter's declared index. */
+  uint32_t param = 0;
+  /** False when the layer draws nothing at this time: `content` is unset. */
+  bool drawn = false;
+  Content content;
+  /** The other layer's size and kind, for its box (layerRect); its times are left 0. */
+  EffectLayer layer;
+};
+
+/** An effect a layer renders through, with its parameters in declared order. */
+struct Effect {
+  std::string matchName;
+  std::vector<EffectParam> params;
+  /** The other layers its layer parameters name. */
+  std::vector<EffectSource> sources;
+
+  /** The source planned for the layer parameter declared n-th, or null (None, or the layer itself). */
+  const EffectSource* source(uint32_t n) const {
+    for (const EffectSource& s : sources)
+      if (s.param == n) return &s;
+    return nullptr;
+  }
+
+  /** The parameter declared n-th (match name ending "-000n"), or null. */
+  const EffectParam* param(uint32_t n) const {
+    for (const EffectParam& p : params)
+      if (p.index == n) return &p;
+    return nullptr;
+  }
 };
 
 struct Layer {

@@ -176,6 +176,19 @@ void WriteEffect(CWriter& w, const aevk::Effect& effect)
 			w.U32(separator ? 1 : 0);
 		}
 	}
+	w.U32(u32(effect.sources.size()));
+	for (const aevk::EffectSource& source : effect.sources)
+	{
+		w.U32(source.param);
+		w.U32(source.drawn ? 1 : 0);
+		if (source.drawn)
+		{
+			WriteContent(w, source.content);
+			w.F32(source.layer.width);
+			w.F32(source.layer.height);
+			w.U32(source.layer.kind);
+		}
+	}
 }
 
 void WriteLayer(CWriter& w, const aevk::Layer& layer)

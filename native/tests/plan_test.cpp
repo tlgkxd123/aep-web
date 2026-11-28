@@ -45,6 +45,10 @@ TEST(decodes_the_sample_plan) {
   CHECK(blur.params[1].index == 0 && blur.params[1].matchName == "Custom Param" && blur.params[1].value.size() == 4);
   CHECK(blur.param(3) && blur.param(3)->menu.size() == 3 && blur.param(3)->menu[1] == 1 && blur.param(3)->menu[0] == 0);
   CHECK(!blur.param(2));
+  CHECK(blur.sources.size() == 2 && blur.source(4) && blur.source(5) && !blur.source(3));
+  CHECK(blur.source(4)->drawn && blur.source(4)->content.kind == ContentKind::Solid && blur.source(4)->content.height == 3);
+  CHECK(blur.source(4)->layer.width == 2 && blur.source(4)->layer.height == 3 && blur.source(4)->layer.kind == 0);
+  CHECK(!blur.source(5)->drawn);
   CHECK(plan.root.layers[1].effects.empty());
   const Layer& nested = plan.root.layers[1];
   CHECK(nested.content.kind == ContentKind::Comp && nested.content.comp);

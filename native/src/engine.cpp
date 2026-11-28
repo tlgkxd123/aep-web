@@ -864,7 +864,9 @@ struct Engine::Impl {
   /** The engine as effects see it (RenderContext). */
   struct Fx final : FxContext {
     Impl* impl;
-    explicit Fx(Impl* owner) : impl(owner) {}
+    const Layer& layer;
+    int depth;
+    Fx(Impl* owner, const Layer& on, int at) : impl(owner), layer(on), depth(at) {}
     Target* acquire(double width, double height, FxFormat format, bool clear) override {
       const auto side = [](double v) { return v > 1 ? uint32_t(std::ceil(v)) : 1u; };
       Target* t = impl->acquire(side(width), side(height), format == FxFormat::Float ? kFloatFormat : format == FxFormat::Half ? kHalfFormat : kColorFormat);
@@ -876,6 +878,19 @@ struct Engine::Impl {
     uint32_t height(const Target* target) const override { return target->height; }
     void pass(fx::Id shader, Target& out, std::initializer_list<const Target*> inputs, const FxSetter& set) override { impl->fxPass(shader, out, inputs, set); }
     void warn(const std::string& message) override { impl->warn(message); }
+    FxSource source(const Effect& effect, uint32_t param, FxImage& image, EffectLayer& info) override {
+      const EffectSource* s = effect.source(param);
+      if (!s) return FxSource::None;
+      if (!s->drawn) return FxSource::Empty;
+      image = impl->contentImage(s->content, depth);
+      info = s->layer;
+      info.time = layer.effectLayer.time;
+      return FxSource::Image;
+    }
+    bool ownContent(FxImage& image) override {
+      image = impl->contentImage(layer.content, depth);
+      return true;
+    }
   };
 
   void warn(const std::string& message) {
@@ -883,8 +898,8 @@ struct Engine::Impl {
   }
 
   /** Runs the layer's effects in stack order, after its masks (applyEffects in renderer.ts). */
-  LayerImage applyEffects(const Layer& layer, LayerImage image) {
-    Fx ctx(this);
+  LayerImage applyEffects(const Layer& layer, LayerImage image, int depth) {
+    Fx ctx(this, layer, depth);
     for (const Effect& effect : layer.effects) {
       const FxRenderer render = fxRenderer(effect.matchName);
       if (!render) {
@@ -976,9 +991,23 @@ struct Engine::Impl {
     return out;
   }
 
-  /** The layer's content in its own pixels, after its masks. */
+  /** The layer's content in its own pixels, after its masks and effects. */
   LayerImage layerImage(const Layer& layer, int depth) {
-    const Content& content = layer.content;
+    LayerImage image = contentImage(layer.content, depth);
+    if (!layer.masks.empty()) {
+      Target* coverage = maskCoverage(layer.masks, *image.target, image);
+      Target* out = acquire(image.target->width, image.target->height);
+      pass(*out, maskPipe, {image.target, coverage}, nullptr, 0, 3);
+      release(image.target);
+      release(coverage);
+      image.target = out;
+    }
+    if (!layer.effects.empty()) image = applyEffects(layer, image, depth);
+    return image;
+  }
+
+  /** Content in its own pixels (layerContent in renderer.ts). */
+  LayerImage contentImage(const Content& content, int depth) {
     LayerImage image;
     image.width = content.width;
     image.height = content.height;
@@ -1014,15 +1043,6 @@ struct Engine::Impl {
         image.target = shapeImage(content, w, h);
         break;
     }
-    if (!layer.masks.empty()) {
-      Target* coverage = maskCoverage(layer.masks, *image.target, image);
-      Target* out = acquire(image.target->width, image.target->height);
-      pass(*out, maskPipe, {image.target, coverage}, nullptr, 0, 3);
-      release(image.target);
-      release(coverage);
-      image.target = out;
-    }
-    if (!layer.effects.empty()) image = applyEffects(layer, image);
     return image;
   }
 

@@ -90,6 +90,9 @@ class FxUniforms {
 
 using FxSetter = std::function<void(FxUniforms&)>;
 
+/** What an effect's layer parameter names (FxContext::source). */
+enum class FxSource : uint8_t { None, Empty, Image };
+
 class FxContext {
  public:
   virtual ~FxContext() = default;
@@ -106,6 +109,14 @@ class FxContext {
   virtual void pass(fx::Id shader, Target& out, std::initializer_list<const Target*> inputs, const FxSetter& set = {}) = 0;
   /** Records something skipped or approximated in this frame. */
   virtual void warn(const std::string& message) = 0;
+  /**
+   * The layer an effect's layer parameter (declared index `param`) names, as its content alone in its own pixels
+   * (ctx.layerImage(other, time, false)): None when it names no other layer, Empty when that layer draws nothing,
+   * else Image with `image` a new image the caller releases and `layer` that layer's size and kind.
+   */
+  virtual FxSource source(const Effect& effect, uint32_t param, FxImage& image, EffectLayer& layer) = 0;
+  /** The effect's own layer's content before its masks and effects, a new image the caller releases; false when it draws nothing. */
+  virtual bool ownContent(FxImage& image) = 0;
 };
 
 /** A number as WebGL's GLint arguments convert it (WebIDL long): truncated, NaN and infinities to 0, modulo 2^32. */

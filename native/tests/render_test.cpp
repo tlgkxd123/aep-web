@@ -328,7 +328,7 @@ TEST(fast_box_blur_spreads_rows_the_right_way_up) {
   Effect blur;
   blur.matchName = "ADBE Box Blur2";
   blur.params = {{1, "", {1}, {}}, {2, "", {1}, {}}, {3, "", {3}, {0, 0, 0}}, {4, "", {0}, {}}};
-  layer.effects.push_back(blur);
+  layer.effects.push_back(std::move(blur));
   layer.effectLayer.width = 3;
   layer.effectLayer.height = 3;
   plan.root.layers.push_back(std::move(layer));
@@ -352,7 +352,7 @@ TEST(warns_about_effects_it_does_not_draw) {
   Layer layer = solid(4, 4, {1, 0, 0}, 0, 0);
   Effect unknown;
   unknown.matchName = "ADBE Not An Effect";
-  layer.effects.push_back(unknown);
+  layer.effects.push_back(std::move(unknown));
   plan.root.layers.push_back(std::move(layer));
   std::vector<uint8_t> rgba;
   uint32_t w, h;

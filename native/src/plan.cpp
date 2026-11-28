@@ -177,6 +177,18 @@ void readLayer(Reader& r, Layer& layer, int depth) {
         param.menu.resize(r.count(4));
         for (uint8_t& m : param.menu) m = r.u32() != 0;
       }
+      effect.sources.resize(r.count(8));
+      for (EffectSource& source : effect.sources) {
+        source.param = r.u32();
+        if (source.param == 0 || source.param > 9999) r.fail("effect source parameter index out of range");
+        source.drawn = r.u32() != 0;
+        if (!source.drawn) continue;
+        readContent(r, source.content, depth + 1);
+        source.layer.width = r.f32();
+        source.layer.height = r.f32();
+        source.layer.kind = r.u32();
+        if (source.layer.kind > 2) r.fail("unknown effect source layer kind");
+      }
     }
   }
   layer.matteMode = r.u32();
