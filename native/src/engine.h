@@ -35,6 +35,8 @@ struct EngineOptions {
   bool presentation = false;
   /** Presents in step with the display (FIFO); off shows frames as soon as they are drawn, for measuring. */
   bool vsync = true;
+  /** Folders searched for the footage files plans name (sound for Audio Spectrum), relinked as After Effects relinks. */
+  std::vector<std::string> mediaFolders;
 };
 
 class Engine;

@@ -14,6 +14,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <filesystem>
 #include <memory>
 #include <string>
 #include <vector>
@@ -157,7 +158,10 @@ int main(int argc, char** argv)
 		return 1;
 	}
 
-	std::unique_ptr<aevk::Engine> engine = aevk::Engine::create(aevk::EngineOptions(), error);
+	/** The project's folder holds its footage and sounds, as After Effects' Collect Files leaves them. */
+	aevk::EngineOptions options;
+	options.mediaFolders.push_back(std::filesystem::absolute(path).parent_path().string());
+	std::unique_ptr<aevk::Engine> engine = aevk::Engine::create(options, error);
 	if (!engine)
 	{
 		std::printf("{\"error\":\"%s\"}\n", error.c_str());

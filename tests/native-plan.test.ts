@@ -12,7 +12,7 @@ import { buildFramePlan, type FramePlan, type PlanContent, type PlanLayer } from
 import { GRADIENT_STOPS } from "../src/render/shapes.ts";
 import { decodePlan, encodePlan, PLAN_MAGIC } from "../src/native/wire.ts";
 import { FX_HEADER, shaderHash, SHADER_DIR, SHADER_HEADER, shaderSymbol } from "../scripts/lib/native.ts";
-import { FX_SHADERS, fxHash, fxSource } from "../scripts/lib/native-fx.ts";
+import { FX_SHADERS, fxEntryHash, fxSource, fxVertexSource } from "../scripts/lib/native-fx.ts";
 import { convertFx } from "../scripts/lib/fx-convert.ts";
 
 const SAMPLE = resolve("native/tests/data/sample.aevp");
@@ -240,8 +240,8 @@ describe("native render plan", () => {
     const header = readFileSync(FX_HEADER, "utf8");
     for (const entry of FX_SHADERS) {
       const source = await fxSource(entry);
-      expect(header).toContain(`// ${entry.name} sha256 ${fxHash(source)}`);
-      const { uniforms, samplers } = convertFx(source, entry.name);
+      expect(header).toContain(`// ${entry.name} sha256 ${await fxEntryHash(entry)}`);
+      const { uniforms, samplers } = convertFx(source, entry.name, await fxVertexSource(entry));
       for (const u of uniforms) expect(header).toContain(`{"${u.name}", FxType::`);
       if (samplers.length) expect(header).toContain(`kFxSamplers_${entry.name}[] = {${samplers.map((n) => `"${n}"`).join(", ")}}`);
     }

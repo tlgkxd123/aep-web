@@ -12,6 +12,7 @@ FxRenderer fxRenderer(const std::string& matchName) {
     FxRenderer (*renderer)();
   };
   static const Entry entries[] = {
+      {"ADBE AudSpect", audioSpectrumRenderer},
       {"ADBE Box Blur2", boxBlurRenderer},
       {"ADBE Strobe", strobeRenderer},
       {"PEDG2", deepGlowRenderer},

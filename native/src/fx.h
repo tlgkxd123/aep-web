@@ -36,6 +36,9 @@ struct FxShader {
   const char* const* samplers;
   uint32_t samplerCount;
   uint32_t paramBytes;
+  /** The vertex shader of a program that draws geometry (FxContext::draw), else null. */
+  const uint32_t* vertexCode;
+  size_t vertexBytes;
 };
 
 }  // namespace aevk
@@ -90,6 +93,31 @@ class FxUniforms {
 
 using FxSetter = std::function<void(FxUniforms&)>;
 
+/** How FxContext::draw lays its fragments over what the target already holds (WebGL's blend state). */
+enum class FxBlend : uint8_t {
+  /** Replace. */
+  None,
+  /** gl.blendEquation(gl.MAX): the larger of each channel. */
+  Max,
+  /** gl.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA): premultiplied over. */
+  Over,
+};
+
+/** One instanced draw of FxContext::draw, with its own uniforms. */
+struct FxDraw {
+  uint32_t vertices = 4;
+  uint32_t instances = 1;
+  FxSetter set;
+};
+
+/** A rectangle in WebGL's target pixels: x from the left, y from the bottom row. */
+struct FxScissor {
+  int32_t x = 0, y = 0;
+  uint32_t width = 0, height = 0;
+};
+
+struct AudioData;
+
 /** What an effect's layer parameter names (FxContext::source). */
 enum class FxSource : uint8_t { None, Empty, Image };
 
@@ -107,6 +135,16 @@ class FxContext {
   virtual uint32_t height(const Target* target) const = 0;
   /** Draws `shader` over all of `out` with `inputs` as units 0..n-1 (ctx.pass). */
   virtual void pass(fx::Id shader, Target& out, std::initializer_list<const Target*> inputs, const FxSetter& set = {}) = 0;
+  /**
+   * Draws a program that has a vertex shader (gl.drawArraysInstanced with a 4-vertex strip) into `out`, cleared to
+   * transparent first: each of `draws` in turn, blended by `blend`, limited to `scissor` when it has a size.
+   */
+  virtual void draw(fx::Id shader, Target& out, std::initializer_list<const Target*> inputs, FxBlend blend, const FxScissor& scissor,
+                    const std::vector<FxDraw>& draws) = 0;
+  /** A Float target holding `rgba` (width * height texels), rows as gl.texImage2D takes them: the first row is the bottom. */
+  virtual Target* upload(const float* rgba, uint32_t width, uint32_t height) = 0;
+  /** The decoded sound of a footage file as the project records it, found among the engine's media folders; null when it is not there or cannot be decoded. */
+  virtual const AudioData* audio(const std::string& file) = 0;
   /** Records something skipped or approximated in this frame. */
   virtual void warn(const std::string& message) = 0;
   /**

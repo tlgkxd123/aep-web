@@ -47,6 +47,7 @@ export const NATIVE_EFFECTS: ReadonlyMap<string, NativeEffect> = new Map([
   ["ADBE HDR ToneMap", effect(true)],
   // Draw their input unchanged (superpose.ts, channelUtility.ts).
   ["CC Overbrights", effect(true, true)],
+  ["ADBE AudSpect", effect(true, false)],
   ["Keller.io Superpose 2", effect(true, true)],
   ["ADBE Slider Control", effect(true, true)],
   ["ADBE Point Control", effect(true, true)],

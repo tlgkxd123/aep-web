@@ -17,7 +17,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { convertFx } from "../lib/fx-convert.ts";
 import { FX_HEADER, shaderHash, SHADER_DIR, SHADER_HEADER, shaderSymbol } from "../lib/native.ts";
-import { describeFx, FX_SHADERS, fxHash, fxSource } from "../lib/native-fx.ts";
+import { describeFx, fxEntryHash, FX_SHADERS, fxSource, fxVertexSource } from "../lib/native-fx.ts";
 
 const args = process.argv.slice(2);
 const option = (name: string) => {
@@ -134,9 +134,10 @@ try {
     if (!/^[a-z][a-z0-9_]*$/.test(entry.name) || names.has(entry.name)) throw new Error(`effect shader name "${entry.name}" is not a new C++ identifier`);
     names.add(entry.name);
     const source = await fxSource(entry);
-    const hash = fxHash(source);
+    const vertex = await fxVertexSource(entry);
+    const hash = await fxEntryHash(entry);
     const label = describeFx(entry.source);
-    const converted = convertFx(source, label);
+    const converted = convertFx(source, label, vertex);
     let block = reuseFx.get(`${entry.name} ${hash}`);
     if (!block) {
       const file = join(work, `${entry.name}.frag`);
@@ -144,6 +145,15 @@ try {
       block = words(`kFx_${entry.name}`, compile(file));
     }
     fx.push(`// ${entry.name} sha256 ${hash}`, `// ${label}`, ...block);
+    if (converted.vertex !== undefined) {
+      let vertexBlock = reuseFx.get(`${entry.name}.vert ${hash}`);
+      if (!vertexBlock) {
+        const file = join(work, `${entry.name}.vert`);
+        writeFileSync(file, converted.vertex);
+        vertexBlock = words(`kFxVertex_${entry.name}`, compile(file));
+      }
+      fx.push(`// ${entry.name}.vert sha256 ${hash}`, `// ${describeFx(entry.vertex!)}`, ...vertexBlock);
+    }
     if (converted.uniforms.length) {
       fx.push(`static const FxUniform kFxUniforms_${entry.name}[] = {`);
       for (const u of converted.uniforms) fx.push(`  {"${u.name}", FxType::${types[u.type]}, ${u.count}, ${u.offset}, ${u.stride}},`);
@@ -158,8 +168,10 @@ try {
     const block = fx.join("\n");
     const uniforms = block.includes(`kFxUniforms_${name}[]`) ? [`kFxUniforms_${name}`, `uint32_t(sizeof kFxUniforms_${name} / sizeof(FxUniform))`] : ["nullptr", "0"];
     const samplers = block.includes(`kFxSamplers_${name}[]`) ? [`kFxSamplers_${name}`, `uint32_t(sizeof kFxSamplers_${name} / sizeof(const char*))`] : ["nullptr", "0"];
-    const source = await fxSource(FX_SHADERS.find((e) => e.name === name)!);
-    fx.push(`  {"${name}", kFx_${name}, sizeof kFx_${name}, ${uniforms.join(", ")}, ${samplers.join(", ")}, ${convertFx(source, name).paramBytes}},`);
+    const entry = FX_SHADERS.find((e) => e.name === name)!;
+    const vertex = await fxVertexSource(entry);
+    const code = vertex === undefined ? ["nullptr", "0"] : [`kFxVertex_${name}`, `sizeof kFxVertex_${name}`];
+    fx.push(`  {"${name}", kFx_${name}, sizeof kFx_${name}, ${uniforms.join(", ")}, ${samplers.join(", ")}, ${convertFx(await fxSource(entry), name, vertex).paramBytes}, ${code.join(", ")}},`);
   }
   fx.push("};", "", "}  // namespace aevk", "");
   writeFileSync(FX_HEADER, fx.join("\n"));

@@ -12,6 +12,7 @@
 #include <tuple>
 
 #include "geometry.h"
+#include "media.h"
 #include "shaders.inc"
 #include "vk.h"
 
@@ -190,6 +191,12 @@ struct Engine::Impl {
   VkDescriptorSetLayout fxSetLayout = VK_NULL_HANDLE;
   VkPipelineLayout fxPipelineLayout = VK_NULL_HANDLE;
   std::map<std::pair<uint32_t, VkFormat>, VkPipeline> fxPipes;
+  /** Programs with vertex shaders (FxContext::draw), by shader, format and blend. */
+  std::map<std::tuple<uint32_t, VkFormat, FxBlend>, VkPipeline> fxDrawPipes;
+  std::vector<VkShaderModule> fxVertexModules = std::vector<VkShaderModule>(fx::kCount, VK_NULL_HANDLE);
+  MediaLibrary media;
+  /** Times the recorded work was submitted mid-frame (flush), which frees the descriptor sets allocated before. */
+  uint64_t flushes = 0;
   std::vector<VkShaderModule> fxModules = std::vector<VkShaderModule>(fx::kCount, VK_NULL_HANDLE);
   std::vector<std::string> warnings;
   FrameTimings timings;
@@ -393,7 +400,8 @@ struct Engine::Impl {
     return pass;
   }
 
-  VkPipeline pipeline(VkShaderModule vert, VkShaderModule frag, VkRenderPass pass, bool strip, VkPipelineLayout layout = VK_NULL_HANDLE) {
+  VkPipeline pipeline(VkShaderModule vert, VkShaderModule frag, VkRenderPass pass, bool strip, VkPipelineLayout layout = VK_NULL_HANDLE,
+                      FxBlend blendMode = FxBlend::None) {
     VkPipelineShaderStageCreateInfo stages[2]{};
     stages[0].sType = stages[1].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
     stages[0].stage = VK_SHADER_STAGE_VERTEX_BIT;
@@ -417,6 +425,13 @@ struct Engine::Impl {
     multisample.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
     VkPipelineColorBlendAttachmentState blend{};
     blend.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+    if (blendMode != FxBlend::None) {
+      blend.blendEnable = VK_TRUE;
+      const bool over = blendMode == FxBlend::Over;
+      blend.srcColorBlendFactor = blend.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+      blend.dstColorBlendFactor = blend.dstAlphaBlendFactor = over ? VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA : VK_BLEND_FACTOR_ONE;
+      blend.colorBlendOp = blend.alphaBlendOp = over ? VK_BLEND_OP_ADD : VK_BLEND_OP_MAX;
+    }
     VkPipelineColorBlendStateCreateInfo blending{VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO};
     blending.attachmentCount = 1;
     blending.pAttachments = &blend;
@@ -470,8 +485,10 @@ struct Engine::Impl {
     AEVK_CHECK(vk::vkCreatePipelineLayout(device, &pipelineInfo, nullptr, &pipelineLayout));
     // Effect passes bind 8 samplers and a parameter block (fx.h), the engine's own 4 samplers and the edge buffer.
     VkDescriptorSetLayoutBinding fxBindings[9]{};
-    for (uint32_t i = 0; i < 8; i++) fxBindings[i] = {i, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr};
-    fxBindings[8] = {8, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr};
+    // Programs that draw geometry read them in their vertex shaders too.
+    const VkShaderStageFlags fxStages = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
+    for (uint32_t i = 0; i < 8; i++) fxBindings[i] = {i, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, fxStages, nullptr};
+    fxBindings[8] = {8, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, fxStages, nullptr};
     layoutInfo.bindingCount = 9;
     layoutInfo.pBindings = fxBindings;
     AEVK_CHECK(vk::vkCreateDescriptorSetLayout(device, &layoutInfo, nullptr, &fxSetLayout));
@@ -711,6 +728,7 @@ struct Engine::Impl {
 
   /** Runs what was recorded so far and goes on recording, when a frame needs more descriptors or edges than fit. */
   void flush() {
+    flushes++;
     submit();
     begin();
   }
@@ -800,8 +818,11 @@ struct Engine::Impl {
     return pipe;
   }
 
-  /** Draws effect shader `id` over all of `out` with `inputs` as units 0..n-1 (RenderContext.pass). */
-  void fxPass(uint32_t id, Target& out, std::initializer_list<const Target*> inputs, const FxSetter& set) {
+  /**
+   * A descriptor set for effect shader `id` with `inputs` as units 0..n-1 and its uniforms as `set` writes them; may
+   * flush the recorded work to make room (which frees the sets allocated before it).
+   */
+  VkDescriptorSet fxDescriptors(uint32_t id, std::initializer_list<const Target*> inputs, const FxSetter& set) {
     const FxShader& shader = kFxShaders[id];
     std::vector<uint8_t> params(std::max<uint32_t>(shader.paramBytes, 16), 0);
     uint32_t units[8] = {};
@@ -809,8 +830,6 @@ struct Engine::Impl {
       FxUniforms uniforms(shader, params.data(), units);
       set(uniforms);
     }
-    clearPending(inputs);
-    out.pendingClear = false;
     // Room for the parameters first: a flush to make room would free the descriptor set allocated below.
     const VkDeviceSize bytes = params.size();
     auto aligned = [&](VkDeviceSize at) { return (at + storageAlignment - 1) / storageAlignment * storageAlignment; };
@@ -847,6 +866,14 @@ struct Engine::Impl {
     writes[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
     writes[1].pBufferInfo = &buffer;
     vk::vkUpdateDescriptorSets(device, 2, writes, 0, nullptr);
+    return descriptors;
+  }
+
+  /** Draws effect shader `id` over all of `out` with `inputs` as units 0..n-1 (RenderContext.pass). */
+  void fxPass(uint32_t id, Target& out, std::initializer_list<const Target*> inputs, const FxSetter& set) {
+    clearPending(inputs);
+    out.pendingClear = false;
+    VkDescriptorSet descriptors = fxDescriptors(id, inputs, set);
     VkPipeline pipe = fxPipeline(id, out.format);
     beginPass(out);
     VkViewport viewport{0, 0, float(out.width), float(out.height), 0, 1};
@@ -859,6 +886,81 @@ struct Engine::Impl {
     vk::vkCmdPushConstants(cmd, fxPipelineLayout, VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof push, &push);
     vk::vkCmdDraw(cmd, 3, 1, 0, 0);
     vk::vkCmdEndRenderPass(cmd);
+  }
+
+  VkPipeline fxDrawPipeline(uint32_t id, VkFormat format, FxBlend blend) {
+    auto it = fxDrawPipes.find({id, format, blend});
+    if (it != fxDrawPipes.end()) return it->second;
+    const FxShader& shader = kFxShaders[id];
+    if (!fxModules[id]) fxModules[id] = this->shader(shader.code, shader.codeBytes);
+    if (!fxVertexModules[id]) fxVertexModules[id] = this->shader(shader.vertexCode, shader.vertexBytes);
+    VkPipeline pipe = pipeline(fxVertexModules[id], fxModules[id], passes.at(format), true, fxPipelineLayout, blend);
+    fxDrawPipes[{id, format, blend}] = pipe;
+    return pipe;
+  }
+
+  /** Draws a program with a vertex shader into `out`, cleared first: each draw instanced, blended by `blend` (FxContext::draw). */
+  void fxDraw(uint32_t id, Target& out, std::initializer_list<const Target*> inputs, FxBlend blend, const FxScissor& scissor, const std::vector<FxDraw>& draws) {
+    if (!kFxShaders[id].vertexCode) {
+      warn(std::string("effect shader ") + kFxShaders[id].name + " has no vertex shader to draw with");
+      return;
+    }
+    clearPending(inputs);
+    out.pendingClear = false;
+    // Every draw's set first; a flush while allocating frees the ones before it, so they are allocated again.
+    std::vector<VkDescriptorSet> sets;
+    for (int attempt = 0; attempt < 2; attempt++) {
+      const uint64_t before = flushes;
+      sets.clear();
+      for (const FxDraw& d : draws) sets.push_back(fxDescriptors(id, inputs, d.set));
+      if (flushes == before) break;
+    }
+    VkPipeline pipe = fxDrawPipeline(id, out.format, blend);
+    beginPass(out);
+    VkViewport viewport{0, 0, float(out.width), float(out.height), 0, 1};
+    vk::vkCmdSetViewport(cmd, 0, 1, &viewport);
+    VkRect2D rect{{0, 0}, {out.width, out.height}};
+    if (scissor.width && scissor.height) {
+      // WebGL's rows count from the bottom, the target's from the top.
+      const int64_t x0 = std::max<int64_t>(0, scissor.x), x1 = std::min<int64_t>(out.width, int64_t(scissor.x) + scissor.width);
+      const int64_t top = int64_t(out.height) - (int64_t(scissor.y) + scissor.height);
+      const int64_t y0 = std::max<int64_t>(0, top), y1 = std::min<int64_t>(out.height, top + scissor.height);
+      rect = {{int32_t(x0), int32_t(y0)}, {uint32_t(std::max<int64_t>(0, x1 - x0)), uint32_t(std::max<int64_t>(0, y1 - y0))}};
+    }
+    vk::vkCmdSetScissor(cmd, 0, 1, &rect);
+    vk::vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipe);
+    const FxPush push{{float(out.width), float(out.height)}, out.format == kColorFormat ? 1 : 0};
+    vk::vkCmdPushConstants(cmd, fxPipelineLayout, VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof push, &push);
+    for (size_t i = 0; i < draws.size(); i++) {
+      if (!draws[i].instances || !draws[i].vertices || !rect.extent.width || !rect.extent.height) continue;
+      vk::vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, fxPipelineLayout, 0, 1, &sets[i], 0, nullptr);
+      vk::vkCmdDraw(cmd, draws[i].vertices, draws[i].instances, 0, 0);
+    }
+    vk::vkCmdEndRenderPass(cmd);
+  }
+
+  /** A Float target holding `rgba`, its first row at the bottom as WebGL stores a texture's first row (FxContext::upload). */
+  Target* uploadFloat(const float* rgba, uint32_t width, uint32_t height) {
+    Target* t = acquire(std::max(width, 1u), std::max(height, 1u), kFloatFormat);
+    t->pendingClear = false;
+    const VkDeviceSize row = VkDeviceSize(t->width) * 16;
+    const VkDeviceSize bytes = row * t->height;
+    // The staging buffer is shared: what is recorded so far must have run before it is written.
+    flush();
+    Buffer& buffer = stagingFor(bytes);
+    std::memset(buffer.mapped, 0, bytes);
+    for (uint32_t y = 0; y < height; y++) std::memcpy(static_cast<uint8_t*>(buffer.mapped) + row * (t->height - 1 - y), rgba + size_t(y) * width * 4, size_t(width) * 16);
+    barrier(t->image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_VERTEX_SHADER_BIT, 0,
+            VK_PIPELINE_STAGE_TRANSFER_BIT, VK_ACCESS_TRANSFER_WRITE_BIT);
+    VkBufferImageCopy region{};
+    region.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+    region.imageExtent = {t->width, t->height, 1};
+    vk::vkCmdCopyBufferToImage(cmd, buffer.buffer, t->image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
+    barrier(t->image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_ACCESS_TRANSFER_WRITE_BIT,
+            VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_VERTEX_SHADER_BIT, VK_ACCESS_SHADER_READ_BIT);
+    // The copy must run before the next upload overwrites the staging buffer.
+    flush();
+    return t;
   }
 
   /** The engine as effects see it (RenderContext). */
@@ -878,6 +980,12 @@ struct Engine::Impl {
     uint32_t height(const Target* target) const override { return target->height; }
     void pass(fx::Id shader, Target& out, std::initializer_list<const Target*> inputs, const FxSetter& set) override { impl->fxPass(shader, out, inputs, set); }
     void warn(const std::string& message) override { impl->warn(message); }
+    void draw(fx::Id shader, Target& out, std::initializer_list<const Target*> inputs, FxBlend blend, const FxScissor& scissor,
+              const std::vector<FxDraw>& draws) override {
+      impl->fxDraw(shader, out, inputs, blend, scissor, draws);
+    }
+    Target* upload(const float* rgba, uint32_t width, uint32_t height) override { return impl->uploadFloat(rgba, width, height); }
+    const AudioData* audio(const std::string& file) override { return impl->media.audio(file); }
     FxSource source(const Effect& effect, uint32_t param, FxImage& image, EffectLayer& info) override {
       const EffectSource* s = effect.source(param);
       if (!s) return FxSource::None;
@@ -1477,6 +1585,8 @@ struct Engine::Impl {
       if (descriptorPool) vk::vkDestroyDescriptorPool(device, descriptorPool, nullptr);
       for (auto& [key, pipe] : fxPipes) vk::vkDestroyPipeline(device, pipe, nullptr);
       fxPipes.clear();
+      for (auto& [key, pipe] : fxDrawPipes) vk::vkDestroyPipeline(device, pipe, nullptr);
+      fxDrawPipes.clear();
       if (fxPipelineLayout) vk::vkDestroyPipelineLayout(device, fxPipelineLayout, nullptr);
       if (fxSetLayout) vk::vkDestroyDescriptorSetLayout(device, fxSetLayout, nullptr);
       if (pipelineLayout) vk::vkDestroyPipelineLayout(device, pipelineLayout, nullptr);
@@ -1506,6 +1616,7 @@ Engine::~Engine() = default;
 std::unique_ptr<Engine> Engine::create(const EngineOptions& options, std::string& error) {
   auto impl = std::make_unique<Impl>();
   impl->options = options;
+  for (const std::string& folder : options.mediaFolders) impl->media.addFolder(folder);
   try {
     impl->init();
   } catch (const std::exception& e) {

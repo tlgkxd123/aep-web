@@ -19,10 +19,14 @@ export interface FxShaderSource {
   /** C++ identifier: fx::<name>. */
   name: string;
   source: FxRef;
+  /** The vertex shader of an effect that draws geometry (FxContext::draw); fullscreen passes have none. */
+  vertex?: FxRef;
 }
 
 const ref = (module: string, name: string, ...args: FxArg[]): FxRef => ({ module: `src/render/effects/${module}`, export: name, ...(args.length ? { args } : {}) });
 const shader = (name: string, module: string, exported: string): FxShaderSource => ({ name, source: ref(module, exported) });
+/** A program that draws geometry: a vertex and a fragment shader exported by the same module. */
+const program = (name: string, module: string, vertex: string, fragment: string): FxShaderSource => ({ name, source: ref(module, fragment), vertex: ref(module, vertex) });
 /** A layerPass shader (stockUtil.ts) over `count` sources. */
 const layerPass = (name: string, count: number, decls: FxArg, body: FxArg): FxShaderSource => ({
   name,
@@ -99,6 +103,8 @@ export const FX_SHADERS: FxShaderSource[] = [
   shader("cineon", "channelUtility.ts", "CINEON_FS"),
   shader("compander", "channelUtility.ts", "COMPANDER_FS"),
   shader("hdr_tonemap", "channelUtility.ts", "HDR_TONEMAP_FS"),
+  program("capsule", "audioSpectrum.ts", "CAPSULE_VS", "CAPSULE_FS"),
+  shader("spectrum_composite", "audioSpectrum.ts", "COMPOSITE_FS"),
 ];
 
 async function value(arg: FxArg): Promise<unknown> {
@@ -117,6 +123,21 @@ export async function fxSource(entry: FxShaderSource): Promise<string> {
   const source = await value(entry.source);
   if (typeof source !== "string") throw new Error(`${describeFx(entry.source)} is not a shader`);
   return source;
+}
+
+/** The GLSL ES source of an entry's vertex shader, or undefined for a fullscreen pass. */
+export async function fxVertexSource(entry: FxShaderSource): Promise<string | undefined> {
+  if (!entry.vertex) return undefined;
+  const source = await value(entry.vertex);
+  if (typeof source !== "string") throw new Error(`${describeFx(entry.vertex)} is not a shader`);
+  return source;
+}
+
+/** The hash native/src/fx_shaders.inc records for an entry: of its fragment shader, and of its vertex shader before it when it has one. */
+export async function fxEntryHash(entry: FxShaderSource): Promise<string> {
+  const vertex = await fxVertexSource(entry);
+  const source = await fxSource(entry);
+  return fxHash(vertex === undefined ? source : `${vertex}\n// fragment\n${source}`);
 }
 
 /** Where a shader comes from, for the generated header: `module export(args)`. */
