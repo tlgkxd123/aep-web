@@ -35,6 +35,32 @@ FxRenderer growBoundsRenderer();
 FxRenderer cineonRenderer();
 FxRenderer companderRenderer();
 FxRenderer hdrToneMapRenderer();
+/** color.cpp */
+FxRenderer tintRenderer();
+FxRenderer tritoneRenderer();
+FxRenderer brightnessContrastRenderer();
+FxRenderer exposureRenderer();
+FxRenderer hueSaturationRenderer();
+FxRenderer vibranceRenderer();
+FxRenderer colorBalanceHlsRenderer();
+FxRenderer channelMixerRenderer();
+FxRenderer blackWhiteRenderer();
+FxRenderer easyLevelsRenderer();
+FxRenderer invertRenderer();
+FxRenderer posterizeRenderer();
+FxRenderer shiftChannelsRenderer();
+FxRenderer proLevelsRenderer();
+FxRenderer tonerRenderer();
+FxRenderer colorOffsetRenderer();
+FxRenderer gammaPedestalGainRenderer();
+FxRenderer colorBalanceRenderer();
+FxRenderer neutralizerRenderer();
+FxRenderer photoFilterRenderer();
+FxRenderer selectiveColorRenderer();
+FxRenderer leaveColorRenderer();
+FxRenderer changeColorRenderer();
+FxRenderer changeToColorRenderer();
+FxRenderer kernelRenderer();
 /** deep_glow.cpp */
 FxRenderer deepGlowRenderer();
 /** generate.cpp */

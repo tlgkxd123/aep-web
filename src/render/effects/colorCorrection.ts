@@ -13,12 +13,15 @@ import { COLOR_LIB, colorPass, registerColor, registerStock } from "./stockUtil.
 
 const pct = (v: number) => v / 100;
 
-registerColor(
-  "ADBE Tint",
-  `uniform vec3 u_black;
+/** ADBE Tint's adjust() (also embedded by the native engine). */
+export const TINT_GLSL = `uniform vec3 u_black;
 uniform vec3 u_white;
 uniform float u_amount;
-vec3 adjust(vec3 s) { return mix(s, mix(u_black, u_white, luma(s)), u_amount); }`,
+vec3 adjust(vec3 s) { return mix(s, mix(u_black, u_white, luma(s)), u_amount); }`;
+
+registerColor(
+  "ADBE Tint",
+  TINT_GLSL,
   (p, gl, u) => {
     gl.uniform3fv(u("u_black"), p.rgb(1, [0, 0, 0]));
     gl.uniform3fv(u("u_white"), p.rgb(2, [1, 1, 1]));
@@ -26,9 +29,8 @@ vec3 adjust(vec3 s) { return mix(s, mix(u_black, u_white, luma(s)), u_amount); }
   },
 );
 
-registerColor(
-  "ADBE Tritone",
-  `uniform vec3 u_high;
+/** ADBE Tritone's adjust() (also embedded by the native engine). */
+export const TRITONE_GLSL = `uniform vec3 u_high;
 uniform vec3 u_mid;
 uniform vec3 u_shadow;
 uniform float u_blend;
@@ -36,7 +38,11 @@ vec3 adjust(vec3 s) {
   float l = luma(s);
   vec3 t = l < 0.5 ? mix(u_shadow, u_mid, l * 2.0) : mix(u_mid, u_high, l * 2.0 - 1.0);
   return mix(t, s, u_blend);
-}`,
+}`;
+
+registerColor(
+  "ADBE Tritone",
+  TRITONE_GLSL,
   (p, gl, u) => {
     gl.uniform3fv(u("u_high"), p.rgb(1, [1, 1, 1]));
     gl.uniform3fv(u("u_mid"), p.rgb(2, [0.5, 0.4, 0.3]));
@@ -48,7 +54,8 @@ vec3 adjust(vec3 s) {
 /** Contrast in -100..100 as a slope around mid grey. */
 const contrastSlope = (c: number) => (c >= 0 ? 100 / Math.max(1e-3, 100 - Math.min(c, 99.9)) : (100 + Math.max(c, -100)) / 100);
 
-const BRIGHTNESS_CONTRAST = `uniform float u_brightness;
+/** Brightness & Contrast's adjust(), both versions (also embedded by the native engine). */
+export const BRIGHTNESS_CONTRAST = `uniform float u_brightness;
 uniform float u_slope;
 uniform int u_legacy;
 vec3 adjust(vec3 s) {
@@ -69,9 +76,8 @@ registerColor("ADBE Brightness & Contrast", BRIGHTNESS_CONTRAST, (p, gl, u) => {
 });
 
 // Exposure works in linear light (gamma 2.2) unless Bypass Linear Light Conversion is on.
-registerColor(
-  "ADBE Exposure2",
-  `uniform vec3 u_exposure;
+/** ADBE Exposure2's adjust() (also embedded by the native engine). */
+export const EXPOSURE_GLSL = `uniform vec3 u_exposure;
 uniform vec3 u_offset;
 uniform vec3 u_gamma;
 uniform int u_bypass;
@@ -80,7 +86,11 @@ vec3 adjust(vec3 s) {
   v = max(v * exp2(u_exposure) + u_offset, 0.0);
   v = pow(v, 1.0 / max(u_gamma, vec3(0.01)));
   return u_bypass == 1 ? v : pow(v, vec3(1.0 / 2.2));
-}`,
+}`;
+
+registerColor(
+  "ADBE Exposure2",
+  EXPOSURE_GLSL,
   (p, gl, u) => {
     const individual = p.num(1, 1) === 2;
     const channel = (base: number) => [p.num(base, 0), p.num(base + 1, 0), p.num(base + 2, 1)];
@@ -95,12 +105,8 @@ vec3 adjust(vec3 s) {
 /** GLSL: Lightness -100..100 towards black or white. */
 const LIGHTNESS = `vec3 lighten(vec3 c, float l) { return l >= 0.0 ? c + (1.0 - c) * l : c * (1.0 + l); }`;
 
-registerStock("ADBE HUE SATURATION", (input, p, ctx) => {
-  if (p.num(2, 1) !== 1) ctx.warn("Hue/Saturation: only the Master channel's values are rendered");
-  return colorPass(
-    ctx,
-    input,
-    `${LIGHTNESS}
+/** Hue/Saturation's adjust() (also embedded by the native engine). */
+export const HUE_SATURATION_GLSL = `${LIGHTNESS}
 uniform float u_hue;
 uniform float u_saturation;
 uniform float u_lightness;
@@ -112,7 +118,14 @@ vec3 adjust(vec3 s) {
   hsl.x = fract(hsl.x + u_hue);
   hsl.y = clamp(hsl.y * (1.0 + u_saturation), 0.0, 1.0);
   return lighten(hsl2rgb(hsl), u_lightness);
-}`,
+}`;
+
+registerStock("ADBE HUE SATURATION", (input, p, ctx) => {
+  if (p.num(2, 1) !== 1) ctx.warn("Hue/Saturation: only the Master channel's values are rendered");
+  return colorPass(
+    ctx,
+    input,
+    HUE_SATURATION_GLSL,
     (u) => {
       const gl = ctx.gl;
       gl.uniform1f(u("u_hue"), p.num(4, 0) / 360);
@@ -126,24 +139,26 @@ vec3 adjust(vec3 s) {
 
 // Vibrance: Saturation scales every colour's distance from its luma, Vibrance mostly the duller colours' (stockMath.ts
 // vibrance).
-registerColor(
-  "ADBE Vibrance",
-  `uniform float u_vibrance;
+/** ADBE Vibrance's adjust() (also embedded by the native engine). */
+export const VIBRANCE_GLSL = `uniform float u_vibrance;
 uniform float u_saturation;
 vec3 adjust(vec3 s) {
   float l = luma(s);
   float sat = max(s.r, max(s.g, s.b)) - min(s.r, min(s.g, s.b));
   return l + (s - l) * max(0.0, (1.0 + u_saturation) * (1.0 + u_vibrance * (1.0 - sat)));
-}`,
+}`;
+
+registerColor(
+  "ADBE Vibrance",
+  VIBRANCE_GLSL,
   (p, gl, u) => {
     gl.uniform1f(u("u_vibrance"), Math.min(1, Math.max(-1, pct(p.num(1, 0)))));
     gl.uniform1f(u("u_saturation"), Math.min(1, Math.max(-1, pct(p.num(2, 0)))));
   },
 );
 
-registerColor(
-  "ADBE Color Balance (HLS)",
-  `${LIGHTNESS}
+/** ADBE Color Balance (HLS)'s adjust() (also embedded by the native engine). */
+export const COLOR_BALANCE_HLS_GLSL = `${LIGHTNESS}
 uniform float u_hue;
 uniform float u_lightness;
 uniform float u_saturation;
@@ -152,7 +167,11 @@ vec3 adjust(vec3 s) {
   hsl.x = fract(hsl.x + u_hue);
   hsl.y = clamp(hsl.y * (1.0 + u_saturation), 0.0, 1.0);
   return lighten(hsl2rgb(hsl), u_lightness);
-}`,
+}`;
+
+registerColor(
+  "ADBE Color Balance (HLS)",
+  COLOR_BALANCE_HLS_GLSL,
   (p, gl, u) => {
     gl.uniform1f(u("u_hue"), p.num(1, 0) / 360);
     gl.uniform1f(u("u_lightness"), pct(p.num(2, 0)));
@@ -162,15 +181,18 @@ vec3 adjust(vec3 s) {
 
 // Channel Mixer: each output channel is a percentage mix of red, green and blue plus a constant; Monochrome
 // writes the red row's mix to all three.
-registerColor(
-  "ADBE CHANNEL MIXER",
-  `uniform mat3 u_mix;
+/** ADBE CHANNEL MIXER's adjust() (also embedded by the native engine). */
+export const CHANNEL_MIXER_GLSL = `uniform mat3 u_mix;
 uniform vec3 u_const;
 uniform int u_mono;
 vec3 adjust(vec3 s) {
   vec3 v = u_mix * s + u_const;
   return u_mono == 1 ? vec3(v.r) : v;
-}`,
+}`;
+
+registerColor(
+  "ADBE CHANNEL MIXER",
+  CHANNEL_MIXER_GLSL,
   (p, gl, u) => {
     const row = (base: number, own: number) => [0, 1, 2, 3].map((k) => pct(p.num(base + k, k === own ? 100 : 0)));
     const [r, g, b] = [row(1, 0), row(5, 1), row(9, 2)];
@@ -182,9 +204,8 @@ vec3 adjust(vec3 s) {
 );
 
 // Black & White's grey is blackWhiteGray's (stockMath.ts).
-registerColor(
-  "ADBE Black&White",
-  `uniform float u_w[6];
+/** ADBE Black&White's adjust() (also embedded by the native engine). */
+export const BLACK_WHITE_GLSL = `uniform float u_w[6];
 uniform int u_tint;
 uniform vec3 u_tintHsl;
 vec3 adjust(vec3 s) {
@@ -198,7 +219,11 @@ vec3 adjust(vec3 s) {
   else { primary = u_w[4]; secondary = s.r >= s.g ? u_w[5] : u_w[3]; }
   float gray = clamp(mn + (md - mn) * secondary + (mx - md) * primary, 0.0, 1.0);
   return u_tint == 1 ? hsl2rgb(vec3(u_tintHsl.xy, gray)) : vec3(gray);
-}`,
+}`;
+
+registerColor(
+  "ADBE Black&White",
+  BLACK_WHITE_GLSL,
   (p, gl, u) => {
     const defaults = [40, 60, 40, 60, 20, 80];
     gl.uniform1fv(u("u_w"), defaults.map((d, i) => pct(p.num(i + 1, d))));
@@ -220,7 +245,8 @@ function rgbToHsl(r: number, g: number, b: number): [number, number, number] {
   return [h / 6, s, l];
 }
 
-const LEVELS_FS = `${PASS_HEADER}${COLOR_LIB}
+/** Also embedded by the native engine. */
+export const LEVELS_FS = `${PASS_HEADER}${COLOR_LIB}
 uniform vec4 u_mask;
 uniform float u_inBlack;
 uniform float u_inWhite;
@@ -268,7 +294,8 @@ registerStock("ADBE Easy Levels2", (input, p, ctx) => {
 /** Invert's Channel popup. */
 const InvertChannel = { RGB: 1, RED: 2, GREEN: 3, BLUE: 4, HLS: 5, HUE: 6, LIGHTNESS: 7, SATURATION: 8, YIQ: 9, LUMINANCE: 10, IN_PHASE: 11, QUADRATURE: 12, ALPHA: 13 } as const;
 
-const INVERT_FS = `${PASS_HEADER}${COLOR_LIB}
+/** Also embedded by the native engine. */
+export const INVERT_FS = `${PASS_HEADER}${COLOR_LIB}
 uniform int u_channel;
 uniform float u_blend;
 void main() {
@@ -306,10 +333,13 @@ registerStock("ADBE Invert", (input, p, ctx) => {
   });
 });
 
+/** ADBE Posterize's adjust() (also embedded by the native engine). */
+export const POSTERIZE_GLSL = `uniform float u_levels;
+vec3 adjust(vec3 s) { return min(vec3(u_levels - 1.0), floor(s * u_levels)) / (u_levels - 1.0); }`;
+
 registerColor(
   "ADBE Posterize",
-  `uniform float u_levels;
-vec3 adjust(vec3 s) { return min(vec3(u_levels - 1.0), floor(s * u_levels)) / (u_levels - 1.0); }`,
+  POSTERIZE_GLSL,
   (p, gl, u) => gl.uniform1f(u("u_levels"), Math.max(2, Math.round(p.num(1, 7)))),
 );
 
@@ -324,7 +354,8 @@ vec3 adjust(vec3 s) { return vec3(luma(s) * 255.0 + 1e-3 >= u_level ? 1.0 : 0.0)
 
 // Shift Channels' sources: 1 alpha, 2 red, 3 green, 4 blue, 5 luminance, 6 hue, 7 lightness, 8 saturation,
 // 9 full, 10 half, 11 off; from straight colour.
-const SHIFT_FS = `${PASS_HEADER}${COLOR_LIB}
+/** Also embedded by the native engine. */
+export const SHIFT_FS = `${PASS_HEADER}${COLOR_LIB}
 uniform ivec4 u_from;
 float pick(int from, vec4 s, vec3 hsl) {
   if (from == 1) return s.a;

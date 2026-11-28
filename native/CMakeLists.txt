@@ -25,6 +25,7 @@ add_library(aevk STATIC
   src/effects/transitions.cpp
   src/effects/box_blur.cpp
   src/effects/channel.cpp
+  src/effects/color.cpp
   src/effects/deep_glow.cpp
   src/effects/generate.cpp
   src/effects/registry.cpp

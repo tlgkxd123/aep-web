@@ -66,6 +66,11 @@ const keep = (name: string, exported: string, feathers: boolean): FxShaderSource
 const transition = (name: string, count: number, prefix: string): FxShaderSource =>
   layerPass(name, count, ref("transitionsExtra.ts", `${prefix}_DECLS`), ref("transitionsExtra.ts", `${prefix}_BODY`));
 
+/** A colorPass shader (stockUtil.ts colorFragment) of colorCorrection.ts's `exported` adjust(). */
+const color = (name: string, exported: string): FxShaderSource => ({ name, source: ref("stockUtil.ts", "colorFragment", ref("colorCorrection.ts", exported)) });
+/** A straightPass shader (colorExtra.ts straightFragment) of colorExtra.ts's `exported` adjust(). */
+const straight = (name: string, exported: string): FxShaderSource => ({ name, source: ref("colorExtra.ts", "straightFragment", ref("colorExtra.ts", exported)) });
+
 export const FX_SHADERS: FxShaderSource[] = [
   shader("box_load", "boxBlur.ts", "LOAD_FS"),
   shader("box_level", "boxBlur.ts", "LEVEL_FS"),
@@ -133,6 +138,31 @@ export const FX_SHADERS: FxShaderSource[] = [
   transition("radial_scale_wipe", 1, "RADIAL_SCALE_WIPE"),
   transition("light_wipe", 1, "LIGHT_WIPE"),
   transition("line_sweep", 1, "LINE_SWEEP"),
+  color("tint", "TINT_GLSL"),
+  color("tritone", "TRITONE_GLSL"),
+  color("brightness_contrast", "BRIGHTNESS_CONTRAST"),
+  color("exposure", "EXPOSURE_GLSL"),
+  color("hue_saturation", "HUE_SATURATION_GLSL"),
+  color("vibrance", "VIBRANCE_GLSL"),
+  color("color_balance_hls", "COLOR_BALANCE_HLS_GLSL"),
+  color("channel_mixer", "CHANNEL_MIXER_GLSL"),
+  color("black_white", "BLACK_WHITE_GLSL"),
+  color("posterize", "POSTERIZE_GLSL"),
+  shader("levels", "colorCorrection.ts", "LEVELS_FS"),
+  shader("invert", "colorCorrection.ts", "INVERT_FS"),
+  shader("shift_channels", "colorCorrection.ts", "SHIFT_FS"),
+  straight("pro_levels", "PRO_LEVELS_GLSL"),
+  straight("toner", "TONER_GLSL"),
+  straight("color_offset", "COLOR_OFFSET_GLSL"),
+  straight("gamma_pedestal_gain", "GAMMA_PEDESTAL_GAIN_GLSL"),
+  straight("color_balance", "COLOR_BALANCE_GLSL"),
+  straight("neutralizer", "NEUTRALIZER_GLSL"),
+  straight("photo_filter", "PHOTO_FILTER_GLSL"),
+  straight("selective_color", "SELECTIVE_COLOR_GLSL"),
+  straight("leave_color", "LEAVE_COLOR_GLSL"),
+  straight("change_color", "CHANGE_COLOR_GLSL"),
+  straight("change_to_color", "CHANGE_TO_COLOR_GLSL"),
+  shader("kernel", "colorExtra.ts", "KERNEL_FS"),
 ];
 
 async function value(arg: FxArg): Promise<unknown> {

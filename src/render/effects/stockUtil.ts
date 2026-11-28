@@ -237,14 +237,18 @@ export function reframe(ctx: RenderContext, input: LayerImage, rect: Rect): Laye
  * kept. Releases `input`.
  */
 export function colorPass(ctx: RenderContext, input: LayerImage, glsl: string, setUniforms?: Uniforms): LayerImage {
-  const fragment = `${PASS_HEADER}${COLOR_LIB}${glsl}
+  return mapPass(ctx, input, colorFragment(glsl), setUniforms);
+}
+
+/** colorPass's shader for `glsl` (also embedded by the native engine). */
+export function colorFragment(glsl: string): string {
+  return `${PASS_HEADER}${COLOR_LIB}${glsl}
 void main() {
   vec4 c = texture(u_source, v_uv);
   if (c.a <= 0.0) { outColor = vec4(0.0); return; }
   vec3 r = clamp(adjust(straight(c)), 0.0, 1.0);
   outColor = vec4(r * c.a, c.a);
 }`;
-  return mapPass(ctx, input, fragment, setUniforms);
 }
 
 /** Registers a colour adjustment (colorPass); `uniforms` sets its uniforms from the parameters. */
