@@ -19,3 +19,9 @@
 # If you keep the line number information, uncomment this to
 # hide the original source file name.
 #-renamesourcefileattribute SourceFile
+
+# The native screen (NativeAppActivity) is called from C++ (native/android/aep_app_jni.cpp).
+-keep class com.zionschxma.aev3.NativeAppActivity {
+    void chooseProject();
+    java.lang.String saveFile(java.lang.String, byte[]);
+}

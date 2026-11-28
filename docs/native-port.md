@@ -144,6 +144,29 @@ Two ways, and the recommendation is the first:
 2. A fully native UI (Dear ImGui) and a C++ port of `src/edit`. It only pays off if the app has to run without any web
    runtime.
 
+Status: the native interface is chosen (November 2026) and its viewing half is done; editing (a C++ port of
+`src/edit`) is not started. `native/ui` is one Dear ImGui (MIT, v1.91.9b, fetched at configure time with `-DAEP_UI=ON`,
+the default) interface for both platforms, drawn by the engine itself (`Engine::presentUi`, `native/shaders/ui.*`), with
+the comp's frame sampled straight from the GPU:
+
+- Home: open a project (the file browser on desktop, the system file picker on Android) or one of the recent ones.
+- Desktop layout (wide windows): File, View and Help menus; Project (comps with size, rate and duration, footage);
+  the viewer (fit, wheel zoom about the pointer, drag to pan, double-click to fit, transparency grid); playback
+  controls (start, step, play, end, timecode, resolution, frames a second); the Timeline (layer bars by kind, the
+  ruler, drag to scrub, click to select); the selected layer's details (timing, parent, matte, Transform values now
+  with keyframe and expression marks, masks, effects and their values); Info (GPU, plan and render times, warnings);
+  a status bar. Panels resize by dragging their edges. Space, Left, Right, Home, End, Ctrl+O and Ctrl+Q work.
+- Compact layout (narrow windows, phones held upright): a menu button and comp picker, the viewer, large playback
+  buttons, a full-width scrub bar, and tabs for Layers, Details, Project and Info. On touch screens targets are larger,
+  a finger drag scrolls lists and a pinch zooms the viewer; the interface keeps clear of the system bars and cutout.
+- Save Frame As PNG writes next to the project on desktop and to Pictures/aep on Android.
+
+Hosts: `native/tools/aep_app.cpp` (`aep-app [--scale s] [--no-vsync] [--play] [project.aep]`, xcb on Linux, Win32 on
+Windows) and `native/android/aep_app_jni.cpp` with `NativeAppActivity.java`, which is the launcher entry "aep native"
+(the web app stays as "aep-web", and opens instead on devices without Vulkan). Checked here on Linux under Xvfb with
+lavapipe, in a 1440x900 window and a 432x900 phone-sized one; the Android and Windows hosts are syntax-checked only.
+Android cannot search a picked project's folder for its footage yet (the file picker grants the one file).
+
 ## Mobile speed
 
 What makes a phone slower than a desktop here, and what each milestone does about it:

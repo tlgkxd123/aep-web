@@ -131,6 +131,7 @@ bool CPlaybackSession::SelectComp(u32 id)
 	m_iFrame = 0;
 	m_iShownFrame = -1;
 	m_Unsupported.clear();
+	m_pCurrent.reset();
 	m_bDirty = true;
 	m_bPlaying = false;
 	return true;
@@ -211,6 +212,21 @@ void CPlaybackSession::Step(s32 frames, f64 now)
 	}
 }
 
+const std::vector<std::string>& CPlaybackSession::CurrentUnsupported() const
+{
+	static const std::vector<std::string> s_None;
+	const auto it = m_Unsupported.find(m_iFrame);
+	return it == m_Unsupported.end() ? s_None : it->second;
+}
+
+void CPlaybackSession::Background(float rgb[3]) const
+{
+	for (s32 i = 0; i < 3; i++)
+	{
+		rgb[i] = m_pComp ? float(m_pComp->m_BgColor[i]) : 0.0f;
+	}
+}
+
 std::string CPlaybackSession::View() const
 {
 	return std::to_string(m_pComp ? m_pComp->m_uId : 0) + "@" + std::to_string(m_iDivisor);
@@ -232,7 +248,7 @@ bool CPlaybackSession::Prepare(s64 frame)
 	m_Stats.m_fPlanMs = Smooth(m_Stats.m_fPlanMs, MsSince(start));
 	if (!plan.m_Unsupported.empty())
 	{
-		m_Unsupported.insert(frame);
+		m_Unsupported[frame] = std::move(plan.m_Unsupported);
 		m_Stats.m_iUnsupported++;
 		return false;
 	}
@@ -270,11 +286,31 @@ bool CPlaybackSession::Tick(f64 now, f64 budgetMs, std::string& error)
 		if (!Prepare(m_iFrame))
 		{
 			error = "this frame has something the native engine cannot draw yet";
+			if (!m_bPresenting && m_pCurrent)
+			{
+				/** The host shows that it cannot be drawn instead of the last frame. */
+				m_pCurrent.reset();
+				m_iShownFrame = m_iFrame;
+				m_bDirty = false;
+				presented = true;
+			}
+		}
+		else if (!m_bPresenting)
+		{
+			if (std::shared_ptr<aevk::Frame> frame = m_Player.frame(View(), m_iFrame, error))
+			{
+				m_pCurrent = std::move(frame);
+				presented = true;
+				m_iShownFrame = m_iFrame;
+				m_bDirty = false;
+				m_Stats.m_iShown++;
+				m_iShownSlot = slot;
+			}
 		}
 		else
 		{
-			const float background[3] = { float(m_pComp->m_BgColor[0]), float(m_pComp->m_BgColor[1]),
-				float(m_pComp->m_BgColor[2]) };
+			float background[3];
+			Background(background);
 			if (m_Player.show(View(), m_iFrame, aevk::PresentRect(), background, error))
 			{
 				presented = true;

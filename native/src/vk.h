@@ -116,6 +116,8 @@
   X(vkCmdSetViewport)                  \
   X(vkCmdSetScissor)                   \
   X(vkCmdDraw)                         \
+  X(vkCmdDrawIndexed)                  \
+  X(vkCmdBindIndexBuffer)              \
   X(vkCmdClearAttachments)             \
   X(vkCmdPipelineBarrier)              \
   X(vkCmdCopyBufferToImage)            \

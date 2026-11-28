@@ -133,6 +133,14 @@ struct Buffer {
 /** A layer's image in its own pixels (see LayerImage in src/render/registry.ts). */
 using LayerImage = FxImage;
 
+/** The push constants of the interface's pipeline (ui.vert, ui.frag). */
+struct UiPush {
+  float scale[2];
+  float translate[2];
+  float uvRect[4];
+  int32_t premultiplied;
+};
+
 /** The fragment push constants of an effect pass (scripts/lib/fx-convert.ts). */
 struct FxPush {
   float size[2];
@@ -151,6 +159,8 @@ struct Swapchain {
   VkExtent2D extent{};
   VkRenderPass pass = VK_NULL_HANDLE;
   VkPipeline pipeline = VK_NULL_HANDLE;
+  /** The interface's pipeline (presentUi), made with the window's render pass. */
+  VkPipeline uiPipeline = VK_NULL_HANDLE;
   std::vector<VkImage> images;
   std::vector<VkImageView> views;
   std::vector<VkFramebuffer> framebuffers;
@@ -210,6 +220,13 @@ struct Engine::Impl {
   uint64_t frameNumber = 0;
   const Plan* plan = nullptr;
   Swapchain swap;
+  /** The interface (presentUi): a sampler and the vertex buffer, its own push constants, and the textures it made. */
+  VkDescriptorSetLayout uiSetLayout = VK_NULL_HANDLE;
+  VkPipelineLayout uiPipelineLayout = VK_NULL_HANDLE;
+  VkShaderModule uiVert = VK_NULL_HANDLE, uiFrag = VK_NULL_HANDLE;
+  Buffer uiVertices, uiIndices;
+  std::map<uint64_t, Target*> uiTextures;
+  uint64_t nextUiTexture = 1;
 
   ~Impl() { destroy(); }
 
@@ -496,6 +513,16 @@ struct Engine::Impl {
     pipelineInfo.pSetLayouts = &fxSetLayout;
     pipelineInfo.pPushConstantRanges = &fxPush;
     AEVK_CHECK(vk::vkCreatePipelineLayout(device, &pipelineInfo, nullptr, &fxPipelineLayout));
+    // The interface binds its texture and its vertices (ui.vert reads them from a storage buffer).
+    VkDescriptorSetLayoutBinding uiBindings[2] = {{0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},
+                                                  {1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_VERTEX_BIT, nullptr}};
+    layoutInfo.bindingCount = 2;
+    layoutInfo.pBindings = uiBindings;
+    AEVK_CHECK(vk::vkCreateDescriptorSetLayout(device, &layoutInfo, nullptr, &uiSetLayout));
+    VkPushConstantRange uiPush{VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(UiPush)};
+    pipelineInfo.pSetLayouts = &uiSetLayout;
+    pipelineInfo.pPushConstantRanges = &uiPush;
+    AEVK_CHECK(vk::vkCreatePipelineLayout(device, &pipelineInfo, nullptr, &uiPipelineLayout));
     VkDescriptorPoolSize sizes[2] = {{VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, kSetsPerPool * 8}, {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, kSetsPerPool}};
     VkDescriptorPoolCreateInfo descriptorInfo{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
     descriptorInfo.maxSets = kSetsPerPool;
@@ -531,6 +558,8 @@ struct Engine::Impl {
     combinePipe = pipeline(fullscreenVert, shader(kShader_combine_frag, sizeof kShader_combine_frag), coverage, false);
     paintPipe = pipeline(fullscreenVert, shader(kShader_paint_frag, sizeof kShader_paint_frag), color, false);
     straightPipe = pipeline(fullscreenVert, shader(kShader_straight_frag, sizeof kShader_straight_frag), passes[kStraightFormat], false);
+    uiVert = shader(kShader_ui_vert, sizeof kShader_ui_vert);
+    uiFrag = shader(kShader_ui_frag, sizeof kShader_ui_frag);
 
     edges = hostBuffer(1 << 16, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
     dummy = createTarget(1, 1, kColorFormat);
@@ -1416,6 +1445,7 @@ struct Engine::Impl {
     swap.swapchain = VK_NULL_HANDLE;
     if (keepSurface) return;
     if (swap.pipeline) vk::vkDestroyPipeline(device, swap.pipeline, nullptr);
+    if (swap.uiPipeline) vk::vkDestroyPipeline(device, swap.uiPipeline, nullptr);
     if (swap.pass) vk::vkDestroyRenderPass(device, swap.pass, nullptr);
     if (swap.acquired) vk::vkDestroySemaphore(device, swap.acquired, nullptr);
     if (swap.rendered) vk::vkDestroySemaphore(device, swap.rendered, nullptr);
@@ -1459,6 +1489,7 @@ struct Engine::Impl {
         if (f.format == VK_FORMAT_R8G8B8A8_UNORM || f.format == VK_FORMAT_B8G8R8A8_UNORM) swap.format = f.format;
       swap.pass = renderPass(swap.format, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
       swap.pipeline = pipeline(layerVert, layerFrag, swap.pass, true);
+      swap.uiPipeline = pipeline(uiVert, uiFrag, swap.pass, false, uiPipelineLayout, FxBlend::Over);
       VkSemaphoreCreateInfo semaphore{VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO};
       AEVK_CHECK(vk::vkCreateSemaphore(device, &semaphore, nullptr, &swap.acquired));
       AEVK_CHECK(vk::vkCreateSemaphore(device, &semaphore, nullptr, &swap.rendered));
@@ -1508,16 +1539,7 @@ struct Engine::Impl {
 
   /** Draws a frame into the window, fitted into `rect` as Renderer.present fits a comp into its canvas. */
   void present(const Target& frame, const PresentRect& rect, const float background[3]) {
-    if (!swap.surface) throw std::runtime_error("no window is attached");
-    if (!swap.swapchain) createSwapchain();
-    uint32_t index = 0;
-    VkResult acquired = vk::vkAcquireNextImageKHR(device, swap.swapchain, UINT64_MAX, swap.acquired, VK_NULL_HANDLE, &index);
-    if (acquired == VK_ERROR_OUT_OF_DATE_KHR) {
-      destroySwapchain(true);
-      createSwapchain();
-      acquired = vk::vkAcquireNextImageKHR(device, swap.swapchain, UINT64_MAX, swap.acquired, VK_NULL_HANDLE, &index);
-    }
-    if (acquired != VK_SUCCESS && acquired != VK_SUBOPTIMAL_KHR) throw VkFailure("vkAcquireNextImageKHR", acquired);
+    const uint32_t index = acquireImage();
     const float viewW = float(swap.extent.width), viewH = float(swap.extent.height);
     const float boxX = rect.width > 0 ? rect.x : 0, boxY = rect.height > 0 ? rect.y : 0;
     const float boxW = rect.width > 0 ? rect.width : viewW, boxH = rect.height > 0 ? rect.height : viewH;
@@ -1551,6 +1573,26 @@ struct Engine::Impl {
     vk::vkCmdPushConstants(cmd, pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof p, &p);
     vk::vkCmdDraw(cmd, 4, 1, 0, 0);
     vk::vkCmdEndRenderPass(cmd);
+    showImage(index);
+  }
+
+  /** The next window image to draw into, the swapchain made (again) when it has to be. */
+  uint32_t acquireImage() {
+    if (!swap.surface) throw std::runtime_error("no window is attached");
+    if (!swap.swapchain) createSwapchain();
+    uint32_t index = 0;
+    VkResult acquired = vk::vkAcquireNextImageKHR(device, swap.swapchain, UINT64_MAX, swap.acquired, VK_NULL_HANDLE, &index);
+    if (acquired == VK_ERROR_OUT_OF_DATE_KHR) {
+      destroySwapchain(true);
+      createSwapchain();
+      acquired = vk::vkAcquireNextImageKHR(device, swap.swapchain, UINT64_MAX, swap.acquired, VK_NULL_HANDLE, &index);
+    }
+    if (acquired != VK_SUCCESS && acquired != VK_SUBOPTIMAL_KHR) throw VkFailure("vkAcquireNextImageKHR", acquired);
+    return index;
+  }
+
+  /** Runs what was recorded into window image `index` and shows it. */
+  void showImage(uint32_t index) {
     submit(swap.acquired, swap.rendered);
     VkPresentInfoKHR presentInfo{VK_STRUCTURE_TYPE_PRESENT_INFO_KHR};
     presentInfo.waitSemaphoreCount = 1;
@@ -1561,6 +1603,148 @@ struct Engine::Impl {
     VkResult shown = vk::vkQueuePresentKHR(queue, &presentInfo);
     if (shown == VK_ERROR_OUT_OF_DATE_KHR || shown == VK_SUBOPTIMAL_KHR) destroySwapchain(true);
     else if (shown != VK_SUCCESS) throw VkFailure("vkQueuePresentKHR", shown);
+  }
+
+  /** A host buffer of at least `size` bytes for `usage`, grown (never shrunk) in place of `b`; only while nothing recorded uses it. */
+  void ensureBuffer(Buffer& b, VkDeviceSize size, VkBufferUsageFlags usage) {
+    if (b.size >= size) return;
+    destroyBuffer(b);
+    b = hostBuffer(std::max<VkDeviceSize>(VkDeviceSize(1) << 16, size + size / 2), usage);
+  }
+
+  /** The interface, drawn over `background` into the window (Engine::presentUi). */
+  void presentUi(const UiDrawData& ui, const Target* frame, const float background[3]) {
+    const uint32_t index = acquireImage();
+    const float viewW = float(swap.extent.width), viewH = float(swap.extent.height);
+    begin();
+    // Every set first: running out of descriptors flushes, which cannot happen inside the window's render pass.
+    std::vector<VkDescriptorSet> sets(ui.commands.size(), VK_NULL_HANDLE);
+    const bool drawable = !ui.vertices.empty() && !ui.indices.empty();
+    if (drawable) {
+      ensureBuffer(uiVertices, ui.vertices.size() * sizeof(UiVertex), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
+      ensureBuffer(uiIndices, ui.indices.size() * sizeof(uint32_t), VK_BUFFER_USAGE_INDEX_BUFFER_BIT);
+      std::memcpy(uiVertices.mapped, ui.vertices.data(), ui.vertices.size() * sizeof(UiVertex));
+      std::memcpy(uiIndices.mapped, ui.indices.data(), ui.indices.size() * sizeof(uint32_t));
+      std::map<std::pair<const Target*, bool>, VkDescriptorSet> made;
+      for (size_t i = 0; i < ui.commands.size(); i++) {
+        const UiCommand& c = ui.commands[i];
+        const Target* t = nullptr;
+        if (c.texture == kUiFrameTexture) t = frame;
+        else if (auto it = uiTextures.find(c.texture); it != uiTextures.end()) t = it->second;
+        if (!t) continue;
+        VkDescriptorSet& set = made[{t, c.nearest}];
+        if (!set) set = uiDescriptorSet(*t, c.nearest);
+        sets[i] = set;
+      }
+    }
+    VkClearValue clear{};
+    clear.color = {{background[0], background[1], background[2], 1}};
+    VkRenderPassBeginInfo passInfo{VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO};
+    passInfo.renderPass = swap.pass;
+    passInfo.framebuffer = swap.framebuffers[index];
+    passInfo.renderArea = {{0, 0}, swap.extent};
+    passInfo.clearValueCount = 1;
+    passInfo.pClearValues = &clear;
+    vk::vkCmdBeginRenderPass(cmd, &passInfo, VK_SUBPASS_CONTENTS_INLINE);
+    if (drawable) {
+      VkViewport viewport{0, 0, viewW, viewH, 0, 1};
+      vk::vkCmdSetViewport(cmd, 0, 1, &viewport);
+      vk::vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, swap.uiPipeline);
+      vk::vkCmdBindIndexBuffer(cmd, uiIndices.buffer, 0, VK_INDEX_TYPE_UINT32);
+      UiPush push{};
+      push.scale[0] = 2 / viewW;
+      push.scale[1] = 2 / viewH;
+      push.translate[0] = push.translate[1] = -1;
+      VkDescriptorSet bound = VK_NULL_HANDLE;
+      for (size_t i = 0; i < ui.commands.size(); i++) {
+        const UiCommand& c = ui.commands[i];
+        if (!sets[i] || !c.indexCount) continue;
+        const float x0 = std::clamp(c.clip[0], 0.0f, viewW), y0 = std::clamp(c.clip[1], 0.0f, viewH);
+        const float x1 = std::clamp(c.clip[2], 0.0f, viewW), y1 = std::clamp(c.clip[3], 0.0f, viewH);
+        if (x1 <= x0 || y1 <= y0) continue;
+        VkRect2D scissor{{int32_t(x0), int32_t(y0)}, {uint32_t(std::ceil(x1) - int32_t(x0)), uint32_t(std::ceil(y1) - int32_t(y0))}};
+        vk::vkCmdSetScissor(cmd, 0, 1, &scissor);
+        if (sets[i] != bound) {
+          vk::vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, uiPipelineLayout, 0, 1, &sets[i], 0, nullptr);
+          bound = sets[i];
+        }
+        const bool isFrame = c.texture == kUiFrameTexture;
+        if (isFrame) {
+          // The frame's content, inside its transparent border.
+          push.uvRect[0] = float(kPad) / float(frame->width);
+          push.uvRect[1] = float(kPad) / float(frame->height);
+          push.uvRect[2] = float(frame->width - 2 * kPad) / float(frame->width);
+          push.uvRect[3] = float(frame->height - 2 * kPad) / float(frame->height);
+        } else {
+          push.uvRect[0] = push.uvRect[1] = 0;
+          push.uvRect[2] = push.uvRect[3] = 1;
+        }
+        push.premultiplied = isFrame ? 1 : 0;
+        vk::vkCmdPushConstants(cmd, uiPipelineLayout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof push, &push);
+        vk::vkCmdDrawIndexed(cmd, c.indexCount, 1, c.firstIndex, c.vertexOffset, 0);
+      }
+    }
+    vk::vkCmdEndRenderPass(cmd);
+    showImage(index);
+  }
+
+  VkDescriptorSet uiDescriptorSet(const Target& texture, bool nearestFilter) {
+    VkDescriptorSetAllocateInfo alloc{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};
+    alloc.descriptorPool = descriptorPool;
+    alloc.descriptorSetCount = 1;
+    alloc.pSetLayouts = &uiSetLayout;
+    VkDescriptorSet set;
+    if (vk::vkAllocateDescriptorSets(device, &alloc, &set) != VK_SUCCESS) {
+      flush();
+      AEVK_CHECK(vk::vkAllocateDescriptorSets(device, &alloc, &set));
+    }
+    VkDescriptorImageInfo image{nearestFilter ? nearest : linear, texture.view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
+    VkDescriptorBufferInfo buffer{uiVertices.buffer, 0, VK_WHOLE_SIZE};
+    VkWriteDescriptorSet writes[2]{};
+    writes[0].sType = writes[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    writes[0].dstSet = writes[1].dstSet = set;
+    writes[0].dstBinding = 0;
+    writes[0].descriptorCount = 1;
+    writes[0].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    writes[0].pImageInfo = &image;
+    writes[1].dstBinding = 1;
+    writes[1].descriptorCount = 1;
+    writes[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    writes[1].pBufferInfo = &buffer;
+    vk::vkUpdateDescriptorSets(device, 2, writes, 0, nullptr);
+    return set;
+  }
+
+  /** A straight RGBA8 texture for the interface, rows top first (Engine::createUiTexture). */
+  uint64_t createUiTexture(const uint8_t* rgba, uint32_t width, uint32_t height) {
+    width = std::max(width, 1u);
+    height = std::max(height, 1u);
+    Target* t = createTarget(width, height, kColorFormat);
+    const VkDeviceSize bytes = VkDeviceSize(width) * height * 4;
+    try {
+      Buffer& buffer = stagingFor(bytes);
+      std::memcpy(buffer.mapped, rgba, bytes);
+      begin();
+      barrier(t->image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, 0, VK_PIPELINE_STAGE_TRANSFER_BIT,
+              VK_ACCESS_TRANSFER_WRITE_BIT);
+      VkBufferImageCopy region{};
+      region.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+      region.imageExtent = {width, height, 1};
+      vk::vkCmdCopyBufferToImage(cmd, buffer.buffer, t->image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
+      barrier(t->image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_TRANSFER_BIT,
+              VK_ACCESS_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, VK_ACCESS_SHADER_READ_BIT);
+      submit();
+    } catch (...) {
+      if (recording) {
+        vk::vkEndCommandBuffer(cmd);
+        recording = false;
+      }
+      destroyTarget(t);
+      throw;
+    }
+    const uint64_t id = nextUiTexture++;
+    uiTextures[id] = t;
+    return id;
   }
 
   // --- teardown ----------------------------------------------------------------------------------------------------
@@ -1576,6 +1760,12 @@ struct Engine::Impl {
       dummy = nullptr;
       destroyBuffer(edges);
       destroyBuffer(staging);
+      destroyBuffer(uiVertices);
+      destroyBuffer(uiIndices);
+      for (auto& [id, t] : uiTextures) destroyTarget(t);
+      uiTextures.clear();
+      if (uiPipelineLayout) vk::vkDestroyPipelineLayout(device, uiPipelineLayout, nullptr);
+      if (uiSetLayout) vk::vkDestroyDescriptorSetLayout(device, uiSetLayout, nullptr);
       for (VkPipeline p : {layerPipe, compositePipe, maskPipe, premultiplyPipe, coveragePipe, featherPipe, combinePipe, paintPipe, straightPipe})
         if (p) vk::vkDestroyPipeline(device, p, nullptr);
       for (VkShaderModule m : modules) vk::vkDestroyShaderModule(device, m, nullptr);
@@ -1721,6 +1911,44 @@ bool Engine::attachDesktopWindow(void* display, uint64_t window, std::string& er
 #endif
 
 void Engine::detachWindow() { impl_->destroySwapchain(false); }
+
+void Engine::windowResized() {
+  if (impl_->swap.swapchain) impl_->destroySwapchain(true);
+}
+
+void Engine::addMediaFolder(const std::string& folder) { impl_->media.addFolder(folder); }
+
+void Engine::windowSize(uint32_t& width, uint32_t& height) const {
+  width = impl_->swap.extent.width;
+  height = impl_->swap.extent.height;
+}
+
+bool Engine::presentUi(const UiDrawData& ui, const Frame* frame, const float background[3], std::string& error) {
+  try {
+    impl_->presentUi(ui, frame ? frame->state_->target : nullptr, background);
+    return true;
+  } catch (const std::exception& e) {
+    error = e.what();
+    return false;
+  }
+}
+
+uint64_t Engine::createUiTexture(const uint8_t* rgba, uint32_t width, uint32_t height, std::string& error) {
+  try {
+    return impl_->createUiTexture(rgba, width, height);
+  } catch (const std::exception& e) {
+    error = e.what();
+    return 0;
+  }
+}
+
+void Engine::destroyUiTexture(uint64_t texture) {
+  auto it = impl_->uiTextures.find(texture);
+  if (it == impl_->uiTextures.end()) return;
+  vk::vkDeviceWaitIdle(impl_->device);
+  impl_->destroyTarget(it->second);
+  impl_->uiTextures.erase(it);
+}
 
 bool Engine::hasWindow() const { return impl_->swap.surface != VK_NULL_HANDLE; }
 

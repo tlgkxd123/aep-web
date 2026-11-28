@@ -103,8 +103,11 @@ bool decodeWav(const uint8_t* bytes, size_t size, AudioData& out) {
 }
 
 void MediaLibrary::addFolder(const std::string& folder) {
+  if (std::find(folders_.begin(), folders_.end(), folder) != folders_.end()) return;
   folders_.push_back(folder);
   indexed_ = false;
+  // Names not found before may be found in the new folder.
+  for (auto it = audio_.begin(); it != audio_.end();) it = it->second ? std::next(it) : audio_.erase(it);
 }
 
 void MediaLibrary::index() {

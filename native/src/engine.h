@@ -41,6 +41,34 @@ struct EngineOptions {
 
 class Engine;
 
+/** A vertex of the interface, laid out as Dear ImGui's ImDrawVert: window pixels, texture coordinates, straight RGBA8. */
+struct UiVertex {
+  float x = 0, y = 0, u = 0, v = 0;
+  uint32_t rgba = 0;
+};
+
+/** The texture id of the frame passed to presentUi: its content without the border, premultiplied. */
+constexpr uint64_t kUiFrameTexture = ~uint64_t(0);
+
+/** One run of triangles of the interface: indices into the vertices, clipped to a window rectangle. */
+struct UiCommand {
+  /** Left, top, right, bottom, in window pixels. */
+  float clip[4] = {0, 0, 0, 0};
+  /** An id from createUiTexture, or kUiFrameTexture. */
+  uint64_t texture = 0;
+  uint32_t firstIndex = 0, indexCount = 0;
+  int32_t vertexOffset = 0;
+  /** Samples the texture's nearest pixel (a frame zoomed in), else bilinearly. */
+  bool nearest = false;
+};
+
+/** A whole frame of the interface, drawn back to front. */
+struct UiDrawData {
+  std::vector<UiVertex> vertices;
+  std::vector<uint32_t> indices;
+  std::vector<UiCommand> commands;
+};
+
 /** A rendered frame kept on the GPU, premultiplied with the border. Drop every frame before its engine. */
 class Frame {
  public:
@@ -103,11 +131,25 @@ class Engine {
   bool attachDesktopWindow(void* display, uint64_t window, std::string& error);
 #endif
   void detachWindow();
+  /** The attached window changed size: the next present makes its images again at the new size. */
+  void windowResized();
   /** Whether a window is attached. */
   bool hasWindow() const;
   /** Draws a frame into the attached window over `background` (straight RGB) and shows it. */
   bool present(const Frame& frame, const PresentRect& rect, const float background[3], std::string& error);
 
+  /** Searches `folder` too for the footage files plans name (a project opened after the engine was made). */
+  void addMediaFolder(const std::string& folder);
+  /** The window's size in pixels as presentation last saw it (0 before the first present). */
+  void windowSize(uint32_t& width, uint32_t& height) const;
+  /**
+   * Draws the interface into the attached window over `background` (straight RGB) and shows it; `frame`, when given,
+   * is what commands with kUiFrameTexture sample.
+   */
+  bool presentUi(const UiDrawData& ui, const Frame* frame, const float background[3], std::string& error);
+  /** A texture for the interface from straight RGBA8, rows top first (a font atlas, icons); 0 with `error` set. */
+  uint64_t createUiTexture(const uint8_t* rgba, uint32_t width, uint32_t height, std::string& error);
+  void destroyUiTexture(uint64_t texture);
   /** Gives back pooled render targets beyond `bytes`. */
   void trim(size_t bytes);
   size_t pooledBytes() const;

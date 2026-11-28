@@ -2,6 +2,8 @@
 <resources>
     <string name="app_name">aep-web</string>
     <string name="title_activity_main">aep-web</string>
+    <!-- The native screen (NativeAppActivity): the C++ interface on the Vulkan engine. -->
+    <string name="title_activity_native">aep native</string>
     <string name="package_name">com.zionschxma.aev3</string>
     <string name="custom_url_scheme">com.zionschxma.aev3</string>
 </resources>

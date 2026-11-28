@@ -139,10 +139,58 @@ else()
   target_compile_options(aepplayer PRIVATE -Wall -Wextra -Wno-missing-field-initializers)
 endif()
 
+# The app's interface (native/ui): one Dear ImGui (MIT) interface for the desktop app and the Android app, drawn by the
+# engine over the comp (Engine::presentUi). Dear ImGui is fetched at configure time.
+option(AEP_UI "Build the app's interface (fetches Dear ImGui)" ON)
+if(AEP_UI)
+  include(FetchContent)
+  FetchContent_Declare(imgui
+    GIT_REPOSITORY https://github.com/ocornut/imgui.git
+    GIT_TAG f5befd2d29e66809cd1110a152e375a7f1981f06 # v1.91.9b
+  )
+  FetchContent_GetProperties(imgui)
+  if(NOT imgui_POPULATED)
+    FetchContent_Populate(imgui)
+  endif()
+  add_library(imgui STATIC
+    ${imgui_SOURCE_DIR}/imgui.cpp
+    ${imgui_SOURCE_DIR}/imgui_draw.cpp
+    ${imgui_SOURCE_DIR}/imgui_tables.cpp
+    ${imgui_SOURCE_DIR}/imgui_widgets.cpp
+  )
+  # ui/aep_imconfig.h: 32-bit indices (a long timeline draws more than 65536 vertices in one window), no obsolete API.
+  target_include_directories(imgui PUBLIC ${imgui_SOURCE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/ui)
+  target_compile_definitions(imgui PUBLIC IMGUI_USER_CONFIG="aep_imconfig.h")
+  # The interface font: Roboto Medium (Apache 2.0), which Dear ImGui ships in misc/fonts.
+  set(AEP_UI_FONT ${imgui_SOURCE_DIR}/misc/fonts/Roboto-Medium.ttf)
+  set(AEP_UI_FONT_CPP ${CMAKE_CURRENT_BINARY_DIR}/ui_font.cpp)
+  add_custom_command(
+    OUTPUT ${AEP_UI_FONT_CPP}
+    COMMAND ${CMAKE_COMMAND} -DINPUT=${AEP_UI_FONT} -DOUTPUT=${AEP_UI_FONT_CPP} -DNAME=g_UiFont
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/embed.cmake
+    DEPENDS ${AEP_UI_FONT} ${CMAKE_CURRENT_SOURCE_DIR}/cmake/embed.cmake
+    COMMENT "Embedding the interface font"
+  )
+  add_library(aepui STATIC ui/app.cpp ui/files.cpp ui/render.cpp ${AEP_UI_FONT_CPP})
+  target_include_directories(aepui PUBLIC ui)
+  target_link_libraries(aepui PUBLIC aepplayer imgui)
+  if(MSVC)
+    target_compile_options(aepui PRIVATE /W4)
+  else()
+    target_compile_options(aepui PRIVATE -Wall -Wextra -Wno-missing-field-initializers)
+  endif()
+endif()
+
 if(ANDROID)
   add_library(aevk_jni SHARED android/aevk_jni.cpp android/aep_player_jni.cpp)
   target_link_libraries(aevk_jni PRIVATE aevk aepplayer)
   set_target_properties(aevk aepcore aepplayer aevk_jni PROPERTIES CXX_VISIBILITY_PRESET hidden VISIBILITY_INLINES_HIDDEN ON)
+  # The app's native screen (NativeAppActivity): the interface in native/ui on the display's frame clock.
+  if(AEP_UI)
+    target_sources(aevk_jni PRIVATE android/aep_app_jni.cpp)
+    target_link_libraries(aevk_jni PRIVATE aepui)
+    set_target_properties(aepui imgui PROPERTIES CXX_VISIBILITY_PRESET hidden VISIBILITY_INLINES_HIDDEN ON)
+  endif()
   # 16 KB pages: Android 15 devices may use them, and Google Play requires libraries aligned for them.
   target_link_options(aevk_jni PRIVATE -Wl,--exclude-libs,ALL -Wl,--gc-sections -Wl,-z,max-page-size=16384)
 endif()
@@ -168,6 +216,23 @@ if(AEVK_TOOLS)
     else()
       target_include_directories(aep-viewer PRIVATE ${AEVK_XCB_INCLUDE_DIR})
       target_link_libraries(aep-viewer PRIVATE ${AEVK_XCB_LIBRARY})
+    endif()
+  endif()
+
+  # The desktop app: the interface in native/ui in a window, on Linux and Windows.
+  if(AEVK_DESKTOP_WINDOW AND AEP_UI)
+    add_executable(aep-app tools/aep_app.cpp)
+    target_link_libraries(aep-app PRIVATE aepui)
+    if(WIN32)
+      set_target_properties(aep-app PROPERTIES WIN32_EXECUTABLE OFF)
+    else()
+      target_include_directories(aep-app PRIVATE ${AEVK_XCB_INCLUDE_DIR})
+      target_link_libraries(aep-app PRIVATE ${AEVK_XCB_LIBRARY})
+    endif()
+    if(MSVC)
+      target_compile_options(aep-app PRIVATE /W4)
+    else()
+      target_compile_options(aep-app PRIVATE -Wall -Wextra -Wno-missing-field-initializers)
     endif()
   endif()
 
