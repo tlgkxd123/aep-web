@@ -370,6 +370,9 @@ public:
 
 	/** Comps. */
 	f64 m_BgColor[3] = { 0, 0, 0 };
+	/** Motion blur's shutter, in degrees of a frame. */
+	f64 m_fShutterAngle = 0;
+	f64 m_fShutterPhase = 0;
 	std::vector<std::unique_ptr<CLayer>> m_Layers;
 
 	/** Folders. */

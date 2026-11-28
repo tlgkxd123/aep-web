@@ -44,6 +44,98 @@ f64 PlannedValue(const aevk::Effect& effect, u32 index)
 	return param && !param->value.empty() ? param->value[0] : 0;
 }
 
+/** The first value of the parameter declared `index`-th, or `fallback` when absent or not finite (as FxParams::num). */
+f64 PlannedValueOr(const aevk::Effect& effect, u32 index, f64 fallback)
+{
+	const aevk::EffectParam* param = effect.param(index);
+	return param && !param->value.empty() && std::isfinite(param->value[0]) ? param->value[0] : fallback;
+}
+
+/**
+ * The comp times a time effect sees its layer at besides the frame's own (inputTimes in plan.ts), from its parameters
+ * and the source planned for its first layer parameter (null for none): none for any other effect, and for Time
+ * Difference with a Target layer (that layer's content is planned at the offset time instead). Time Displacement
+ * reads the frame's own time first when it has no map layer, then every step of its grid.
+ */
+std::vector<f64> InputTimes(const aevk::Effect& effect, f64 time, const CItem& comp, const CLayer& layer, const aevk::EffectSource* target)
+{
+	const f64 fd = comp.m_fFrameRate != 0 ? 1 / comp.m_fFrameRate : 0;
+	const std::string& name = effect.matchName;
+	std::vector<f64> times;
+	if (name == "ADBE Posterize Time")
+	{
+		const f64 rate = std::max(0.01, PlannedValueOr(effect, 1, 24));
+		const f64 held = std::floor(time * rate + 1e-6) / rate;
+		if (!(std::fabs(held - time) < 1e-9))
+		{
+			times.push_back(held);
+		}
+	}
+	else if (name == "ADBE Echo")
+	{
+		const f64 step = PlannedValueOr(effect, 1, -1.0 / 30);
+		const f64 count = std::max(0.0, std::min(1000.0, JsRound(PlannedValueOr(effect, 2, 1))));
+		for (s32 k = 1; k <= s32(count); k++)
+		{
+			times.push_back(time + k * step);
+		}
+	}
+	else if (name == "CC Wide Time")
+	{
+		const s32 forward = s32(std::max(0.0, JsRound(PlannedValueOr(effect, 1, 1))));
+		const s32 backward = s32(std::max(0.0, JsRound(PlannedValueOr(effect, 2, 1))));
+		for (s32 k = -backward; k <= forward; k++)
+		{
+			if (k)
+			{
+				times.push_back(time + k * fd);
+			}
+		}
+	}
+	else if (name == "CC Force Motion Blur")
+	{
+		const s32 samples = s32(std::max(1.0, JsRound(PlannedValueOr(effect, 1, 8))));
+		const bool override = PlannedValueOr(effect, 2, 1) != 0;
+		const f64 angle = override ? PlannedValueOr(effect, 3, 180) : comp.m_fShutterAngle;
+		const f64 phase = override ? PlannedValueOr(effect, 5, 0) : comp.m_fShutterPhase;
+		for (s32 i = 0; i < samples; i++)
+		{
+			times.push_back(time + ((phase + (angle * i) / samples) / 360) * fd);
+		}
+	}
+	else if (name == "ADBE Difference" && !target)
+	{
+		times.push_back(time + PlannedValueOr(effect, 2, 0));
+	}
+	else if (name == "ADBE Time Displacement")
+	{
+		const f64 maximum = PlannedValueOr(effect, 2, 1);
+		const f64 resolution = std::max(0.01, PlannedValueOr(effect, 3, 60));
+		if ((target && !target->drawn) || maximum == 0)
+		{
+			return times;
+		}
+		const f64 reach = std::fabs(maximum);
+		const f64 first = std::floor((time - reach) * resolution + 1e-6);
+		const f64 last = std::min(first + 1200, std::floor((time + reach) * resolution + 1e-6));
+		if (!target)
+		{
+			times.push_back(time);
+		}
+		for (f64 i = first; i <= last; i++)
+		{
+			times.push_back(std::min(std::max(i / resolution, layer.m_fInPoint), layer.m_fOutPoint - fd));
+		}
+	}
+	return times;
+}
+
+/** The comp time a layer parameter's layer is planned at: Time Difference reads its Target at Time Offset later. */
+f64 SourceTime(const aevk::Effect& effect, f64 time)
+{
+	return effect.matchName == "ADBE Difference" ? time + PlannedValueOr(effect, 2, 0) : time;
+}
+
 /** The mask of `layer` a Path parameter names (1-based, among all its masks), at `time` (maskPath in plan.ts). */
 bool MaskPath(const CLayer& layer, f64 index, f64 time, aevk::EffectPath& out)
 {
@@ -610,10 +702,15 @@ bool CFramePlanner::Placed(const CLayer& layer, const CItem& comp, f64 time, con
 	return true;
 }
 
-void CFramePlanner::Effects(const CLayer& layer, const CItem& comp, f64 time, s32 depth, std::vector<aevk::Effect>& out)
+void CFramePlanner::Effects(const CLayer& layer, const CItem& comp, f64 time, s32 depth, std::vector<aevk::Effect>& out,
+	const CPropertyNode* before)
 {
 	for (const CPropertyNode* effect : EnabledEffects(layer))
 	{
+		if (effect == before)
+		{
+			break;
+		}
 		const sNativeEffect* native = NativeEffect(effect->m_MatchName);
 		if (!native || native->m_bPassThrough)
 		{
@@ -621,6 +718,8 @@ void CFramePlanner::Effects(const CLayer& layer, const CItem& comp, f64 time, s3
 		}
 		aevk::Effect planned;
 		planned.matchName = effect->m_MatchName;
+		/** Layer parameters by declared index and the layer index they name, planned once the parameters are known. */
+		std::vector<std::pair<u32, f64>> named;
 		for (const auto& child : effect->m_Children)
 		{
 			const CPropertyNode& node = *child;
@@ -648,14 +747,17 @@ void CFramePlanner::Effects(const CLayer& layer, const CItem& comp, f64 time, s3
 				param.menu.push_back(option.rfind("(-", 0) == 0 ? 1 : 0);
 			}
 			const u32 index = param.index;
-			const f64 named = value.m_V[0];
+			const f64 first = value.m_V[0];
 			planned.params.push_back(std::move(param));
-			if (node.m_uControlType != CONTROL_LAYER || !index)
+			if (node.m_uControlType == CONTROL_LAYER && index)
 			{
-				continue;
+				named.emplace_back(index, JsRound(first));
 			}
+		}
+		const f64 sourceTime = SourceTime(planned, time);
+		for (const auto& [index, i] : named)
+		{
 			/** As the effects' layer parameters read it: another layer of the comp by index, never the layer itself. */
-			const f64 i = JsRound(named);
 			const CLayer* other = nullptr;
 			if (i > 0)
 			{
@@ -674,7 +776,7 @@ void CFramePlanner::Effects(const CLayer& layer, const CItem& comp, f64 time, s3
 			}
 			aevk::EffectSource source;
 			source.param = index;
-			source.drawn = Content(*other, time, depth, 1, source.content);
+			source.drawn = Content(*other, sourceTime, depth, 1, source.content);
 			if (source.drawn)
 			{
 				source.layer.width = float(other->m_fWidth);
@@ -705,8 +807,26 @@ void CFramePlanner::Effects(const CLayer& layer, const CItem& comp, f64 time, s3
 		{
 			planned.hasPath = MaskPath(layer, PlannedValue(planned, pathParam), time, planned.path);
 		}
+		for (const f64 t : InputTimes(planned, time, comp, layer, planned.source(1)))
+		{
+			planned.inputs.emplace_back();
+			Input(layer, comp, t, depth, effect, planned.inputs.back());
+		}
 		out.push_back(std::move(planned));
 	}
+}
+
+void CFramePlanner::Input(const CLayer& layer, const CItem& comp, f64 t, s32 depth, const CPropertyNode* effect, aevk::EffectInput& out)
+{
+	out.time = t;
+	out.drawn = Content(layer, t, depth, 1, out.content);
+	if (!out.drawn)
+	{
+		out.content = aevk::Content();
+		return;
+	}
+	Masks(layer, t, out.content.scale, out.masks);
+	Effects(layer, comp, t, depth, out.effects, effect);
 }
 
 void CFramePlanner::Audio(const CLayer& layer, f64 time, std::vector<aevk::AudioSource>& out)

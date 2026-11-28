@@ -457,6 +457,8 @@ struct sCdta
 	f64 m_fHeight = 0;
 	f64 m_fPixelAspect = 1;
 	f64 m_fFrameRate = 0;
+	f64 m_fShutterAngle = 0;
+	f64 m_fShutterPhase = 0;
 };
 
 sCdta DecodeCdta(const CChunk& chunk)
@@ -477,6 +479,8 @@ sCdta DecodeCdta(const CChunk& chunk)
 		c.m_fPixelAspect = 1;
 	}
 	c.m_fFrameRate = b.U16(156) + b.U16(158) / 65536.0;
+	c.m_fShutterAngle = b.U16(174);
+	c.m_fShutterPhase = b.S32(180);
 	return c;
 }
 
@@ -1154,6 +1158,8 @@ public:
 			item->m_fDuration = c.m_fDuration;
 			item->m_fFrameRate = c.m_fFrameRate;
 			item->m_fPixelAspect = c.m_fPixelAspect;
+			item->m_fShutterAngle = c.m_fShutterAngle;
+			item->m_fShutterPhase = c.m_fShutterPhase;
 			std::copy(c.m_BgColor, c.m_BgColor + 3, item->m_BgColor);
 			m_CompChunks.emplace_back(item.get(), &list);
 		}

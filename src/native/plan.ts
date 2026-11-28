@@ -125,6 +125,20 @@ export interface PlanEffect {
   audio?: PlanAudioSource[];
   /** The mask its Path parameter names, at the frame's time; absent when that names none. */
   path?: { closed: boolean; vertices: number[] };
+  /** A time effect's layer at the other times it reads (inputTimes), in their order; absent when it reads none. */
+  inputs?: PlanEffectInput[];
+}
+
+/**
+ * The layer as a time effect receives it at another comp time (inputAt in perspectiveTime.ts): its content, masks and
+ * the enabled effects above the time effect, all at that time, in the layer's own pixels at full resolution.
+ */
+export interface PlanEffectInput {
+  time: number;
+  /** Null when the layer draws nothing then. */
+  content: PlanContent | null;
+  masks: PlanMask[];
+  effects: PlanEffect[];
 }
 
 /**
@@ -239,6 +253,69 @@ function enabledEffects(layer: Layer): PropertyGroup[] {
   if (!layer.effectsActive) return [];
   const parade = layer.properties.find((n): n is PropertyGroup => n.kind === "group" && n.matchName === "ADBE Effect Parade");
   return (parade?.children ?? []).filter((e): e is PropertyGroup => e.kind === "group" && e.enabled);
+}
+
+/**
+ * The comp times a time effect sees its layer at besides the frame's own (perspectiveTime.ts), from its parameters
+ * (`value(n, fallback)` reads the one declared n-th) and the other layer its first layer parameter names (`target`:
+ * absent for none, with null content when it draws nothing): none for any other effect, and for Time Difference with a
+ * Target layer (that layer's content is planned at the offset time instead). Time Displacement reads the frame's own
+ * time first when it has no map layer (the map), then every step of its grid, the one at the frame's time included.
+ */
+export function inputTimes(
+  matchName: string,
+  value: (index: number, fallback: number) => number,
+  time: number,
+  comp: CompItem,
+  layer: Pick<Layer, "inPoint" | "outPoint">,
+  target: PlanEffectSource | undefined,
+): number[] {
+  const fd = comp.frameDuration;
+  switch (matchName) {
+    case "ADBE Posterize Time": {
+      const rate = Math.max(0.01, value(1, 24));
+      const held = Math.floor(time * rate + 1e-6) / rate;
+      return Math.abs(held - time) < 1e-9 ? [] : [held];
+    }
+    case "ADBE Echo": {
+      const step = value(1, -1 / 30);
+      const count = Math.max(0, Math.min(1000, Math.round(value(2, 1))));
+      return Array.from({ length: count }, (_, k) => time + (k + 1) * step);
+    }
+    case "CC Wide Time": {
+      const forward = Math.max(0, Math.round(value(1, 1)));
+      const backward = Math.max(0, Math.round(value(2, 1)));
+      const times: number[] = [];
+      for (let k = -backward; k <= forward; k++) if (k) times.push(time + k * fd);
+      return times;
+    }
+    case "CC Force Motion Blur": {
+      const samples = Math.max(1, Math.round(value(1, 8)));
+      const override = value(2, 1) !== 0;
+      const angle = override ? value(3, 180) : comp.shutterAngle;
+      const phase = override ? value(5, 0) : comp.shutterPhase;
+      return Array.from({ length: samples }, (_, i) => time + ((phase + (angle * i) / samples) / 360) * fd);
+    }
+    case "ADBE Difference":
+      return target ? [] : [time + value(2, 0)];
+    case "ADBE Time Displacement": {
+      const maximum = value(2, 1);
+      const resolution = Math.max(0.01, value(3, 60));
+      if ((target && !target.content) || !maximum) return [];
+      const reach = Math.abs(maximum);
+      const first = Math.floor((time - reach) * resolution + 1e-6);
+      const last = Math.min(first + 1200, Math.floor((time + reach) * resolution + 1e-6));
+      const times = target ? [] : [time];
+      for (let i = first; i <= last; i++) times.push(Math.min(Math.max(i / resolution, layer.inPoint), layer.outPoint - fd));
+      return times;
+    }
+  }
+  return [];
+}
+
+/** The comp time a layer parameter's layer is planned at: Time Difference reads its Target at Time Offset later. */
+function sourceTime(matchName: string, value: (index: number, fallback: number) => number, time: number): number {
+  return matchName === "ADBE Difference" ? time + value(2, 0) : time;
 }
 
 /** The mask of `layer` a Path parameter names (1-based, among all its masks), at `time` (maskShape in audioSpectrum.ts). */
@@ -366,13 +443,14 @@ class Planner {
    * The layer's enabled effects the engine renders, with their parameters' values at `time` and the content of the
    * other layers their layer parameters name.
    */
-  private effects(layer: Layer, comp: CompItem, time: number, depth: number): PlanEffect[] {
+  private effects(layer: Layer, comp: CompItem, time: number, depth: number, before?: PropertyGroup): PlanEffect[] {
     const planned: PlanEffect[] = [];
     for (const effect of enabledEffects(layer)) {
+      if (effect === before) break;
       const native = nativeEffect(effect.matchName);
       if (!native || native.passThrough) continue;
       const params: PlanParam[] = [];
-      const sources: PlanEffectSource[] = [];
+      const named: { index: number; layer: number }[] = [];
       for (const node of effect.children) {
         if (node.kind !== "property") continue;
         const v = currentValue(node, time, layer, effect.children);
@@ -382,12 +460,20 @@ class Planner {
         if (node.options) param.menu = node.options.map((o) => o.startsWith("(-"));
         params.push(param);
         const index = declaredIndex(effect.matchName, node.matchName);
-        if (node.controlType !== LAYER_CONTROL || !index) continue;
+        if (node.controlType === LAYER_CONTROL && index) named.push({ index, layer: Math.round(value[0]) });
+      }
+      // As the effects read their parameters (Params.num): the fallback when absent or not finite.
+      const valueOr = (index: number, fallback: number) => {
+        const v = params.find((p) => declaredIndex(effect.matchName, p.matchName) === index)?.value[0];
+        return v !== undefined && Number.isFinite(v) ? v : fallback;
+      };
+      const sources: PlanEffectSource[] = [];
+      const at = sourceTime(effect.matchName, valueOr, time);
+      for (const { index, layer: i } of named) {
         // As the effects' layer parameters read it: another layer of the comp by index, never the layer itself.
-        const i = Math.round(value[0]);
         const other = i > 0 ? comp.layers.find((l) => l.index === i && l !== layer) : undefined;
         if (!other) continue;
-        const content = this.content(other, time, depth, 1);
+        const content = this.content(other, at, depth, 1);
         const kind = other.layerType === "AVLayer" ? 0 : other.layerType === "ShapeLayer" ? 1 : 2;
         sources.push(content ? { param: index, content, width: other.width, height: other.height, kind } : { param: index, content, width: 0, height: 0, kind: 0 });
       }
@@ -402,9 +488,18 @@ class Planner {
       const pathParam = PATH_PARAMS[effect.matchName];
       const path = pathParam ? maskPath(layer, value(pathParam), time) : undefined;
       if (path) planned1.path = path;
+      const times = inputTimes(effect.matchName, valueOr, time, comp, layer, sources.find((src) => src.param === 1));
+      if (times.length) planned1.inputs = times.map((t) => this.input(layer, comp, t, depth, effect));
       planned.push(planned1);
     }
     return planned;
+  }
+
+  /** The layer as `effect` receives it at comp time `t` (see PlanEffectInput). */
+  private input(layer: Layer, comp: CompItem, t: number, depth: number, effect: PropertyGroup): PlanEffectInput {
+    const content = this.content(layer, t, depth, 1);
+    if (!content) return { time: t, content: null, masks: [], effects: [] };
+    return { time: t, content, masks: this.masks(layer, t, content.scale), effects: this.effects(layer, comp, t, depth, effect) };
   }
 
   /**

@@ -146,6 +146,13 @@ calls (a referenced property's value, `toComp`, `wiggle`, the noise behind `rand
   reach the project's footage folder (below).
 - Plan v7 adds each effect layer's Time Stretch, so effects that run on the layer's own clock (Ripple's waves) see
   the same time the TypeScript renderer gives them.
+- Plan v8 adds the Time effects' other frames: Posterize Time, Echo, CC Wide Time, CC Force Motion Blur, Time
+  Difference and Time Displacement carry their layer as it enters the effect (content, masks and the effects above it)
+  at each comp time they read, timed by both planners from the effects' parameters (`inputTimes` in
+  `src/native/plan.ts`). The engine draws them through the same layer path (`FxContext::input`) and folds them as
+  `perspectiveTime.ts` does, 7 frames a pass (Time Displacement 6 beside its map). 22 of their 24 reference frames
+  pass; Echo's Composite In Back cell at frame 16 and Time Difference's edges at frame 15 differ as the WebGL model
+  does.
 - Adjustment layers' effects run on the composite below them in comp pixels, as `placeAdjustment` does; the layer's
   own image still only says where the result shows. All four `adjust_*` reference frames pass.
 

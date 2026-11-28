@@ -181,12 +181,34 @@ ${body}
 /** A float target of floatPass's over `rect`, as an image layerPass can sample. */
 const stateImage = (state: Target, rect: Rect): LayerImage => ({ target: state, width: rect.width, height: rect.height, origin: [rect.x, rect.y] });
 
+/** finishPass's body: `finish` is GLSL turning `vec4 v`, the running result at p, into `outColor` (also embedded by the native engine). */
+export const finishBody = (finish: string): string => `  vec4 v = at(0, p);\n${finish}`;
+
 /** A float target of floatPass's into an image covering `rect`; `finish` is GLSL turning `vec4 v` into `outColor`. */
 function finishPass(ctx: RenderContext, rect: Rect, state: Target, finish: string): LayerImage {
-  const out = layerPass(ctx, rect, [stateImage(state, rect)], "", `  vec4 v = at(0, p);\n${finish}`);
+  const out = layerPass(ctx, rect, [stateImage(state, rect)], "", finishBody(finish));
   releaseFloat(ctx, state);
   return out;
 }
+
+/** foldFrames' declarations for `frames` frames a pass (also embedded by the native engine). */
+export const foldDecls = (frames: number): string => `uniform int u_slot[${frames}];\nuniform float u_w[${frames}];\nuniform int u_count;\nuniform int u_first;`;
+
+/** foldFrames' body for `frames` frames a pass: `step` updates `vec4 s` from `init` with each frame `c` and its weight `w`. */
+export const foldBody = (frames: number, init: string, step: string): string => `  vec4 s = u_first == 1 ? ${init} : prev();
+  for (int i = 0; i < ${frames}; i++) {
+    if (i >= u_count) break;
+    vec4 c = u_slot[i] < 0 ? vec4(0.0) : at(u_slot[i], p);
+    float w = u_w[i];
+    ${step}
+  }
+  outColor = s;`;
+
+/**
+ * The native engine's foldFrames declarations: its layerPass shaders read the running result as source `frames`
+ * (placed over the same rectangle, so at the same pixel) where floatPass binds u_prev.
+ */
+export const nativeFoldDecls = (frames: number): string => `vec4 at(int i, vec2 q);\nvec4 prev() { return at(${frames}, layerPoint()); }\n${foldDecls(frames)}`;
 
 /**
  * Folds weighted frames into a float running result, MAX_FRAMES a pass: `step` is GLSL updating `vec4 s` (the result
@@ -209,15 +231,8 @@ function foldFrames(ctx: RenderContext, rect: Rect, frames: { image: LayerImage 
       rect,
       images,
       state,
-      `uniform int u_slot[${MAX_FRAMES}];\nuniform float u_w[${MAX_FRAMES}];\nuniform int u_count;\nuniform int u_first;`,
-      `  vec4 s = u_first == 1 ? ${init} : prev();
-  for (int i = 0; i < ${MAX_FRAMES}; i++) {
-    if (i >= u_count) break;
-    vec4 c = u_slot[i] < 0 ? vec4(0.0) : at(u_slot[i], p);
-    float w = u_w[i];
-    ${step}
-  }
-  outColor = s;`,
+      foldDecls(MAX_FRAMES),
+      foldBody(MAX_FRAMES, init, step),
       (u) => {
         ctx.gl.uniform1iv(u("u_slot"), slots);
         ctx.gl.uniform1fv(u("u_w"), weights);
@@ -249,7 +264,10 @@ const ECHO_STEP: Record<number, string> = {
   6: "s = s + c * w * (1.0 - s.a);",
   7: "s = s + c * w;",
 };
-const CLAMPED = "  vec4 c = clamp(v, 0.0, 1.0);\n  outColor = vec4(min(c.rgb, vec3(c.a)), c.a);";
+/** Echo's fold step for an operator (1-7; also embedded by the native engine). */
+export const echoStep = (operator: number): string => ECHO_STEP[operator] ?? ECHO_STEP[1];
+/** The time effects' finish: the folded result clamped to valid premultiplied colour (also embedded by the native engine). */
+export const CLAMPED = "  vec4 c = clamp(v, 0.0, 1.0);\n  outColor = vec4(min(c.rgb, vec3(c.a)), c.a);";
 
 registerStock(
   "ADBE Echo",
@@ -284,6 +302,30 @@ registerStock(
 /** Time Difference's Alpha Channel popup. */
 const DifferenceAlpha = { ORIGINAL: 1, TARGET: 2, BLEND: 3, MAX: 4, FULL: 5, RESULT_LUMINANCE: 7, RESULT_MAX: 8, ALPHA_DIFFERENCE: 10, ALPHA_DIFFERENCE_ONLY: 11 } as const;
 
+/** Time Difference's pass over the layer and its target (also embedded by the native engine). */
+export const DIFFERENCE_DECLS = `uniform float u_contrast;
+uniform int u_absolute;
+uniform int u_alpha;
+uniform float u_mid;
+uniform int u_hasTarget;`;
+export const DIFFERENCE_BODY = `  vec4 c = at(0, p);
+  vec4 t = u_hasTarget == 1 ? at(1, p) : vec4(0.0);
+  vec4 delta = vec4(straight(c) - straight(t), c.a - t.a);
+  vec4 d = u_absolute == 1 ? abs(delta) * (u_contrast / 50.0) : u_mid + delta * (u_contrast / 100.0);
+  d = clamp(d, 0.0, 1.0);
+  vec3 col = d.rgb;
+  float a;
+  if (u_alpha == 2) a = t.a;
+  else if (u_alpha == 3) a = 0.5 * (c.a + t.a);
+  else if (u_alpha == 4) a = max(c.a, t.a);
+  else if (u_alpha == 5) a = 1.0;
+  else if (u_alpha == 7) { a = (d.r + d.g + d.b) / 3.0; col = straight(c); }
+  else if (u_alpha == 8) { a = max(d.r, max(d.g, d.b)); col = straight(c); }
+  else if (u_alpha == 10) a = d.a;
+  else if (u_alpha == 11) { a = d.a; col = vec3(1.0); }
+  else a = c.a;
+  outColor = vec4(col * a, a);`;
+
 // Time Difference: the layer minus Target (itself when none) Time Offset later, per straight channel: Contrast
 // % of the difference about a neutral grey, or Contrast / 50 times its absolute value. Alpha Channel says the
 // result's alpha; Result Luminance and Result Max keep the layer's own colour under the result's mean or largest
@@ -303,28 +345,8 @@ registerStock(
       ctx,
       rect,
       sources,
-      `uniform float u_contrast;
-uniform int u_absolute;
-uniform int u_alpha;
-uniform float u_mid;
-uniform int u_hasTarget;`,
-      `  vec4 c = at(0, p);
-  vec4 t = u_hasTarget == 1 ? at(1, p) : vec4(0.0);
-  vec4 delta = vec4(straight(c) - straight(t), c.a - t.a);
-  vec4 d = u_absolute == 1 ? abs(delta) * (u_contrast / 50.0) : u_mid + delta * (u_contrast / 100.0);
-  d = clamp(d, 0.0, 1.0);
-  vec3 col = d.rgb;
-  float a;
-  if (u_alpha == 2) a = t.a;
-  else if (u_alpha == 3) a = 0.5 * (c.a + t.a);
-  else if (u_alpha == 4) a = max(c.a, t.a);
-  else if (u_alpha == 5) a = 1.0;
-  else if (u_alpha == 7) { a = (d.r + d.g + d.b) / 3.0; col = straight(c); }
-  else if (u_alpha == 8) { a = max(d.r, max(d.g, d.b)); col = straight(c); }
-  else if (u_alpha == 10) a = d.a;
-  else if (u_alpha == 11) { a = d.a; col = vec3(1.0); }
-  else a = c.a;
-  outColor = vec4(col * a, a);`,
+      DIFFERENCE_DECLS,
+      DIFFERENCE_BODY,
       (u) => {
         const gl = ctx.gl;
         gl.uniform1f(u("u_contrast"), contrast);
@@ -339,6 +361,37 @@ uniform int u_hasTarget;`,
   },
   TIME_EFFECT,
 );
+
+/**
+ * Time Displacement's grid pass over the map (source 0) and up to `frames` frames (also embedded by the native engine):
+ * each pixel takes the frame its map luminance names, -1 for the frame at the time itself.
+ */
+export const displacementDecls = (frames: number): string =>
+  `uniform int u_slot[${frames}];
+uniform int u_count;
+uniform int u_base;
+uniform int u_first;
+uniform vec4 u_mapRect;
+uniform float u_maximum;
+uniform float u_time;
+uniform float u_resolution;`;
+export const DISPLACEMENT_BODY = `  vec4 s = u_first == 1 ? vec4(0.0) : prev();
+  vec2 q = u_mapRect.xy + (p - u_origin) * u_mapRect.zw;
+  vec4 m = at(0, q);
+  float level = luma(straight(m));
+  int i = int(floor((u_time + (level - 0.5) * 2.0 * u_maximum) * u_resolution + 1e-4));
+  int j = i - u_base;
+  if (j >= 0 && j < u_count) {
+    int slot = u_slot[j];
+    s = slot == -2 ? vec4(-1.0) : slot < 0 ? vec4(0.0) : at(slot, p);
+  }
+  outColor = s;`;
+/** Time Displacement's result: the layer itself where the grid marked the time's own frame. */
+export const DISPLACEMENT_FINISH = `  vec4 v = at(1, p);\n  outColor = v.a < 0.0 ? at(0, p) : v;`;
+
+/** The native engine's Time Displacement declarations: the running result is source `frames` + 1 (see nativeFoldDecls). */
+export const nativeDisplacementDecls = (frames: number): string =>
+  `vec4 at(int i, vec2 q);\nvec4 prev() { return at(${frames + 1}, layerPoint()); }\n${displacementDecls(frames)}`;
 
 // Time Displacement: each pixel from the layer at the time its Time Displacement Layer pixel's luminance says, from
 // Max Displacement Time back (black) to forward (white), in steps of 1 / Time Resolution; the map stretched over the
@@ -378,25 +431,8 @@ registerStock(
         rect,
         [map, ...present],
         state,
-        `uniform int u_slot[${MAX_FRAMES}];
-uniform int u_count;
-uniform int u_base;
-uniform int u_first;
-uniform vec4 u_mapRect;
-uniform float u_maximum;
-uniform float u_time;
-uniform float u_resolution;`,
-        `  vec4 s = u_first == 1 ? vec4(0.0) : prev();
-  vec2 q = u_mapRect.xy + (p - u_origin) * u_mapRect.zw;
-  vec4 m = at(0, q);
-  float level = luma(straight(m));
-  int i = int(floor((u_time + (level - 0.5) * 2.0 * u_maximum) * u_resolution + 1e-4));
-  int j = i - u_base;
-  if (j >= 0 && j < u_count) {
-    int slot = u_slot[j];
-    s = slot == -2 ? vec4(-1.0) : slot < 0 ? vec4(0.0) : at(slot, p);
-  }
-  outColor = s;`,
+        displacementDecls(MAX_FRAMES),
+        DISPLACEMENT_BODY,
         (u) => {
           const gl = ctx.gl;
           gl.uniform1iv(u("u_slot"), slots);
@@ -416,7 +452,7 @@ uniform float u_resolution;`,
     }
     ctx.pool.release(map.target);
     // Pixels marked -1 show the layer at the time itself.
-    const out = layerPass(ctx, rect, [input, stateImage(state!, rect)], "", `  vec4 v = at(1, p);\n  outColor = v.a < 0.0 ? at(0, p) : v;`);
+    const out = layerPass(ctx, rect, [input, stateImage(state!, rect)], "", DISPLACEMENT_FINISH);
     releaseFloat(ctx, state!);
     ctx.pool.release(input.target);
     return out;

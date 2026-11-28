@@ -8,7 +8,7 @@ import type { CompItem, Project } from "../src/aep/model.ts";
 import { parseProject } from "../src/aep/parse.ts";
 import "../src/expressions/install.ts";
 import { NATIVE_EFFECTS } from "../src/native/effects.ts";
-import { buildFramePlan, type FramePlan, type PlanContent, type PlanLayer } from "../src/native/plan.ts";
+import { buildFramePlan, inputTimes, type FramePlan, type PlanContent, type PlanLayer } from "../src/native/plan.ts";
 import { GRADIENT_STOPS } from "../src/render/shapes.ts";
 import { decodePlan, encodePlan, PLAN_MAGIC } from "../src/native/wire.ts";
 import { FX_HEADER, shaderHash, SHADER_DIR, SHADER_HEADER, shaderSymbol } from "../scripts/lib/native.ts";
@@ -62,6 +62,19 @@ function samplePlan(): Pick<FramePlan, "root" | "images"> {
     params: [{ matchName: "ADBE AudSpect-0001", value: [1] }],
     audio: [{ file: "C:\\media\\tone.wav", scale: 0.5, offset: -0.25, from: -Infinity, to: 2 }],
     path: { closed: false, vertices: [1, 2, 0, 0, 0.5, 0, 3, 2, -0.5, 0, 0, 0] },
+  });
+  red.effects.push({
+    matchName: "ADBE Echo",
+    params: [{ matchName: "ADBE Echo-0001", value: [-0.25] }],
+    inputs: [
+      {
+        time: 1 / 12,
+        content: { kind: "solid", width: 4, height: 4, origin: [0, 0], scale: 1, color: [1, 0.25, 0] },
+        masks: [{ mode: 6813, inverted: true, opacity: 0.5, feather: 0, expansion: 1, closed: false, vertices: [] }],
+        effects: [{ matchName: "ADBE Box Blur2", params: [{ matchName: "ADBE Box Blur2-0001", value: [1] }] }],
+      },
+      { time: -1 / 6, content: null, masks: [], effects: [] },
+    ],
   });
   red.effectLayer = { time: 1 / 3, startTime: -0.5, stretch: 1, width: 4, height: 4, kind: 0 };
   const nested: PlanLayer = {
@@ -241,6 +254,26 @@ describe("native render plan", () => {
     const project = parseProject(new Uint8Array(readFileSync(resolve("refs/fixtures/transitions2.aep"))));
     const comp = [...project.items.values()].find((i): i is CompItem => i.kind === "comp" && i.name === "transitions2_gridwipe_doors")!;
     expect(buildFramePlan(project, comp, 0).unsupported).toEqual([expect.stringMatching(/^effects \(CC Grid Wipe/)]);
+  });
+
+  it("times the time effects' other frames from their parameters", () => {
+    const comp = { frameDuration: 1 / 24, shutterAngle: 90, shutterPhase: -45 } as CompItem;
+    const params = (values: Record<number, number>) => (index: number, fallback: number) => values[index] ?? fallback;
+    const span = { inPoint: 0, outPoint: 2 };
+    const target = { param: 1, content: null, width: 0, height: 0, kind: 0 };
+    // Posterize Time holds the last frame of its rate: no other frame on one.
+    expect(inputTimes("ADBE Posterize Time", params({ 1: 4 }), 0.6, comp, span, undefined)).toEqual([0.5]);
+    expect(inputTimes("ADBE Posterize Time", params({ 1: 4 }), 0.5, comp, span, undefined)).toEqual([]);
+    expect(inputTimes("ADBE Echo", params({ 1: -0.25, 2: 2 }), 1, comp, span, undefined)).toEqual([0.75, 0.5]);
+    expect(inputTimes("CC Wide Time", params({ 1: 1, 2: 2 }), 1, comp, span, undefined)).toEqual([1 - 2 / 24, 1 - 1 / 24, 1 + 1 / 24]);
+    // Force Motion Blur takes the comp's shutter when its own is off.
+    expect(inputTimes("CC Force Motion Blur", params({ 1: 2, 2: 0 }), 1, comp, span, undefined)).toEqual([1 + (-45 / 360) / 24, 1 + ((-45 + 45) / 360) / 24]);
+    expect(inputTimes("ADBE Difference", params({ 2: 0.5 }), 1, comp, span, undefined)).toEqual([1.5]);
+    expect(inputTimes("ADBE Difference", params({ 2: 0.5 }), 1, comp, span, target)).toEqual([]);
+    // Time Displacement: the map (the layer itself) then the grid steps around the time, held inside the layer.
+    expect(inputTimes("ADBE Time Displacement", params({ 2: 0.1, 3: 10 }), 0.05, comp, span, undefined)).toEqual([0.05, 0, 0, 0.1]);
+    expect(inputTimes("ADBE Time Displacement", params({ 2: 0.1, 3: 10 }), 0.05, comp, span, target)).toEqual([]);
+    expect(inputTimes("ADBE Gaussian Blur 2", params({}), 1, comp, span, undefined)).toEqual([]);
   });
 
   it("lists the same effects for both planners (src/native/effects.ts, native/src/effects/list.inc)", () => {

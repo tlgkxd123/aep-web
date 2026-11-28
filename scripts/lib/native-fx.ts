@@ -232,6 +232,16 @@ export const FX_SHADERS: FxShaderSource[] = [
   layerPass("cc_spotlight", 1, ref("perspectiveTime.ts", "SPOTLIGHT_DECLS"), ref("perspectiveTime.ts", "SPOTLIGHT_BODY")),
   layerPass("glasses_squeezed", 2, ref("perspectiveTime.ts", "GLASSES_DECLS"), ref("perspectiveTime.ts", "glassesBody", true)),
   layerPass("glasses", 2, ref("perspectiveTime.ts", "GLASSES_DECLS"), ref("perspectiveTime.ts", "glassesBody", false)),
+  // The time effects fold 7 frames a pass, the running result read as source 7.
+  ...[1, 2, 3, 4, 5, 6, 7].map((op) =>
+    layerPass(`time_echo${op}`, 8, ref("perspectiveTime.ts", "nativeFoldDecls", 7), ref("perspectiveTime.ts", "foldBody", 7, "vec4(0.0)", ref("perspectiveTime.ts", "echoStep", op))),
+  ),
+  layerPass("time_sum", 8, ref("perspectiveTime.ts", "nativeFoldDecls", 7), ref("perspectiveTime.ts", "foldBody", 7, "vec4(0.0)", "s += c * w;")),
+  layerPass("time_finish", 1, "", ref("perspectiveTime.ts", "finishBody", ref("perspectiveTime.ts", "CLAMPED"))),
+  layerPass("time_difference", 2, ref("perspectiveTime.ts", "DIFFERENCE_DECLS"), ref("perspectiveTime.ts", "DIFFERENCE_BODY")),
+  // Time Displacement reads its map and 6 frames a pass, the running result as source 7.
+  layerPass("time_displace", 8, ref("perspectiveTime.ts", "nativeDisplacementDecls", 6), ref("perspectiveTime.ts", "DISPLACEMENT_BODY")),
+  layerPass("time_displace_finish", 2, "", ref("perspectiveTime.ts", "DISPLACEMENT_FINISH")),
   stylize("texturize", 2, "TEXTURIZE"),
   layerPass("set_matte", 2, ref("matte.ts", "SET_MATTE_DECLS"), ref("matte.ts", "SET_MATTE_BODY")),
   layerPass("difference_matte", 3, ref("keying.ts", "DIFFERENCE_MATTE_DECLS"), ref("keying.ts", "DIFFERENCE_MATTE_BODY")),

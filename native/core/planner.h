@@ -50,8 +50,14 @@ private:
 		bool adjustment, aevk::Layer& out);
 	bool Content(const CLayer& layer, f64 time, s32 depth, f64 scale, aevk::Content& out);
 	void Masks(const CLayer& layer, f64 time, f64 scale, std::vector<aevk::Mask>& out);
-	/** The layer's enabled effects the engine renders, with their parameters at `time` (plan.ts effects). */
-	void Effects(const CLayer& layer, const CItem& comp, f64 time, s32 depth, std::vector<aevk::Effect>& out);
+	/**
+	 * The layer's enabled effects the engine renders, with their parameters at `time` (plan.ts effects): all of them, or
+	 * those above `before` when it is given.
+	 */
+	void Effects(const CLayer& layer, const CItem& comp, f64 time, s32 depth, std::vector<aevk::Effect>& out,
+		const CPropertyNode* before = nullptr);
+	/** The layer as the time effect `effect` receives it at comp time `t` (plan.ts input). */
+	void Input(const CLayer& layer, const CItem& comp, f64 t, s32 depth, const CPropertyNode* effect, aevk::EffectInput& out);
 	/** The sound files `layer` is heard from around comp time `time` (plan.ts audio, layerAudio in src/media/mix.ts). */
 	void Audio(const CLayer& layer, f64 time, std::vector<aevk::AudioSource>& out);
 	void AudioVisit(const CLayer& layer, f64 time, f64 scale, f64 offset, f64 from, f64 to, s32 depth,

@@ -35,7 +35,7 @@ TEST(decodes_the_sample_plan) {
   CHECK(solid.masks[0].vertices.size() == 24);
   CHECK_NEAR(solid.masks[0].feather, 1.5, 0);
   CHECK_NEAR(solid.masks[0].vertices[6], 3, 0);
-  CHECK(solid.effects.size() == 2 && solid.effects[0].matchName == "ADBE Box Blur2");
+  CHECK(solid.effects.size() == 3 && solid.effects[0].matchName == "ADBE Box Blur2");
   CHECK_NEAR(solid.effectLayer.time, 1.0 / 3, 0);
   CHECK_NEAR(solid.effectLayer.startTime, -0.5, 0);
   CHECK_NEAR(solid.effectLayer.stretch, 1, 0);
@@ -62,6 +62,17 @@ TEST(decodes_the_sample_plan) {
   CHECK(spectrum.hasPath && !spectrum.path.closed && spectrum.path.vertices.size() == 12);
   CHECK_NEAR(spectrum.path.vertices[6], 3, 0);
   CHECK_NEAR(spectrum.path.vertices[8], -0.5, 0);
+  CHECK(spectrum.inputs.empty() && blur.inputs.empty());
+  const Effect& echo = solid.effects[2];
+  CHECK(echo.matchName == "ADBE Echo" && echo.inputs.size() == 2);
+  CHECK_NEAR(echo.inputs[0].time, 1.0 / 12, 0);
+  CHECK(echo.inputs[0].drawn && echo.inputs[0].content.kind == ContentKind::Solid && echo.inputs[0].content.width == 4);
+  CHECK(echo.inputs[0].masks.size() == 1 && echo.inputs[0].masks[0].inverted && echo.inputs[0].masks[0].vertices.empty());
+  CHECK_NEAR(echo.inputs[0].masks[0].expansion, 1, 0);
+  CHECK(echo.inputs[0].effects.size() == 1 && echo.inputs[0].effects[0].matchName == "ADBE Box Blur2");
+  CHECK_NEAR(echo.inputs[0].effects[0].param(1)->value[0], 1, 0);
+  CHECK(!echo.inputs[1].drawn && echo.inputs[1].masks.empty() && echo.inputs[1].effects.empty());
+  CHECK_NEAR(echo.inputs[1].time, -1.0 / 6, 0);
   CHECK(plan.root.layers[1].effects.empty());
   const Layer& nested = plan.root.layers[1];
   CHECK(nested.content.kind == ContentKind::Comp && nested.content.comp);
@@ -92,7 +103,7 @@ TEST(refuses_damaged_plans) {
   longer.push_back(0);
   CHECK(!decodePlan(longer.data(), longer.size(), plan, error));
   std::vector<uint8_t> version = bytes;
-  version[4] = 99;  // kPlanVersion is 4
+  version[4] = 99;  // not kPlanVersion
   CHECK(!decodePlan(version.data(), version.size(), plan, error));
   // A layer count far beyond what the bytes could hold.
   std::vector<uint8_t> count = bytes;

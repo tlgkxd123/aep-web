@@ -16,8 +16,9 @@
 //   mask    := u32 mode, u32 inverted, f32 opacity, f32 feather, f32 expansion, u32 closed, u32 vertexCount,
 //              f32[6] per vertex (x, y, in x, in y, out x, out y)
 //   effectLayer := f64 time, f64 startTime, f64 stretch, f32 width, f32 height, u32 kind (0 AV, 1 shape, 2 other)
-//   effect  := str matchName, u32 paramCount, param*, u32 sourceCount, source*, u32 flags (1 audio, 2 path),
-//              [u32 audioCount, audio*], [u32 closed, u32 vertexCount, f32[6] per vertex]
+//   effect  := str matchName, u32 paramCount, param*, u32 sourceCount, source*, u32 flags (1 audio, 2 path, 4 inputs),
+//              [u32 audioCount, audio*], [u32 closed, u32 vertexCount, f32[6] per vertex], [u32 inputCount, input*]
+//   input   := f64 time, u32 drawn, [content, u32 maskCount, mask*, u32 effectCount, effect*]
 //   source  := u32 param (declared index of a layer parameter), u32 drawn, [content, f32 width, f32 height, u32 kind]
 //   audio   := str file, f64 scale, f64 offset, f64 from, f64 to
 //   param   := u32 index (n for "<effect match name>-000n", 0 for any other), [str matchName when 0],
@@ -27,7 +28,7 @@
 import type { FramePlan, PlanComp, PlanContent, PlanEffect, PlanImage, PlanLayer, PlanMask, PlanParam, ShapePaintPlan } from "./plan.ts";
 
 export const PLAN_MAGIC = 0x50564541; // "AEVP"
-export const PLAN_VERSION = 7;
+export const PLAN_VERSION = 8;
 
 const KIND = { solid: 1, comp: 2, image: 3, shape: 4, footage: 5 } as const;
 const utf8 = new TextEncoder();
@@ -173,7 +174,7 @@ function writeEffect(w: Writer, effect: PlanEffect): void {
     w.f32(source.height);
     w.u32(source.kind);
   }
-  w.u32((effect.audio ? 1 : 0) | (effect.path ? 2 : 0));
+  w.u32((effect.audio ? 1 : 0) | (effect.path ? 2 : 0) | (effect.inputs ? 4 : 0));
   if (effect.audio) {
     w.u32(effect.audio.length);
     for (const a of effect.audio) {
@@ -188,6 +189,19 @@ function writeEffect(w: Writer, effect: PlanEffect): void {
     w.u32(effect.path.closed ? 1 : 0);
     w.u32(effect.path.vertices.length / 6);
     for (const v of effect.path.vertices) w.f32(v);
+  }
+  if (effect.inputs) {
+    w.u32(effect.inputs.length);
+    for (const input of effect.inputs) {
+      w.f64(input.time);
+      w.u32(input.content ? 1 : 0);
+      if (!input.content) continue;
+      writeContent(w, input.content);
+      w.u32(input.masks.length);
+      for (const mask of input.masks) writeMask(w, mask);
+      w.u32(input.effects.length);
+      for (const inner of input.effects) writeEffect(w, inner);
+    }
   }
 }
 
@@ -342,50 +356,12 @@ function readLayer(r: Reader): PlanLayer {
   const matrix = Array.from({ length: 16 }, () => r.f32());
   const zoom = r.f32();
   const content = readContent(r);
-  const masks: PlanMask[] = [];
-  for (let i = r.u32(); i > 0; i--) {
-    const mode = r.u32();
-    const inverted = r.u32() !== 0;
-    const maskOpacity = r.f32();
-    const feather = r.f32();
-    const expansion = r.f32();
-    const closed = r.u32() !== 0;
-    const count = r.u32();
-    const vertices = Array.from({ length: count * 6 }, () => r.f32());
-    masks.push({ mode, inverted, opacity: maskOpacity, feather, expansion, closed, vertices });
-  }
+  const masks = readMasks(r);
   const layer: PlanLayer = { name: "", adjustment: (flags & 1) !== 0, blendMode, opacity, content, masks, matrix, zoom, effects: [] };
   const effectCount = r.u32();
   if (effectCount) {
     layer.effectLayer = { time: r.f64(), startTime: r.f64(), stretch: r.f64(), width: r.f32(), height: r.f32(), kind: r.u32() };
-    for (let i = 0; i < effectCount; i++) {
-      const matchName = r.str();
-      const params: PlanParam[] = [];
-      for (let j = r.u32(); j > 0; j--) {
-        const index = r.u32();
-        const paramName = index ? `${matchName}-${String(index).padStart(4, "0")}` : r.str();
-        const value = Array.from({ length: r.u32() }, () => r.f64());
-        const menuCount = r.u32();
-        const param: PlanParam = { matchName: paramName, value };
-        if (menuCount) param.menu = Array.from({ length: menuCount }, () => r.u32() !== 0);
-        params.push(param);
-      }
-      const effect: PlanEffect = { matchName, params };
-      const sourceCount = r.u32();
-      if (sourceCount) effect.sources = [];
-      for (let j = 0; j < sourceCount; j++) {
-        const param = r.u32();
-        const content = r.u32() ? readContent(r) : null;
-        effect.sources!.push(content ? { param, content, width: r.f32(), height: r.f32(), kind: r.u32() } : { param, content, width: 0, height: 0, kind: 0 });
-      }
-      const flags = r.u32();
-      if (flags & 1) effect.audio = Array.from({ length: r.u32() }, () => ({ file: r.str(), scale: r.f64(), offset: r.f64(), from: r.f64(), to: r.f64() }));
-      if (flags & 2) {
-        const closed = r.u32() !== 0;
-        effect.path = { closed, vertices: Array.from({ length: r.u32() * 6 }, () => r.f32()) };
-      }
-      layer.effects.push(effect);
-    }
+    for (let i = 0; i < effectCount; i++) layer.effects.push(readEffect(r));
   }
   const matteMode = r.u32();
   if (matteMode) {
@@ -393,6 +369,65 @@ function readLayer(r: Reader): PlanLayer {
     layer.matte = { mode: matteMode, opacity: matteOpacity, layer: r.u32() ? readLayer(r) : null };
   }
   return layer;
+}
+
+function readMasks(r: Reader): PlanMask[] {
+  const masks: PlanMask[] = [];
+  for (let i = r.u32(); i > 0; i--) {
+    const mode = r.u32();
+    const inverted = r.u32() !== 0;
+    const opacity = r.f32();
+    const feather = r.f32();
+    const expansion = r.f32();
+    const closed = r.u32() !== 0;
+    const count = r.u32();
+    const vertices = Array.from({ length: count * 6 }, () => r.f32());
+    masks.push({ mode, inverted, opacity, feather, expansion, closed, vertices });
+  }
+  return masks;
+}
+
+function readEffect(r: Reader): PlanEffect {
+  const matchName = r.str();
+  const params: PlanParam[] = [];
+  for (let j = r.u32(); j > 0; j--) {
+    const index = r.u32();
+    const paramName = index ? `${matchName}-${String(index).padStart(4, "0")}` : r.str();
+    const value = Array.from({ length: r.u32() }, () => r.f64());
+    const menuCount = r.u32();
+    const param: PlanParam = { matchName: paramName, value };
+    if (menuCount) param.menu = Array.from({ length: menuCount }, () => r.u32() !== 0);
+    params.push(param);
+  }
+  const effect: PlanEffect = { matchName, params };
+  const sourceCount = r.u32();
+  if (sourceCount) effect.sources = [];
+  for (let j = 0; j < sourceCount; j++) {
+    const param = r.u32();
+    const content = r.u32() ? readContent(r) : null;
+    effect.sources!.push(content ? { param, content, width: r.f32(), height: r.f32(), kind: r.u32() } : { param, content, width: 0, height: 0, kind: 0 });
+  }
+  const flags = r.u32();
+  if (flags & 1) effect.audio = Array.from({ length: r.u32() }, () => ({ file: r.str(), scale: r.f64(), offset: r.f64(), from: r.f64(), to: r.f64() }));
+  if (flags & 2) {
+    const closed = r.u32() !== 0;
+    effect.path = { closed, vertices: Array.from({ length: r.u32() * 6 }, () => r.f32()) };
+  }
+  if (flags & 4) {
+    effect.inputs = [];
+    for (let j = r.u32(); j > 0; j--) {
+      const time = r.f64();
+      if (!r.u32()) {
+        effect.inputs.push({ time, content: null, masks: [], effects: [] });
+        continue;
+      }
+      const content = readContent(r);
+      const masks = readMasks(r);
+      const effects = Array.from({ length: r.u32() }, () => readEffect(r));
+      effect.inputs.push({ time, content, masks, effects });
+    }
+  }
+  return effect;
 }
 
 /** A plan read back from its binary form (layer names are not kept; numbers are 32-bit floats). */

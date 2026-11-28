@@ -12,7 +12,7 @@
 namespace aevk {
 
 constexpr uint32_t kPlanMagic = 0x50564541;  // "AEVP"
-constexpr uint32_t kPlanVersion = 7;
+constexpr uint32_t kPlanVersion = 8;
 constexpr int kPad = 1;
 
 enum class ContentKind : uint32_t { Solid = 1, Comp = 2, Image = 3, Shape = 4, Footage = 5 };
@@ -153,6 +153,21 @@ struct EffectPath {
   std::vector<float> vertices;
 };
 
+struct Effect;
+
+/**
+ * The layer as a time effect receives it at another comp time (inputAt in perspectiveTime.ts): its content, masks and
+ * the enabled effects above the time effect, all at `time`, in the layer's own pixels at full resolution.
+ */
+struct EffectInput {
+  double time = 0;
+  /** False when the layer draws nothing then: the rest is unset. */
+  bool drawn = false;
+  Content content;
+  std::vector<Mask> masks;
+  std::vector<Effect> effects;
+};
+
 struct Effect {
   std::string matchName;
   std::vector<EffectParam> params;
@@ -164,6 +179,8 @@ struct Effect {
   /** The mask its Path parameter names, at the frame's time. */
   bool hasPath = false;
   EffectPath path;
+  /** A time effect's layer at the other times it reads, in order (inputTimes in plan.ts). */
+  std::vector<EffectInput> inputs;
 
   /** The source planned for the layer parameter declared n-th, or null (None, or the layer itself). */
   const EffectSource* source(uint32_t n) const {

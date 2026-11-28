@@ -155,6 +155,13 @@ class FxContext {
   virtual FxSource source(const Effect& effect, uint32_t param, FxImage& image, EffectLayer& layer) = 0;
   /** The effect's own layer's content before its masks and effects, a new image the caller releases; false when it draws nothing. */
   virtual bool ownContent(FxImage& image) = 0;
+  /** How many other times a time effect reads its layer at (Effect::inputs). */
+  virtual uint32_t inputCount(const Effect& effect) const = 0;
+  /**
+   * The layer as the time effect receives it at its i-th other time (inputAt in perspectiveTime.ts): `image` a new image
+   * the caller releases; false when the layer draws nothing then.
+   */
+  virtual bool input(const Effect& effect, uint32_t i, FxImage& image) = 0;
 };
 
 /** A number as WebGL's GLint arguments convert it (WebIDL long): truncated, NaN and infinities to 0, modulo 2^32. */

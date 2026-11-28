@@ -32,6 +32,7 @@ add_library(aevk STATIC
     src/effects/vignette_minimax.cpp
     src/effects/keylight.cpp
     src/effects/light_shadow.cpp
+    src/effects/time.cpp
   src/effects/transitions.cpp
   src/effects/box_blur.cpp
   src/effects/channel.cpp
