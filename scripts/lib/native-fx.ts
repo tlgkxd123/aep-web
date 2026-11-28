@@ -35,7 +35,7 @@ const layerPass = (name: string, count: number, decls: FxArg, body: FxArg): FxSh
 /** A layerPass shader of stylizeExtra.ts from its PREFIX_DECLS and PREFIX_BODY exports. */
 const stylize = (name: string, count: number, prefix: string): FxShaderSource => layerPass(name, count, ref("stylizeExtra.ts", `${prefix}_DECLS`), ref("stylizeExtra.ts", `${prefix}_BODY`));
 /** A warp shader (stockUtil.ts warp()): `decls` declares `vec2 map(vec2 p)`. */
-const warp = (name: string, decls: FxArg, post = ""): FxShaderSource => layerPass(name, 1, decls, ref("stockUtil.ts", "warpBody", post));
+const warp = (name: string, decls: FxArg, post: FxArg = ""): FxShaderSource => layerPass(name, 1, decls, ref("stockUtil.ts", "warpBody", post));
 /**
  * A withSeconds shader of channelUtility.ts over the input and `seconds` second layers, each from its own source
  * (1, 2, ...), from its PREFIX_DECLS and PREFIX_BODY exports.
@@ -176,6 +176,14 @@ export const FX_SHADERS: FxShaderSource[] = [
   layerPass("drop_shadow_composite", 2, "uniform int u_only;", ref("stylize.ts", "DROP_SHADOW_COMPOSITE_BODY")),
   layerPass("stock_glow_bright", 1, ref("stylize.ts", "GLOW_BRIGHT_DECLS"), ref("stylize.ts", "GLOW_BRIGHT_BODY")),
   layerPass("stock_glow_composite", 2, ref("stylize.ts", "GLOW_COMPOSITE_DECLS"), ref("stylize.ts", "GLOW_COMPOSITE_BODY")),
+  layerPass("linear_wipe", 1, ref("transitions.ts", "LINEAR_WIPE_DECLS"), ref("transitions.ts", "LINEAR_WIPE_BODY")),
+  layerPass("radial_wipe", 1, ref("transitions.ts", "RADIAL_WIPE_DECLS"), ref("transitions.ts", "RADIAL_WIPE_BODY")),
+  layerPass("venetian_blinds", 1, ref("transitions.ts", "VENETIAN_DECLS"), ref("transitions.ts", "VENETIAN_BODY")),
+  layerPass("blank", 0, "", "  outColor = vec4(0.0);"),
+  warp("geometry", ref("distort.ts", "GEOMETRY_DECLS"), ref("distort.ts", "GEOMETRY_POST")),
+  layerPass("offset", 1, ref("distort.ts", "OFFSET_DECLS"), ref("distort.ts", "OFFSET_BODY")),
+  warp("corner_pin", ref("distort.ts", "CORNER_PIN_DECLS")),
+  warp("motion_tile", ref("distort.ts", "MOTION_TILE_DECLS")),
   layerPass("mosaic", 1, ref("stylize.ts", "MOSAIC_DECLS"), ref("stylize.ts", "MOSAIC_BODY")),
   layerPass("noise", 1, ref("stylize.ts", "NOISE_DECLS"), ref("stylize.ts", "NOISE_BODY")),
 ];

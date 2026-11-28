@@ -394,6 +394,73 @@ FxImage blockDissolve(FxImage input, const Effect& effect, const EffectLayer&, F
   }, p.flag(5, false) ? std::max(0.0, p.num(4, 0)) * k : 0);
 }
 
+/** Transition Completion (percent) as 0..1 (completionOf in transitions.ts). */
+double completionOf(double v) { return std::clamp(v / 100, 0.0, 1.0); }
+
+/** Linear Wipe: a straight edge sweeps along Wipe Angle (90 wipes from the left) across the layer's box. */
+FxImage linearWipe(FxImage input, const Effect& effect, const EffectLayer& layer, FxContext& ctx) {
+  const FxParams p(effect);
+  const double completion = completionOf(p.num(1, 0));
+  if (completion <= 0) return input;
+  const double k = input.scale;
+  const std::array<double, 2> dir = directionVector(p.num(2, 90));
+  const double feather = std::max(0.0, p.num(3, 0)) * k;
+  const std::array<double, 2> range = projectionRange(layerRect(layer, input), dir);
+  const double edge = range[0] - feather + completion * (range[1] - range[0] + 2 * feather);
+  FxImage out = layerPass(ctx, imageRect(input), {input}, fx::linear_wipe, [&](FxUniforms& u) {
+    u.f("u_dir", float(dir[0]), float(dir[1]));
+    u.f("u_edge", float(edge));
+    u.f("u_feather", float(feather));
+  }, input.scale);
+  ctx.release(input.target);
+  return out;
+}
+
+/**
+ * Radial Wipe: a sector from Start Angle around Wipe Center opens by Completion x 360 degrees (clockwise,
+ * counterclockwise, or half each way); the feather softens its edges by arc length.
+ */
+FxImage radialWipe(FxImage input, const Effect& effect, const EffectLayer& layer, FxContext& ctx) {
+  const FxParams p(effect);
+  const double completion = completionOf(p.num(1, 0));
+  if (completion <= 0) return input;
+  const double k = input.scale;
+  const FxRect rect = layerRect(layer, input);
+  const std::vector<double> c = p.vec(3, {(rect.x + rect.width / 2) / k, (rect.y + rect.height / 2) / k});
+  const double mode = p.num(4, 1);
+  const double half = completion * 180;
+  const double middle = mode == 3 ? 0 : mode == 2 ? -half : half;
+  FxImage out = layerPass(ctx, imageRect(input), {input}, fx::radial_wipe, [&](FxUniforms& u) {
+    u.f("u_center", float(c[0] * k), float((c.size() > 1 ? c[1] : 0) * k));
+    u.f("u_start", float(p.num(2, 0)));
+    u.f("u_middle", float(middle));
+    u.f("u_half", float(half));
+    u.f("u_feather", float(std::max(0.0, p.num(5, 0)) * k));
+  }, input.scale);
+  ctx.release(input.target);
+  return out;
+}
+
+/** Venetian Blinds: stripes of Width pixels across Direction (0 gives horizontal slats), each wiped from its start by Completion of its width. */
+FxImage venetianBlinds(FxImage input, const Effect& effect, const EffectLayer& layer, FxContext& ctx) {
+  const FxParams p(effect);
+  const double completion = completionOf(p.num(1, 0));
+  if (completion <= 0) return input;
+  const double k = input.scale;
+  const FxRect rect = layerRect(layer, input);
+  const double angle = p.num(2, 0) * kPi / 180;
+  const double width = std::max(1e-3, p.num(3, 10)) * k;
+  FxImage out = layerPass(ctx, imageRect(input), {input}, fx::venetian_blinds, [&](FxUniforms& u) {
+    u.f("u_origin0", float(rect.x), float(rect.y));
+    u.f("u_dir", float(std::sin(angle)), float(-std::cos(angle)));
+    u.f("u_width", float(width));
+    u.f("u_completion", float(completion));
+    u.f("u_feather", float(std::max(0.0, p.num(4, 0)) * k));
+  }, input.scale);
+  ctx.release(input.target);
+  return out;
+}
+
 }  // namespace
 
 FxRenderer gradientWipeRenderer() { return gradientWipe; }
@@ -405,5 +472,8 @@ FxRenderer jawsRenderer() { return jaws; }
 FxRenderer lineSweepRenderer() { return lineSweep; }
 FxRenderer irisWipeRenderer() { return irisWipe; }
 FxRenderer blockDissolveRenderer() { return blockDissolve; }
+FxRenderer linearWipeRenderer() { return linearWipe; }
+FxRenderer radialWipeRenderer() { return radialWipe; }
+FxRenderer venetianBlindsRenderer() { return venetianBlinds; }
 
 }  // namespace aevk
