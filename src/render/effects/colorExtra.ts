@@ -35,13 +35,17 @@ export const COLOR2_EFFECTS: string[] = [];
  * and premultiplied. Releases `input`.
  */
 function straightPass(ctx: RenderContext, input: LayerImage, glsl: string, setUniforms?: Uniforms): LayerImage {
-  const fragment = `${PASS_HEADER}${COLOR_LIB}${glsl}
+  return mapPass(ctx, input, straightFragment(glsl), setUniforms);
+}
+
+/** straightPass's shader for `glsl` (also embedded by the native engine). */
+export function straightFragment(glsl: string): string {
+  return `${PASS_HEADER}${COLOR_LIB}${glsl}
 void main() {
   vec4 c = texture(u_source, v_uv);
   vec4 r = clamp(adjust(vec4(straight(c), c.a)), 0.0, 1.0);
   outColor = vec4(r.rgb * r.a, r.a);
 }`;
-  return mapPass(ctx, input, fragment, setUniforms);
 }
 
 type Setter = (p: Params, gl: WebGL2RenderingContext, u: (name: string) => WebGLUniformLocation | null) => void;
@@ -63,9 +67,8 @@ float level(float v, float c[5]) {
   return clamp(c[3] + t * (c[4] - c[3]), 0.0, 1.0);
 }`;
 
-registerStraight(
-  "ADBE Pro Levels2",
-  `${LEVELS_GLSL}
+/** ADBE Pro Levels2's adjust() (also embedded by the native engine). */
+export const PRO_LEVELS_GLSL = `${LEVELS_GLSL}
 uniform float u_rgb[5];
 uniform float u_r[5];
 uniform float u_g[5];
@@ -73,7 +76,11 @@ uniform float u_b[5];
 uniform float u_a[5];
 vec4 adjust(vec4 s) {
   return vec4(level(level(s.r, u_r), u_rgb), level(level(s.g, u_g), u_rgb), level(level(s.b, u_b), u_rgb), level(s.a, u_a));
-}`,
+}`;
+
+registerStraight(
+  "ADBE Pro Levels2",
+  PRO_LEVELS_GLSL,
   (p, gl, u) => {
     const [rgb, r, g, b, a] = proLevelsChannels(p);
     gl.uniform1fv(u("u_rgb"), rgb);
@@ -84,30 +91,29 @@ vec4 adjust(vec4 s) {
   },
 );
 
-// Curves renders from the tables its arbitrary data holds, four entries packed in a uint.
-register("ADBE CurvesCustom", (input, _p, ctx, _layer, _time, effect) => {
-  const tables = curvesTables(instanceData(effect, 1));
-  const packed = new Uint32Array(tables.buffer, tables.byteOffset, tables.length / 4);
-  const T = CURVES_TABLE;
-  return straightPass(
-    ctx,
-    input,
-    `uniform uvec4 u_lut[${packed.length / 4}];
+/** Curves' tables packed four to a uint (curvesTables, CURVES_TABLES of 256 bytes), in uvec4s. */
+const CURVES_WORDS = (5 * 256) / 4;
+
+/** ADBE CurvesCustom's adjust(), from u_lut, its tables packed four entries to a uint (also embedded by the native engine). */
+export const CURVES_GLSL = `uniform uvec4 u_lut[${CURVES_WORDS / 4}];
 float lut(int t, float v) {
   int k = t * 256 + int(floor(clamp(v, 0.0, 1.0) * 255.0 + 0.5));
   uint word = u_lut[k >> 4][(k >> 2) & 3];
   return float((word >> uint((k & 3) * 8)) & 255u) / 255.0;
 }
 vec4 adjust(vec4 s) {
-  return vec4(lut(${T.rgb}, lut(${T.red}, s.r)), lut(${T.rgb}, lut(${T.green}, s.g)), lut(${T.rgb}, lut(${T.blue}, s.b)), lut(${T.alpha}, s.a));
-}`,
-    (u) => ctx.gl.uniform4uiv(u("u_lut"), packed),
-  );
+  return vec4(lut(${CURVES_TABLE.rgb}, lut(${CURVES_TABLE.red}, s.r)), lut(${CURVES_TABLE.rgb}, lut(${CURVES_TABLE.green}, s.g)), lut(${CURVES_TABLE.rgb}, lut(${CURVES_TABLE.blue}, s.b)), lut(${CURVES_TABLE.alpha}, s.a));
+}`;
+
+// Curves renders from the tables its arbitrary data holds, four entries packed in a uint.
+register("ADBE CurvesCustom", (input, _p, ctx, _layer, _time, effect) => {
+  const tables = curvesTables(instanceData(effect, 1));
+  const packed = new Uint32Array(tables.buffer, tables.byteOffset, tables.length / 4);
+  return straightPass(ctx, input, CURVES_GLSL, (u) => ctx.gl.uniform4uiv(u("u_lut"), packed));
 });
 
-registerStraight(
-  "CC Toner",
-  `uniform vec3 u_stops[5];
+/** CC Toner's adjust() (also embedded by the native engine). */
+export const TONER_GLSL = `uniform vec3 u_stops[5];
 uniform int u_count;
 uniform float u_blend;
 vec4 adjust(vec4 s) {
@@ -118,7 +124,11 @@ vec4 adjust(vec4 s) {
     t = mix(u_stops[k], u_stops[k + 1], x - float(k));
   }
   return vec4(mix(t, s.rgb, u_blend), s.a);
-}`,
+}`;
+
+registerStraight(
+  "CC Toner",
+  TONER_GLSL,
   (p, gl, u) => {
     const stops = tonerStops(p);
     gl.uniform3fv(u("u_stops"), [...stops.flat(), ...new Array(15 - stops.length * 3).fill(0)]);
@@ -127,9 +137,8 @@ vec4 adjust(vec4 s) {
   },
 );
 
-registerStraight(
-  "CC Color Offset",
-  `uniform vec3 u_phase;
+/** CC Color Offset's adjust() (also embedded by the native engine). */
+export const COLOR_OFFSET_GLSL = `uniform vec3 u_phase;
 uniform int u_overflow;
 const float PI = 3.14159265358979;
 float offset(float v, float phase) {
@@ -139,16 +148,19 @@ float offset(float v, float phase) {
   float f = x - 2.0 * floor(x / 2.0);
   return f <= 1.0 ? f : 2.0 - f;
 }
-vec4 adjust(vec4 s) { return vec4(offset(s.r, u_phase.r), offset(s.g, u_phase.g), offset(s.b, u_phase.b), s.a); }`,
+vec4 adjust(vec4 s) { return vec4(offset(s.r, u_phase.r), offset(s.g, u_phase.g), offset(s.b, u_phase.b), s.a); }`;
+
+registerStraight(
+  "CC Color Offset",
+  COLOR_OFFSET_GLSL,
   (p, gl, u) => {
     gl.uniform3f(u("u_phase"), p.num(1, 0) / 360, p.num(2, 0) / 360, p.num(3, 0) / 360);
     gl.uniform1i(u("u_overflow"), p.choice(4, 2));
   },
 );
 
-registerStraight(
-  "ADBE Gamma/Pedestal/Gain2",
-  `uniform float u_stretch;
+/** ADBE Gamma/Pedestal/Gain2's adjust() (also embedded by the native engine). */
+export const GAMMA_PEDESTAL_GAIN_GLSL = `uniform float u_stretch;
 uniform vec3 u_gamma;
 uniform vec3 u_pedestal;
 uniform vec3 u_gain;
@@ -157,7 +169,11 @@ vec4 adjust(vec4 s) {
   vec3 d = 1.0 - 2.0 * v;
   v += step(0.0, v) * step(v, vec3(0.5)) * (u_stretch - 1.0) * v * d * d;
   return vec4(v, s.a);
-}`,
+}`;
+
+registerStraight(
+  "ADBE Gamma/Pedestal/Gain2",
+  GAMMA_PEDESTAL_GAIN_GLSL,
   (p, gl, u) => {
     gl.uniform1f(u("u_stretch"), p.num(1, 1));
     const [r, g, b] = [2, 5, 8].map((n) => [Math.max(1e-3, p.num(n, 1)), p.num(n + 1, 0), p.num(n + 2, 1)]);
@@ -167,9 +183,8 @@ vec4 adjust(vec4 s) {
   },
 );
 
-registerStraight(
-  "ADBE Color Balance 2",
-  `uniform vec3 u_shadow;
+/** ADBE Color Balance 2's adjust() (also embedded by the native engine). */
+export const COLOR_BALANCE_GLSL = `uniform vec3 u_shadow;
 uniform vec3 u_mid;
 uniform vec3 u_high;
 uniform int u_preserve;
@@ -186,7 +201,11 @@ vec4 adjust(vec4 s) {
   vec3 p = pow(vec3(2.0), -u_mid);
   if (u_preserve == 0) p *= pow(vec3(1.4), -u_high - u_shadow);
   return vec4(balancePow(x, p), s.a);
-}`,
+}`;
+
+registerStraight(
+  "ADBE Color Balance 2",
+  COLOR_BALANCE_GLSL,
   (p, gl, u) => {
     const v = colorBalanceSliders(p);
     gl.uniform3f(u("u_shadow"), v[0], v[1], v[2]);
@@ -196,16 +215,19 @@ vec4 adjust(vec4 s) {
   },
 );
 
-registerStraight(
-  "CS Color Neutralizer",
-  `uniform vec3 u_offsets[3];
+/** CS Color Neutralizer's adjust() (also embedded by the native engine). */
+export const NEUTRALIZER_GLSL = `uniform vec3 u_offsets[3];
 uniform vec2 u_points;
 vec4 adjust(vec4 s) {
   float x = ((s.r + s.g + s.b) / 3.0 - u_points.x) / max(u_points.y - u_points.x, 1e-6);
   float shadow = smoothstep(0.0, 1.0, 1.0 - 2.0 * x);
   float high = smoothstep(0.0, 1.0, 2.0 * x - 1.0);
   return vec4(s.rgb + shadow * u_offsets[0] + (1.0 - shadow - high) * u_offsets[1] + high * u_offsets[2], s.a);
-}`,
+}`;
+
+registerStraight(
+  "CS Color Neutralizer",
+  NEUTRALIZER_GLSL,
   (p, gl, u) => {
     gl.uniform3fv(u("u_offsets"), neutralizerOffsets(p).flat());
     gl.uniform2f(u("u_points"), p.num(23, 0) / 100, p.num(24, 100) / 100);
@@ -216,9 +238,8 @@ const SRGB_GLSL = `
 vec3 toLinear(vec3 v) { return mix(v / 12.92, pow((v + 0.055) / 1.055, vec3(2.4)), step(0.04045, v)); }
 vec3 toSrgb(vec3 v) { return mix(v * 12.92, 1.055 * pow(v, vec3(1.0 / 2.4)) - 0.055, step(0.0031308, v)); }`;
 
-registerStraight(
-  "ADBE PhotoFilterPS",
-  `${SRGB_GLSL}
+/** ADBE PhotoFilterPS's adjust() (also embedded by the native engine). */
+export const PHOTO_FILTER_GLSL = `${SRGB_GLSL}
 uniform mat3 u_filter;
 uniform int u_preserve;
 const vec3 LUMA = vec3(${PHOTO_FILTER_LUMA.join(", ")});
@@ -233,16 +254,19 @@ vec4 adjust(vec4 s) {
     if (hi > 1.0) c = l + (c - l) * (1.0 - l) / (hi - l);
   }
   return vec4(c, s.a);
-}`,
+}`;
+
+registerStraight(
+  "ADBE PhotoFilterPS",
+  PHOTO_FILTER_GLSL,
   (p, gl, u) => {
     gl.uniformMatrix3fv(u("u_filter"), true, photoFilterMatrix(p));
     gl.uniform1i(u("u_preserve"), p.bool(4, true) ? 1 : 0);
   },
 );
 
-registerStraight(
-  "ADBE SelectiveColor",
-  `uniform vec4 u_adjust[${SELECTIVE_GROUPS.length}];
+/** ADBE SelectiveColor's adjust() (also embedded by the native engine). */
+export const SELECTIVE_COLOR_GLSL = `uniform vec4 u_adjust[${SELECTIVE_GROUPS.length}];
 uniform int u_relative;
 vec4 adjust(vec4 s) {
   vec3 c = s.rgb;
@@ -268,7 +292,11 @@ vec4 adjust(vec4 s) {
     d += w[k] * clamp(change, -c, 1.0 - c);
   }
   return vec4(c + d, s.a);
-}`,
+}`;
+
+registerStraight(
+  "ADBE SelectiveColor",
+  SELECTIVE_COLOR_GLSL,
   (p, gl, u) => {
     gl.uniform4fv(u("u_adjust"), SELECTIVE_GROUPS.flatMap((n) => [0, 1, 2, 3].map((k) => p.num(n + k, 0) / 100)));
     gl.uniform1i(u("u_relative"), p.choice(1, 1) === 1 ? 1 : 0);
@@ -307,23 +335,25 @@ function setKey(gl: WebGL2RenderingContext, u: (name: string) => WebGLUniformLoc
   gl.uniform1f(u("u_softScale"), KEY_SOFTNESS[metric] ?? KEY_SOFTNESS[1]);
 }
 
-registerStraight(
-  "ADBE Leave Color",
-  `${KEY_GLSL}
+/** ADBE Leave Color's adjust() (also embedded by the native engine). */
+export const LEAVE_COLOR_GLSL = `${KEY_GLSL}
 uniform float u_amount;
 vec4 adjust(vec4 s) {
   float f = u_amount * (1.0 - keyMatch(s.rgb));
   return vec4(mix(s.rgb, vec3(dot(s.rgb, vec3(${KEY_LUMA.join(", ")}))), f), s.a);
-}`,
+}`;
+
+registerStraight(
+  "ADBE Leave Color",
+  LEAVE_COLOR_GLSL,
   (p, gl, u) => {
     gl.uniform1f(u("u_amount"), Math.min(1, Math.max(0, p.num(1, 0) / 100)));
     setKey(gl, u, p.rgb(2, [1, 0, 0]), p.num(3, 15) / 100, p.num(4, 0) / 100, p.choice(5, 1));
   },
 );
 
-registerStraight(
-  "ADBE Change Color",
-  `${KEY_GLSL}
+/** ADBE Change Color's adjust() (also embedded by the native engine). */
+export const CHANGE_COLOR_GLSL = `${KEY_GLSL}
 uniform int u_view;
 uniform vec3 u_shift;
 uniform int u_invert;
@@ -334,7 +364,11 @@ vec4 adjust(vec4 s) {
   vec3 hsl = rgb2hsl(s.rgb);
   vec3 t = hsl2rgb(vec3(hsl.x + u_shift.x, clamp(hsl.y + u_shift.y, 0.0, 1.0), clamp(hsl.z + u_shift.z, 0.0, 1.0)));
   return vec4(mix(s.rgb, t, m), s.a);
-}`,
+}`;
+
+registerStraight(
+  "ADBE Change Color",
+  CHANGE_COLOR_GLSL,
   (p, gl, u) => {
     gl.uniform1i(u("u_view"), p.choice(1, 1));
     gl.uniform3f(u("u_shift"), p.num(2, 0) / 360, p.num(4, 0) / 100, p.num(3, 0) / 100);
@@ -343,13 +377,12 @@ vec4 adjust(vec4 s) {
   },
 );
 
-registerStraight(
-  "ADBE Change To Color",
-  `uniform vec3 u_from;
+/** ADBE Change To Color's adjust() (also embedded by the native engine). */
+export const CHANGE_TO_COLOR_GLSL = `uniform vec3 u_from;
 uniform vec3 u_to;
 uniform vec3 u_tolerance;
 uniform float u_softness;
-uniform bvec2 u_change;
+uniform ivec2 u_change;
 uniform int u_transform;
 uniform int u_view;
 vec4 adjust(vec4 s) {
@@ -360,11 +393,15 @@ vec4 adjust(vec4 s) {
   float m = u_softness <= 0.0 ? step(k, 1.0) : clamp((1.0 - k) / u_softness, 0.0, 1.0);
   if (u_view == 1) return vec4(vec3(m), s.a);
   vec3 t = u_transform == 1
-    ? vec3(hsl.x + u_to.x - u_from.x, u_change.y ? clamp(hsl.y + u_to.y - u_from.y, 0.0, 1.0) : hsl.y,
-        u_change.x ? clamp(hsl.z + u_to.z - u_from.z, 0.0, 1.0) : hsl.z)
-    : vec3(u_to.x, u_change.y ? u_to.y : hsl.y, u_change.x ? u_to.z : hsl.z);
+    ? vec3(hsl.x + u_to.x - u_from.x, u_change.y != 0 ? clamp(hsl.y + u_to.y - u_from.y, 0.0, 1.0) : hsl.y,
+        u_change.x != 0 ? clamp(hsl.z + u_to.z - u_from.z, 0.0, 1.0) : hsl.z)
+    : vec3(u_to.x, u_change.y != 0 ? u_to.y : hsl.y, u_change.x != 0 ? u_to.z : hsl.z);
   return vec4(mix(s.rgb, hsl2rgb(t), m), s.a);
-}`,
+}`;
+
+registerStraight(
+  "ADBE Change To Color",
+  CHANGE_TO_COLOR_GLSL,
   (p, gl, u) => {
     gl.uniform3fv(u("u_from"), rgbToHsl(p.rgb(1, [1, 0, 0])));
     gl.uniform3fv(u("u_to"), rgbToHsl(p.rgb(2, [0, 0, 1])));
@@ -380,18 +417,8 @@ vec4 adjust(vec4 s) {
 /** The most output cycle entries Colorama stores. */
 const MAX_CYCLE = 64;
 
-register("APC Colorama", (input, p, ctx, _layer, _time, effect) => {
-  const cycle = coloramaCycle(instanceData(effect, 12));
-  const at = new Float32Array(MAX_CYCLE);
-  const rgba = new Float32Array(MAX_CYCLE * 4);
-  cycle.forEach((e, k) => {
-    at[k] = e.at;
-    rgba.set(e.rgba, k * 4);
-  });
-  return straightPass(
-    ctx,
-    input,
-    `uniform int u_count;
+/** APC Colorama's adjust(), from its output cycle in u_count, u_at and u_rgba (also embedded by the native engine). */
+export const COLORAMA_GLSL = `uniform int u_count;
 uniform float u_at[${MAX_CYCLE}];
 uniform vec4 u_rgba[${MAX_CYCLE}];
 uniform int u_phaseFrom;
@@ -436,7 +463,20 @@ vec3 modify(vec3 c, vec3 o) {
 vec4 adjust(vec4 s) {
   vec3 o = modify(s.rgb, cycleAt((phase(s) * ${COLORAMA_PHASE_SCALE} + u_shift) * u_repeats).rgb);
   return vec4(mix(o, s.rgb, u_blend), s.a);
-}`,
+}`;
+
+register("APC Colorama", (input, p, ctx, _layer, _time, effect) => {
+  const cycle = coloramaCycle(instanceData(effect, 12));
+  const at = new Float32Array(MAX_CYCLE);
+  const rgba = new Float32Array(MAX_CYCLE * 4);
+  cycle.forEach((e, k) => {
+    at[k] = e.at;
+    rgba.set(e.rgba, k * 4);
+  });
+  return straightPass(
+    ctx,
+    input,
+    COLORAMA_GLSL,
     (u) => {
       const gl = ctx.gl;
       gl.uniform1i(u("u_count"), cycle.length);
@@ -455,7 +495,8 @@ vec4 adjust(vec4 s) {
 // CC Kernel: a 3 x 3 convolution of straight colour (line 1 is the row above, the layer's edge pixels repeated past
 // it, transparent pixels black), divided by Divider, optionally made absolute, blended with the original, then
 // clamped. Alpha is kept.
-const KERNEL_FS = `${PASS_HEADER}
+/** Also embedded by the native engine. */
+export const KERNEL_FS = `${PASS_HEADER}
 uniform vec2 u_size;
 uniform float u_pad;
 uniform float u_k[9];

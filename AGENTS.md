@@ -75,10 +75,15 @@ frame by frame against After Effects 2025's own renders. React + TypeScript + Vi
  - `native/src/playback.cpp` ports playback's timing and the RAM cache.
  - Masks and shape fills get their coverage as the exact pixel area inside the flattened path. Strokes are polygons
  (`strokeOutline` in `geometry.cpp`, canvas caps and joins) that all wind the same way.
- - What it cannot render yet (text layers, footage, effects, dashed strokes) is listed in `plan.unsupported`; those
- frames stay the WebGL renderer's.
- - After editing a shader, run `node scripts/generate/native-shaders.ts`: it compiles the SPIR-V into `native/src/shaders.inc`
- with glslc from the Vulkan SDK or the Android NDK. A vitest test checks the header is up to date.
+ - What it cannot render yet (text layers, footage, effects it has no port of, dashed strokes) is listed in
+ `plan.unsupported`; those frames stay the WebGL renderer's.
+ - Effects: `native/src/effects/list.inc` and `src/native/effects.ts` list the ones the engine draws (a test keeps them
+ equal). Each is a pass-for-pass port of its `src/render/effects` renderer against `FxContext` (`native/src/fx.h`), using
+ the TypeScript effect's own GLSL: export the shader strings, list them in `scripts/lib/native-fx.ts`, and the generator
+ converts them (`scripts/lib/fx-convert.ts`) into `native/src/fx_shaders.inc`.
+ - After editing a shader (engine or effect), run `node scripts/generate/native-shaders.ts`: it compiles the SPIR-V into
+ `native/src/shaders.inc` and `fx_shaders.inc` with glslc from the Vulkan SDK or the Android NDK, or glslangValidator and
+ spirv-opt. A vitest test checks the headers are up to date.
  - Build and test: `cmake -S native -B native/build -DCMAKE_BUILD_TYPE=Release && cmake --build native/build --config
  Release && ctest --test-dir native/build -C Release`. Without the Vulkan SDK, CMake fetches the headers; the loader is
  opened at run time.

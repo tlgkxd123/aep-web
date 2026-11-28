@@ -98,17 +98,8 @@ function generate(ctx: RenderContext, input: LayerImage, layer: Layer, p: Params
     ctx,
     rect,
     [input],
-    `${COMPOSITE_GLSL}
-uniform vec3 u_color;
-uniform float u_opacity;
-uniform vec4 u_own;
-${decls}`,
-    `  vec4 c = at(0, p);
-  float cov = 0.0;
-  if (p.x >= u_own.x && p.y >= u_own.y && p.x <= u_own.z && p.y <= u_own.w) {
-${body}
-  }
-  outColor = composite(c, u_color, clamp(cov, 0.0, 1.0) * u_opacity);`,
+    generateDecls(decls),
+    generateBody(body),
     (u) => {
       const gl = ctx.gl;
       gl.uniform1i(u("u_blend"), blend);
@@ -123,6 +114,19 @@ ${body}
   ctx.pool.release(input.target);
   return out;
 }
+
+/** generate()'s layerPass declarations and body around a pattern's (also embedded by the native engine). */
+export const generateDecls = (decls: string): string => `${COMPOSITE_GLSL}
+uniform vec3 u_color;
+uniform float u_opacity;
+uniform vec4 u_own;
+${decls}`;
+export const generateBody = (body: string): string => `  vec4 c = at(0, p);
+  float cov = 0.0;
+  if (p.x >= u_own.x && p.y >= u_own.y && p.x <= u_own.z && p.y <= u_own.w) {
+${body}
+  }
+  outColor = composite(c, u_color, clamp(cov, 0.0, 1.0) * u_opacity);`;
 
 /**
  * GLSL: `ramp(e, f)`, how far a pixel whose centre is `e` pixels inside an edge feathered by `f` is covered: a
@@ -159,25 +163,12 @@ function cellSize(p: Params, anchor: number[], cornerIndex: number, widthIndex: 
 /** Eyedropper Fill's Average Pixel Colors: 1 Skip Empty, 2 All, 3 All Premultiplied, 4 Including Alpha. */
 const Average = { SKIP_EMPTY: 1, ALL: 2, ALL_PREMULTIPLIED: 3, INCLUDING_ALPHA: 4 } as const;
 
-// Eyedropper Fill: the layer's pixels whose centres lie within Sample Radius of Sample Point, averaged by one
-// fragment into a 1 x 1 image, fill the layer (keeping its alpha with Maintain Original Alpha), mixed with the
-// original by Blend With Original.
-registerStock("ADBE Eyedropper Fill", (input, p, ctx, layer) => {
-  const k = input.scale ?? 1;
-  const point = layerPoint(layer, p.vec(1, [0, 0]));
-  const radius = Math.max(0.5, p.num(2, 10)) * k;
-  const mode = p.choice(3, Average.SKIP_EMPTY, ["Skip Empty", "All", "All Premultiplied", "Including Alpha"]);
-  const sample: LayerImage = { target: ctx.pool.acquire(1 + 2 * ctx.pad, 1 + 2 * ctx.pad, true), width: 1, height: 1, origin: [0, 0] };
-  const reach = Math.ceil(radius);
-  const averaged = layerPass(
-    ctx,
-    imageRect(sample),
-    [input],
-    `uniform vec2 u_point;
+/** Eyedropper Fill's shaders (also embedded by the native engine). */
+export const EYEDROPPER_SAMPLE_DECLS = `uniform vec2 u_point;
 uniform float u_radius;
 uniform int u_reach;
-uniform int u_mode;`,
-    `  vec2 centre = floor(u_point) + 0.5;
+uniform int u_mode;`;
+export const EYEDROPPER_SAMPLE_BODY = `  vec2 centre = floor(u_point) + 0.5;
   vec4 sum = vec4(0.0);
   float n = 0.0;
   for (int j = -u_reach; j <= u_reach; j++) {
@@ -193,7 +184,30 @@ uniform int u_mode;`,
   vec4 m = n > 0.0 ? sum / n : vec4(0.0);
   if (u_mode == ${Average.SKIP_EMPTY} || u_mode == ${Average.ALL}) outColor = vec4(m.rgb, 1.0);
   else if (u_mode == ${Average.ALL_PREMULTIPLIED}) outColor = vec4(m.rgb, 1.0);
-  else outColor = m;`,
+  else outColor = m;`;
+export const EYEDROPPER_FILL_DECLS = `uniform int u_keepAlpha;
+uniform float u_blend;`;
+export const EYEDROPPER_FILL_BODY = `  vec4 c = at(0, p);
+  vec4 fill = at(1, vec2(0.5));
+  vec4 f = u_keepAlpha == 1 ? vec4(fill.a > 0.0 ? fill.rgb / fill.a : vec3(0.0), 1.0) * c.a : fill;
+  outColor = mix(f, c, u_blend);`;
+
+// Eyedropper Fill: the layer's pixels whose centres lie within Sample Radius of Sample Point, averaged by one
+// fragment into a 1 x 1 image, fill the layer (keeping its alpha with Maintain Original Alpha), mixed with the
+// original by Blend With Original.
+registerStock("ADBE Eyedropper Fill", (input, p, ctx, layer) => {
+  const k = input.scale ?? 1;
+  const point = layerPoint(layer, p.vec(1, [0, 0]));
+  const radius = Math.max(0.5, p.num(2, 10)) * k;
+  const mode = p.choice(3, Average.SKIP_EMPTY, ["Skip Empty", "All", "All Premultiplied", "Including Alpha"]);
+  const sample: LayerImage = { target: ctx.pool.acquire(1 + 2 * ctx.pad, 1 + 2 * ctx.pad, true), width: 1, height: 1, origin: [0, 0] };
+  const reach = Math.ceil(radius);
+  const averaged = layerPass(
+    ctx,
+    imageRect(sample),
+    [input],
+    EYEDROPPER_SAMPLE_DECLS,
+    EYEDROPPER_SAMPLE_BODY,
     (u) => {
       ctx.gl.uniform2f(u("u_point"), point[0] * k, (point[1] ?? 0) * k);
       ctx.gl.uniform1f(u("u_radius"), radius);
@@ -206,12 +220,8 @@ uniform int u_mode;`,
     ctx,
     imageRect(input),
     [input, averaged],
-    `uniform int u_keepAlpha;
-uniform float u_blend;`,
-    `  vec4 c = at(0, p);
-  vec4 fill = at(1, vec2(0.5));
-  vec4 f = u_keepAlpha == 1 ? vec4(fill.a > 0.0 ? fill.rgb / fill.a : vec3(0.0), 1.0) * c.a : fill;
-  outColor = mix(f, c, u_blend);`,
+    EYEDROPPER_FILL_DECLS,
+    EYEDROPPER_FILL_BODY,
     (u) => {
       ctx.gl.uniform1i(u("u_keepAlpha"), p.bool(4, false) ? 1 : 0);
       ctx.gl.uniform1f(u("u_blend"), Math.min(1, Math.max(0, p.num(5, 0))));
@@ -222,6 +232,17 @@ uniform float u_blend;`,
   ctx.pool.release(input.target);
   return out;
 });
+
+/** ADBE Checkerboard's pattern shader (also embedded by the native engine). */
+export const CHECKERBOARD_DECLS = `${RAMP_GLSL}
+uniform vec2 u_anchor;
+uniform vec2 u_cell;
+uniform vec2 u_soft;`;
+export const CHECKERBOARD_BODY = `    vec2 cx = cellPhase(p.x, u_anchor.x, u_cell.x);
+    vec2 cy = cellPhase(p.y, u_anchor.y, u_cell.y);
+    float sx = cx.y * (2.0 * ramp(cx.x, u_soft.x) - 1.0);
+    float sy = cy.y * (2.0 * ramp(cy.x, u_soft.y) - 1.0);
+    cov = 0.5 + 0.5 * sign(sx * sy) * min(abs(sx), abs(sy));`;
 
 registerStock("ADBE Checkerboard", (input, p, ctx, layer) => {
   const k = input.scale ?? 1;
@@ -236,15 +257,8 @@ registerStock("ADBE Checkerboard", (input, p, ctx, layer) => {
     p.rgb(10, [1, 1, 1]),
     p.num(11, 100) / 100,
     p.choice(12, Blend.NONE, BLEND_MENU),
-    `${RAMP_GLSL}
-uniform vec2 u_anchor;
-uniform vec2 u_cell;
-uniform vec2 u_soft;`,
-    `    vec2 cx = cellPhase(p.x, u_anchor.x, u_cell.x);
-    vec2 cy = cellPhase(p.y, u_anchor.y, u_cell.y);
-    float sx = cx.y * (2.0 * ramp(cx.x, u_soft.x) - 1.0);
-    float sy = cy.y * (2.0 * ramp(cy.x, u_soft.y) - 1.0);
-    cov = 0.5 + 0.5 * sign(sx * sy) * min(abs(sx), abs(sy));`,
+    CHECKERBOARD_DECLS,
+    CHECKERBOARD_BODY,
     (u) => {
       const [ax, ay] = layerPoint(layer, anchor);
       ctx.gl.uniform2f(u("u_anchor"), ax * k, ay * k);
@@ -256,6 +270,17 @@ uniform vec2 u_soft;`,
 
 /** Circle's Edge menu: 1 None, 2 Edge Radius, 3 Thickness, 4 Thickness * Radius, 5 Thickness & Feather * Radius. */
 const Edge = { NONE: 1, EDGE_RADIUS: 2, THICKNESS: 3, THICKNESS_RADIUS: 4, THICKNESS_FEATHER_RADIUS: 5 } as const;
+
+/** ADBE Circle's pattern shader (also embedded by the native engine). */
+export const CIRCLE_DECLS = `uniform vec2 u_center;
+uniform vec2 u_radii;
+uniform vec2 u_halfRamps;
+uniform int u_invert;`;
+export const CIRCLE_BODY = `    float d = length(p - u_center) + 0.75;
+    float o = 1.0 - smoothstep(0.0, 1.0, (d - u_radii.y) / (2.0 * u_halfRamps.y) + 0.5);
+    float i = u_radii.x < 0.0 ? 1.0 : smoothstep(0.0, 1.0, (d - u_radii.x) / (2.0 * u_halfRamps.x) + 0.5);
+    cov = o * i;
+    if (u_invert == 1) cov = 1.0 - cov;`;
 
 // Circle: a disc, or a ring by Edge, whose edges are smoothsteps over twice their feather plus 1.5 pixels; After
 // Effects measures the distance from Center three quarters of a pixel longer.
@@ -283,15 +308,8 @@ registerStock("ADBE Circle", (input, p, ctx, layer) => {
     p.rgb(10, [1, 1, 1]),
     p.num(11, 100) / 100,
     p.choice(12, Blend.NONE, BLEND_MENU),
-    `uniform vec2 u_center;
-uniform vec2 u_radii;
-uniform vec2 u_halfRamps;
-uniform int u_invert;`,
-    `    float d = length(p - u_center) + 0.75;
-    float o = 1.0 - smoothstep(0.0, 1.0, (d - u_radii.y) / (2.0 * u_halfRamps.y) + 0.5);
-    float i = u_radii.x < 0.0 ? 1.0 : smoothstep(0.0, 1.0, (d - u_radii.x) / (2.0 * u_halfRamps.x) + 0.5);
-    cov = o * i;
-    if (u_invert == 1) cov = 1.0 - cov;`,
+    CIRCLE_DECLS,
+    CIRCLE_BODY,
     (u) => {
       ctx.gl.uniform2f(u("u_center"), center[0] * k, center[1] * k);
       ctx.gl.uniform2f(u("u_radii"), inner < 0 ? -1 : inner * k, outer * k);
@@ -300,6 +318,18 @@ uniform int u_invert;`,
     },
   );
 });
+
+/** ADBE Grid's pattern shader (also embedded by the native engine). */
+export const GRID_DECLS = `${RAMP_GLSL}
+uniform vec2 u_anchor;
+uniform vec2 u_cell;
+uniform float u_border;
+uniform vec2 u_soft;
+uniform int u_invert;`;
+export const GRID_BODY = `    vec2 e = u_border * 0.5 - vec2(cellPhase(p.x, u_anchor.x, u_cell.x).x, cellPhase(p.y, u_anchor.y, u_cell.y).x);
+    if (u_soft.x > 0.0 || u_soft.y > 0.0) cov = smoothstep(0.0, 1.0, length(clamp(e / (u_soft + 1.0), 0.0, 1.0)));
+    else cov = min(1.0, clamp(e.x, 0.0, 1.0) + clamp(e.y, 0.0, 1.0));
+    if (u_invert == 1) cov = 1.0 - cov;`;
 
 // Grid: lines Border wide through the cell corners. A feathered line's coverage is a smoothstep, from its edge
 // inwards over its feather plus a pixel, of the length of the two axes' linear ramps; unfeathered lines are
@@ -317,16 +347,8 @@ registerStock("ADBE Grid", (input, p, ctx, layer) => {
     p.rgb(12, [1, 1, 1]),
     p.num(13, 100) / 100,
     p.choice(14, Blend.NONE, BLEND_MENU),
-    `${RAMP_GLSL}
-uniform vec2 u_anchor;
-uniform vec2 u_cell;
-uniform float u_border;
-uniform vec2 u_soft;
-uniform int u_invert;`,
-    `    vec2 e = u_border * 0.5 - vec2(cellPhase(p.x, u_anchor.x, u_cell.x).x, cellPhase(p.y, u_anchor.y, u_cell.y).x);
-    if (u_soft.x > 0.0 || u_soft.y > 0.0) cov = smoothstep(0.0, 1.0, length(clamp(e / (u_soft + 1.0), 0.0, 1.0)));
-    else cov = min(1.0, clamp(e.x, 0.0, 1.0) + clamp(e.y, 0.0, 1.0));
-    if (u_invert == 1) cov = 1.0 - cov;`,
+    GRID_DECLS,
+    GRID_BODY,
     (u) => {
       const [ax, ay] = layerPoint(layer, anchor);
       ctx.gl.uniform2f(u("u_anchor"), ax * k, ay * k);
@@ -367,9 +389,13 @@ function setGlow(ctx: RenderContext, u: (name: string) => WebGLUniformLocation |
   gl.uniform1i(u("u_onOriginal"), p.bool(onOriginal, false) ? 1 : 0);
 }
 
+/** strokePass's layerPass declarations and body (also embedded by the native engine). */
+export const strokeDecls = (decls: string): string => `${GLOW_GLSL}${decls}`;
+export const strokeBody = (body: string): string => `  vec4 c = at(0, p);\n${body}`;
+
 /** A generator drawing over the layer's own rectangle (`body` sets outColor from p and c = the layer's pixel). */
 function strokePass(ctx: RenderContext, input: LayerImage, layer: Layer, decls: string, body: string, setUniforms: Uniforms): LayerImage {
-  const out = layerPass(ctx, layerRect(layer, input), [input], `${GLOW_GLSL}${decls}`, `  vec4 c = at(0, p);\n${body}`, setUniforms, input.scale);
+  const out = layerPass(ctx, layerRect(layer, input), [input], strokeDecls(decls), strokeBody(body), setUniforms, input.scale);
   ctx.pool.release(input.target);
   return out;
 }
@@ -386,16 +412,8 @@ function ellipseSides(width: number, height: number, thickness: number): number 
   return 4 * Math.min(MAX_ELLIPSE_SIDES / 4, Math.max(8, segments));
 }
 
-// Ellipse: the glow around the ellipse of Width and Height centred on Center (on a pixel centre), at the distance
-// to a polygon inscribed in it, with vertices at equal angles of its parametric form.
-registerStock("ADBE ELLIPSE", (input, p, ctx, layer) => {
-  const k = input.scale ?? 1;
-  const center = layerPoint(layer, p.vec(1, [layer.width / 2, layer.height / 2]));
-  return strokePass(
-    ctx,
-    input,
-    layer,
-    `uniform vec2 u_center;
+/** ADBE ELLIPSE's pattern shader (also embedded by the native engine). */
+export const ELLIPSE_DECLS = `uniform vec2 u_center;
 uniform vec2 u_radii;
 uniform float u_thickness;
 uniform int u_sides;
@@ -413,8 +431,20 @@ float ellipseDistance(vec2 q, vec2 r) {
     a = b;
   }
   return best;
-}`,
-    `  outColor = overOriginal(glow(ellipseDistance(p - u_center, u_radii), u_thickness), c);`,
+}`;
+export const ELLIPSE_BODY = `  outColor = overOriginal(glow(ellipseDistance(p - u_center, u_radii), u_thickness), c);`;
+
+// Ellipse: the glow around the ellipse of Width and Height centred on Center (on a pixel centre), at the distance
+// to a polygon inscribed in it, with vertices at equal angles of its parametric form.
+registerStock("ADBE ELLIPSE", (input, p, ctx, layer) => {
+  const k = input.scale ?? 1;
+  const center = layerPoint(layer, p.vec(1, [layer.width / 2, layer.height / 2]));
+  return strokePass(
+    ctx,
+    input,
+    layer,
+    ELLIPSE_DECLS,
+    ELLIPSE_BODY,
     (u) => {
       ctx.gl.uniform2f(u("u_center"), (center[0] + 0.5) * k, (center[1] + 0.5) * k);
       ctx.gl.uniform2f(u("u_radii"), (Math.max(0, p.num(2, 50)) / 2) * k, (Math.max(0, p.num(3, 50)) / 2) * k);
@@ -424,6 +454,16 @@ float ellipseDistance(vec2 q, vec2 r) {
     },
   );
 });
+
+/** ADBE Laser's pattern shader (also embedded by the native engine). */
+export const BEAM_DECLS = `uniform vec2 u_start;
+uniform vec2 u_end;
+uniform vec2 u_span;
+uniform vec2 u_thickness;`;
+export const BEAM_BODY = `  vec2 axis = u_end - u_start;
+  float len2 = dot(axis, axis);
+  float s = len2 > 0.0 ? clamp(dot(p - u_start, axis) / len2, u_span.x, u_span.y) : 0.0;
+  outColor = overOriginal(glow(length(p - u_start - axis * s), mix(u_thickness.x, u_thickness.y, s)), c);`;
 
 // Beam: the glow around the part of the line from Start Point to End Point that Length (a share of the line) and
 // Time (its head, from the start at 0 to Length past the end at 1) select, round at both ends, its thickness
@@ -447,14 +487,8 @@ registerStock("ADBE Laser", (input, p, ctx, layer) => {
     ctx,
     input,
     layer,
-    `uniform vec2 u_start;
-uniform vec2 u_end;
-uniform vec2 u_span;
-uniform vec2 u_thickness;`,
-    `  vec2 axis = u_end - u_start;
-  float len2 = dot(axis, axis);
-  float s = len2 > 0.0 ? clamp(dot(p - u_start, axis) / len2, u_span.x, u_span.y) : 0.0;
-  outColor = overOriginal(glow(length(p - u_start - axis * s), mix(u_thickness.x, u_thickness.y, s)), c);`,
+    BEAM_DECLS,
+    BEAM_BODY,
     (u) => {
       ctx.gl.uniform2f(u("u_start"), (start[0] + 0.5) * k, (start[1] + 0.5) * k);
       ctx.gl.uniform2f(u("u_end"), (end[0] + 0.5) * k, (end[1] + 0.5) * k);
@@ -472,19 +506,11 @@ const Reception = { ADD: 1, COMPOSITE: 2, CUTOUT: 3 } as const;
 
 const MAX_BOX_TAPS = 2048;
 
-/**
- * The layer's alpha averaged along one axis over a box 2 x `half` wide whose centre is `shift` along that axis from
- * the pixel (pixels weighted by their overlap with the box), in every channel.
- */
-function alphaBox(ctx: RenderContext, input: LayerImage, rect: ReturnType<typeof layerRect>, axis: 0 | 1, shift: number, half: number): LayerImage {
-  return layerPass(
-    ctx,
-    rect,
-    [input],
-    `uniform int u_axis;
+/** alphaBox's shader (also embedded by the native engine). */
+export const ALPHA_BOX_DECLS = `uniform int u_axis;
 uniform float u_shift;
-uniform float u_half;`,
-    `  float c = (u_axis == 0 ? p.x : p.y) + u_shift;
+uniform float u_half;`;
+export const ALPHA_BOX_BODY = `  float c = (u_axis == 0 ? p.x : p.y) + u_shift;
   float lo = c - u_half;
   float hi = c + u_half;
   float first = floor(lo) + 0.5;
@@ -495,7 +521,19 @@ uniform float u_half;`,
     float w = min(q + 0.5, hi) - max(q - 0.5, lo);
     sum += w * at(0, u_axis == 0 ? vec2(q, p.y) : vec2(p.x, q)).a;
   }
-  outColor = vec4(sum / (2.0 * u_half));`,
+  outColor = vec4(sum / (2.0 * u_half));`;
+
+/**
+ * The layer's alpha averaged along one axis over a box 2 x `half` wide whose centre is `shift` along that axis from
+ * the pixel (pixels weighted by their overlap with the box), in every channel.
+ */
+function alphaBox(ctx: RenderContext, input: LayerImage, rect: ReturnType<typeof layerRect>, axis: 0 | 1, shift: number, half: number): LayerImage {
+  return layerPass(
+    ctx,
+    rect,
+    [input],
+    ALPHA_BOX_DECLS,
+    ALPHA_BOX_BODY,
     (u) => {
       ctx.gl.uniform1i(u("u_axis"), axis);
       ctx.gl.uniform1f(u("u_shift"), shift);
@@ -504,6 +542,27 @@ uniform float u_half;`,
     input.scale,
   );
 }
+
+/** Light Sweep's shader, with or without the edge light's box (also embedded by the native engine). */
+export const LIGHT_SWEEP_DECLS = `uniform vec2 u_center;
+uniform vec2 u_normal;
+uniform float u_width;
+uniform float u_intensity;
+uniform float u_edge;
+uniform int u_shape;
+uniform int u_reception;
+uniform vec3 u_color;`;
+export const lightSweepBody = (box: boolean): string => `  vec4 c = at(0, p);
+  float r = abs(dot(p - u_center, u_normal)) / (2.0 * u_width);
+  float s = u_shape == ${SweepShape.LINEAR} ? max(0.0, 1.0 - r)
+    : u_shape == ${SweepShape.SMOOTH} ? 1.0 - smoothstep(0.0, 1.0, r)
+    : max(0.0, 1.0 - r) * max(0.0, 1.0 - r);
+  float light = u_intensity * s;
+  float edge = ${box ? "u_edge * max(0.0, 1.0 - at(1, p).a) * c.a" : "0.0"};
+  vec3 l = u_color * c.a;
+  if (u_reception == ${Reception.ADD}) outColor = vec4(min(c.rgb + floor(l * light * 255.0 + 1e-4) / 255.0 + l * edge, vec3(c.a)), c.a);
+  else if (u_reception == ${Reception.COMPOSITE}) outColor = vec4(mix(c.rgb, l, min(light + edge, 1.0)), c.a);
+  else outColor = vec4(l, c.a) * min(light + edge, 1.0);`;
 
 // Light Sweep: a band of light across the layer through Center (on a pixel centre), Direction turning its normal
 // from the x axis, Width its half width at half strength (Linear, a smoothstep or Sharp's square of Linear). The
@@ -528,25 +587,8 @@ registerStock("CC Light Sweep", (input, p, ctx, layer) => {
     ctx,
     rect,
     box ? [input, box] : [input],
-    `uniform vec2 u_center;
-uniform vec2 u_normal;
-uniform float u_width;
-uniform float u_intensity;
-uniform float u_edge;
-uniform int u_shape;
-uniform int u_reception;
-uniform vec3 u_color;`,
-    `  vec4 c = at(0, p);
-  float r = abs(dot(p - u_center, u_normal)) / (2.0 * u_width);
-  float s = u_shape == ${SweepShape.LINEAR} ? max(0.0, 1.0 - r)
-    : u_shape == ${SweepShape.SMOOTH} ? 1.0 - smoothstep(0.0, 1.0, r)
-    : max(0.0, 1.0 - r) * max(0.0, 1.0 - r);
-  float light = u_intensity * s;
-  float edge = ${box ? "u_edge * max(0.0, 1.0 - at(1, p).a) * c.a" : "0.0"};
-  vec3 l = u_color * c.a;
-  if (u_reception == ${Reception.ADD}) outColor = vec4(min(c.rgb + floor(l * light * 255.0 + 1e-4) / 255.0 + l * edge, vec3(c.a)), c.a);
-  else if (u_reception == ${Reception.COMPOSITE}) outColor = vec4(mix(c.rgb, l, min(light + edge, 1.0)), c.a);
-  else outColor = vec4(l, c.a) * min(light + edge, 1.0);`,
+    LIGHT_SWEEP_DECLS,
+    lightSweepBody(!!box),
     (u) => {
       ctx.gl.uniform1f(u("u_edge"), edge);
       ctx.gl.uniform2f(u("u_center"), (center[0] + 0.5) * k, (center[1] + 0.5) * k);

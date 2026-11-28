@@ -48,7 +48,7 @@ const MIN_COLOR_RADIUS = 2;
 // pixels, y down, pixel centres at integers), then a row of magnitudes. Each
 // capsule is a segment a -> b with the band's Inside and Outside colours
 // (hue-turned per band), drawn as a quad covering its reach.
-const CAPSULE_VS = `#version 300 es
+export const CAPSULE_VS = `#version 300 es
 layout(location = 0) in vec2 a_corner;
 uniform highp sampler2D u_data;
 uniform int u_run;
@@ -140,7 +140,7 @@ void main() {
   gl_Position = vec4(framebuffer / u_size * 2.0 - 1.0, 0.0, 1.0);
 }`;
 
-const CAPSULE_FS = `#version 300 es
+export const CAPSULE_FS = `#version 300 es
 precision highp float;
 uniform vec2 u_size;
 uniform float u_pad;
@@ -492,7 +492,7 @@ function drawCapsules(
   gl.bindVertexArray(null);
 }
 
-const COMPOSITE_FS = `#version 300 es
+export const COMPOSITE_FS = `#version 300 es
 precision highp float;
 uniform sampler2D u_spectrum;
 uniform sampler2D u_original;

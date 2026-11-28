@@ -4,7 +4,8 @@ import { registerEffect } from "../registry.ts";
 import { mapPass, PASS_HEADER } from "./fxextraUtil.ts";
 import { screenChannels } from "./keylightMath.ts";
 
-const KEYLIGHT_FS = `${PASS_HEADER}
+/** Also embedded by the native engine. */
+export const KEYLIGHT_FS = `${PASS_HEADER}
 uniform int u_view;
 uniform int u_unpremultiply;
 uniform int u_ignoreAlpha;

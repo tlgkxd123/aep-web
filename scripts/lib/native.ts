@@ -23,3 +23,6 @@ export function findRenderTool(given?: string): string | undefined {
   const candidates = given ? [given] : [join(NATIVE_DIR, "build", exe), join(NATIVE_DIR, "build", "Release", exe), join(NATIVE_DIR, "build", "Debug", exe)];
   return candidates.find((c) => existsSync(c));
 }
+
+/** The effect shaders' header (scripts/lib/native-fx.ts lists them). */
+export const FX_HEADER = join(NATIVE_DIR, "src", "fx_shaders.inc");

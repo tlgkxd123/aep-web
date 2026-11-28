@@ -12,10 +12,10 @@
 namespace aevk {
 
 constexpr uint32_t kPlanMagic = 0x50564541;  // "AEVP"
-constexpr uint32_t kPlanVersion = 1;
+constexpr uint32_t kPlanVersion = 8;
 constexpr int kPad = 1;
 
-enum class ContentKind : uint32_t { Solid = 1, Comp = 2, Image = 3, Shape = 4 };
+enum class ContentKind : uint32_t { Solid = 1, Comp = 2, Image = 3, Shape = 4, Footage = 5 };
 
 namespace matte {
 constexpr uint32_t None = 0, Alpha = 1, AlphaInverted = 2, Luma = 3, LumaInverted = 4;
@@ -64,6 +64,26 @@ struct ShapePaint {
 
 struct Comp;
 
+/**
+ * A still image, a sequence frame or a video frame a footage layer shows (src/render/footage.ts): its file and the
+ * Interpret Footage alpha settings. The content's size is the source's at the plan's scale; at a reduced scale (below 1) each image
+ * pixel averages the source pixels it covers, as INTERPRET_FS does.
+ */
+struct FootageFrame {
+  std::string file;
+  /** The source's size as the project records it. */
+  uint32_t sourceWidth = 0, sourceHeight = 0;
+  bool hasAlpha = false, invertAlpha = false;
+  /** 0 straight, 1 premultiplied (against `matte`), 2 ignore. */
+  uint32_t alphaMode = 0;
+  std::array<float, 3> matte{};
+  /**
+   * Video: the seconds of the file's own time whose picture shows (the frame index over the file's native rate, as
+   * footageStore reads it); negative for a still image or a sequence frame.
+   */
+  double videoTime = -1;
+};
+
 struct Content {
   ContentKind kind = ContentKind::Solid;
   uint32_t width = 0, height = 0;
@@ -75,6 +95,135 @@ struct Content {
   uint32_t image = 0;
   /** Bottom first. */
   std::vector<ShapePaint> paints;
+  /** Footage: the frame's file as the project records it (the engine relinks it), and how to interpret it. */
+  FootageFrame footage;
+};
+
+/** One parameter of an effect, evaluated at the frame time. */
+struct EffectParam {
+  /** n for "<effect match name>-000n", 0 when the parameter has another match name (in `matchName`). */
+  uint32_t index = 0;
+  std::string matchName;
+  /** A number, a point, or straight RGBA for a colour; empty for parameters with no value. */
+  std::vector<double> value;
+  /** For popups: per menu entry, 1 for a "(-" separator the entry numbering skips. */
+  std::vector<uint8_t> menu;
+};
+
+/** What effects read of the layer they render on. */
+struct EffectLayer {
+  /** Composition time of the frame and the layer's start time, in seconds. */
+  double time = 0, startTime = 0;
+  /** The layer's time stretch as a fraction (1 when none; negative reverses it). */
+  double stretch = 1;
+  /** Layer pixels. */
+  float width = 0, height = 0;
+  /** 0 an AV layer, 1 a shape layer, 2 anything else. */
+  uint32_t kind = 0;
+};
+
+/**
+ * The layer an effect's layer parameter names (another layer of the comp, not the effect's own), as its content alone,
+ * before its masks and effects (ctx.layerImage(other, time, false) in renderer.ts).
+ */
+struct EffectSource {
+  /** The layer parameter's declared index. */
+  uint32_t param = 0;
+  /** False when the layer draws nothing at this time: `content` is unset. */
+  bool drawn = false;
+  Content content;
+  /** The other layer's size and kind, for its box (layerRect); its times are left 0. */
+  EffectLayer layer;
+};
+
+/** An effect a layer renders through, with its parameters in declared order. */
+/**
+ * A sound file heard in a layer's audio (Contribution in src/media/mixWindow.ts): source seconds = scale * t + offset
+ * for comp time t in [from, to).
+ */
+struct AudioSource {
+  /** As the project records it; the engine relinks it by its trailing folders. */
+  std::string file;
+  double scale = 1, offset = 0, from = 0, to = 0;
+};
+
+/** A mask outline: x, y, in x, in y, out x, out y per vertex. */
+struct EffectPath {
+  bool closed = false;
+  std::vector<float> vertices;
+};
+
+struct Effect;
+
+/**
+ * The layer as a time effect receives it at another comp time (inputAt in perspectiveTime.ts): its content, masks and
+ * the enabled effects above the time effect, all at `time`, in the layer's own pixels at full resolution.
+ */
+struct EffectInput {
+  double time = 0;
+  /** False when the layer draws nothing then: the rest is unset. */
+  bool drawn = false;
+  Content content;
+  std::vector<Mask> masks;
+  std::vector<Effect> effects;
+};
+
+/** Data an effect stores for its parameter declared `param`-th. */
+struct EffectData {
+  uint32_t param = 0;
+  std::vector<uint8_t> bytes;
+};
+
+/** Particular's dot particles, worked out by the planner (ParticularSplats in native/core/particular.cpp). */
+struct EffectParticles {
+  /** Glow halos then particles, far to near: cx, cy, outer, inner, opacity each, in the layer's pixels. */
+  std::vector<float> glow;
+  std::vector<float> core;
+  float color[3] = {1, 1, 1};
+  /** Between halos and between particles: 1 normal, 2 add, 3 screen, 4 lighten. */
+  uint32_t glowBlend = 1;
+  uint32_t particleBlend = 1;
+};
+
+struct Effect {
+  std::string matchName;
+  std::vector<EffectParam> params;
+  /** The other layers its layer parameters name. */
+  std::vector<EffectSource> sources;
+  /** The sound of the layer its audio layer parameter names (Audio Spectrum): unset when that names no layer, empty when the layer is silent. */
+  bool hasAudio = false;
+  std::vector<AudioSource> audio;
+  /** The mask its Path parameter names, at the frame's time. */
+  bool hasPath = false;
+  EffectPath path;
+  /** A time effect's layer at the other times it reads, in order (inputTimes in plan.ts). */
+  std::vector<EffectInput> inputs;
+  /** The data the effect stores for a parameter (DATA_PARAMS in plan.ts): Curves' tables, Colorama's cycle. */
+  std::vector<EffectData> data;
+  /** Particular's particles (PlanEffect.particles in plan.ts). */
+  bool hasParticles = false;
+  EffectParticles particles;
+
+  /** The data stored for the parameter declared n-th, or null. */
+  const std::vector<uint8_t>* stored(uint32_t n) const {
+    for (const EffectData& d : data)
+      if (d.param == n) return &d.bytes;
+    return nullptr;
+  }
+
+  /** The source planned for the layer parameter declared n-th, or null (None, or the layer itself). */
+  const EffectSource* source(uint32_t n) const {
+    for (const EffectSource& s : sources)
+      if (s.param == n) return &s;
+    return nullptr;
+  }
+
+  /** The parameter declared n-th (match name ending "-000n"), or null. */
+  const EffectParam* param(uint32_t n) const {
+    for (const EffectParam& p : params)
+      if (p.index == n) return &p;
+    return nullptr;
+  }
 };
 
 struct Layer {
@@ -87,6 +236,9 @@ struct Layer {
   float zoom = 0;
   Content content;
   std::vector<Mask> masks;
+  /** Applied in order after the masks; `effectLayer` is set when there are any. */
+  std::vector<Effect> effects;
+  EffectLayer effectLayer;
   uint32_t matteMode = matte::None;
   float matteOpacity = 1;
   std::unique_ptr<Layer> matte;

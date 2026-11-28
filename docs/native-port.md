@@ -9,14 +9,14 @@ projects at close to desktop speed.
 | --- | --- | --- |
 | Project parsing (`.aep` RIFX) | `aep/` 3.7k lines | `native/core` (M1) |
 | Property evaluation (keyframes, eases, motion paths, parenting, cameras) | `aep/evaluate.ts`, `aep/transform.ts` | `native/core` (M1) |
-| Expressions | `expressions/` 3.2k lines on acorn | none |
+| Expressions | `expressions/` 3.2k lines on acorn | the same engine in QuickJS-ng (M3, `-DAEP_EXPRESSIONS=ON`) |
 | Compositing (solids, precomps, shapes, masks, mattes, blend modes, 3D) | `render/renderer.ts` (WebGL2) | `native/src` (Vulkan), from a plan |
 | Shape layers | `render/shapes.ts` | geometry in `native/core` (M1), raster in `native/src`; no dashes yet |
-| Text layers | `render/` + fonts | none |
-| Footage (images, video, audio) | `media/` 3.7k lines | none |
-| Effects (54 files, built-in and third-party look-alikes) | `render/effects/` ~15k lines | none |
-| Editing (undo, layer ops, write back to `.aep`) | `edit/` 6.2k lines | none |
-| UI | `ui/` 17k lines of React | none |
+| Text layers | not drawn yet (`renderer.ts` warns) | not drawn either; both planners list them |
+| Footage (images, video, audio) | `media/` 3.7k lines | stills and image sequences (PNG, BMP, TIFF) in `native/src/image.cpp`; video through FFmpeg on desktop (`native/src/video.cpp`); JPEG stills through FFmpeg on desktop; WAV for Audio Spectrum; on Android, video through the phone's decoders (`native/src/video_android.cpp`) and JPEG/WebP/HEIF stills through AImageDecoder (Android 11+), written but not yet compiled |
+| Effects (54 files, built-in and third-party look-alikes) | `render/effects/` ~15k lines | 142 drawn and 17 passed through in `native/src/effects` (M5), Particular's dot particles included; its sprites and the opt-in Sapphire and XMult look-alikes not yet |
+| Editing (undo, layer ops, write back to `.aep`) | `edit/` 6.2k lines | not started |
+| UI | `ui/` 17k lines of React | Dear ImGui viewer on desktop and Android (M6); no editing |
 
 Before this port, the Android app ran the whole front half in the WebView: JavaScript parsed the project, evaluated
 every property, built a frame plan, serialized it, and sent the bytes over the WebView bridge for the Vulkan engine to
@@ -125,9 +125,55 @@ calls (a referenced property's value, `toComp`, `wiggle`, the noise behind `rand
 **M4. Text and footage**
 
 - Text: FreeType for glyphs and HarfBuzz for shaping, laid out as `src/render` lays it out, drawn as shape paints.
-- Images: stb_image (PNG, JPEG, TGA...), with the decoded frames uploaded once and kept in the engine's pool.
-- Video: Android `AMediaCodec` straight into a hardware buffer the engine imports, FFmpeg on desktop. This is where
-  phones gain the most over a WebView, which copies every decoded frame at least twice.
+- Images (done for PNG, BMP and TIFF): decoded by the engine's own code in `native/src/image.cpp` (inflate, PNG
+  filters, palettes and tRNS, Adam7, BMP, and a port of `src/media/tiff.ts`), with no library. Plan v5 carries a
+  `footage` content kind: the frame's recorded file (a sequence's frame resolved by both planners as
+  `footageStore.frame` does), the source size and the Interpret Footage alpha settings. The engine relinks the file
+  through its media folders, keeps decoded frames in a 512 MB LRU, and interprets them on the GPU
+  (`shaders/footage.frag`, a port of `INTERPRET_FS`, reduced-resolution averaging included). Every PNG, BMP and
+  sequence fixture passes; `footage_tiff` and `footage_tiff_assoc` fail exactly as the WebGL renderer does on master.
+  The web app's own native bridge (`src/native/engine.ts`) leaves footage frames to WebGL, because there the files
+  belong to the browser. JPEG stills decode through FFmpeg on desktop (`decodeStill` in `native/src/video.cpp`, full-range
+  BT.601 as browsers decode JFIF); the three JPEG fixtures pass. On Android, `decodeStill` in `native/src/video_android.cpp` uses AImageDecoder (found at
+  run time in libjnigraphics, so it needs Android 11; older phones get a warning and the layer draws nothing).
+- Video (done on desktop): plan v6 adds the seconds of the file's own time whose picture shows (the frame index over
+  the file's native rate, as `footageStore.videoFrame` reads it). `native/src/video.cpp` opens the file with FFmpeg
+  (when CMake finds libavformat, libavcodec and libswscale; `-DAEVK_FFMPEG=OFF` leaves it out), lists the samples'
+  presentation times as `src/media/mp4.ts` does, picks one the way `indexAtTimes` does, and decodes forward from where
+  it stopped (seeking to the key frame only for a jump back or more than 2 s ahead). 8-bit 4:2:0, 4:2:2, 4:4:4 and
+  NV12 pictures keep their planes and upload as bytes; `shaders/footage_yuv.frag` converts them as `INTERPRET_FS`
+  does (After Effects' matrix, bilinear chroma). Other formats go through swscale to RGBA. All `footage_video`
+  reference frames pass. On Android the same `VideoReader` is `native/src/video_android.cpp`: AMediaExtractor lists the
+  sample times, AMediaCodec decodes (in hardware where the phone has it) into an AImageReader, frames before the one
+  asked for are dropped without being drawn, and the picture's planes are copied out as the FFmpeg reader lays them
+  (NV12 kept interleaved, crop applied, the codec's colour range read). Seeking follows the desktop rule. Because
+  Android hands apps folders as documents, not paths, the Project panel's "Choose footage folder" button (Android
+  only) copies the chosen folder's media files into the app's cache, keeping files whose size has not changed, and
+  adds that copy where footage is looked for. Written and checked only against stub NDK headers: there is no NDK here.
+- Plan v7 adds each effect layer's Time Stretch, so effects that run on the layer's own clock (Ripple's waves) see
+  the same time the TypeScript renderer gives them.
+- Plan v8 adds the Time effects' other frames: Posterize Time, Echo, CC Wide Time, CC Force Motion Blur, Time
+  Difference and Time Displacement carry their layer as it enters the effect (content, masks and the effects above it)
+  at each comp time they read, timed by both planners from the effects' parameters (`inputTimes` in
+  `src/native/plan.ts`). The engine draws them through the same layer path (`FxContext::input`) and folds them as
+  `perspectiveTime.ts` does, 7 frames a pass (Time Displacement 6 beside its map). 22 of their 24 reference frames
+  pass; Echo's Composite In Back cell at frame 16 and Time Difference's edges at frame 15 differ as the WebGL model
+  does.
+- Plan v8 also carries the data an effect stores beside its parameters (effect flag 8): Curves' tables and Colorama's
+  output cycle, read by both planners from the effect's `aRbs` lists as `instanceData` does. 9 of their 10 reference
+  frames pass; Colorama on a shape layer (`color2_colorama@5`) differs as the TypeScript model of it does.
+- XMult and the Sapphire effects (S_Blur, S_BlurDirectional, S_Shake, S_Glow, S_ZGlow, S_Flicker) are skipped with
+  a warning, as After Effects skips them without the plugins and the WebGL renderer does unless asked for its
+  look-alikes; all 8 of their reference frames pass. The look-alikes themselves are not ported.
+- Particular's dot particles (effect flag 16): both planners run its seeded simulation, `particularSim.ts` and its C++
+  twin `native/core/particular.cpp`, and the plan carries the resulting splats, which the engine lays down with the
+  effect's own shaders and blend modes (glow halos, then particles). The two simulations agree on every planned frame
+  and on a 6-times-per-comp sweep. 11 of its 14 reference frames pass; the three that differ (Glow Blend set to Add,
+  and the Star, Circle and type 12 particle types) are the look-alike's own gaps, since the engine draws the same splats the
+  WebGL renderer computes. Textured particles (sprites and polygons, 6 frames) are listed as unsupported and left to
+  WebGL.
+- Adjustment layers' effects run on the composite below them in comp pixels, as `placeAdjustment` does; the layer's
+  own image still only says where the result shows. All four `adjust_*` reference frames pass.
 
 **M5. Effects**
 
@@ -143,6 +189,29 @@ Two ways, and the recommendation is the first:
    6k lines of edit logic keep working, and playback runs at native speed.
 2. A fully native UI (Dear ImGui) and a C++ port of `src/edit`. It only pays off if the app has to run without any web
    runtime.
+
+Status: the native interface is chosen (November 2026) and its viewing half is done; editing (a C++ port of
+`src/edit`) is not started. `native/ui` is one Dear ImGui (MIT, v1.91.9b, fetched at configure time with `-DAEP_UI=ON`,
+the default) interface for both platforms, drawn by the engine itself (`Engine::presentUi`, `native/shaders/ui.*`), with
+the comp's frame sampled straight from the GPU:
+
+- Home: open a project (the file browser on desktop, the system file picker on Android) or one of the recent ones.
+- Desktop layout (wide windows): File, View and Help menus; Project (comps with size, rate and duration, footage);
+  the viewer (fit, wheel zoom about the pointer, drag to pan, double-click to fit, transparency grid); playback
+  controls (start, step, play, end, timecode, resolution, frames a second); the Timeline (layer bars by kind, the
+  ruler, drag to scrub, click to select); the selected layer's details (timing, parent, matte, Transform values now
+  with keyframe and expression marks, masks, effects and their values); Info (GPU, plan and render times, warnings);
+  a status bar. Panels resize by dragging their edges. Space, Left, Right, Home, End, Ctrl+O and Ctrl+Q work.
+- Compact layout (narrow windows, phones held upright): a menu button and comp picker, the viewer, large playback
+  buttons, a full-width scrub bar, and tabs for Layers, Details, Project and Info. On touch screens targets are larger,
+  a finger drag scrolls lists and a pinch zooms the viewer; the interface keeps clear of the system bars and cutout.
+- Save Frame As PNG writes next to the project on desktop and to Pictures/aep on Android.
+
+Hosts: `native/tools/aep_app.cpp` (`aep-app [--scale s] [--no-vsync] [--play] [project.aep]`, xcb on Linux, Win32 on
+Windows) and `native/android/aep_app_jni.cpp` with `NativeAppActivity.java`, which is the launcher entry "aep native"
+(the web app stays as "aep-web", and opens instead on devices without Vulkan). Checked here on Linux under Xvfb with
+lavapipe, in a 1440x900 window and a 432x900 phone-sized one; the Android and Windows hosts are syntax-checked only.
+Android cannot search a picked project's folder for its footage yet (the file picker grants the one file).
 
 ## Mobile speed
 
@@ -181,6 +250,24 @@ native/build/aep-play --frames 30 --wire refs/fixtures/transitions2.aep
 - **Rendering** on lavapipe: about 1 ms for the 160x120 fixtures, 22 ms for 48 layers at 160x120 and 640 ms for the
   same at 1920x1440, all GPU time rasterized on the CPU. Real GPUs, desktop or phone, are not in this environment.
 
+
+## Measured (before the pull request)
+
+Same machine, November 28, 2026, with every effect ported so far and expressions built in (`-DAEP_EXPRESSIONS=ON`):
+
+- **Parity.** All 2,579 manifest frames match the TypeScript planner, with and without expressions (2,507 complete
+  plans field by field, 72 on the same list of what neither side renders).
+- **Parsing** averages 47 ms a project in C++ against 133 to 141 ms in Node; **planning** 0.20 ms a frame against
+  1.23 ms (0.63 against 1.35 with expressions). The heaviest shape layer here (`keying_src_palette`) plans in about
+  5 ms against 40 ms in Node; most of that is memory being allocated and freed for each shape.
+- **Opening a project.** The expression engine starts only when a layer has an expression turned on. Before this
+  change every project paid for it: 0.8 to 2 s for the fixtures, about 10 s and 700 MB for the 70 MB
+  `particular.aep`, which failed outright against the engine's 512 MB limit (the limit now grows with the file).
+  A project with expressions still pays about 0.5 s for a small one and 1.6 s for `fxextra.aep`: QuickJS reads the
+  project a second time with the web app's parser, about 20 times slower than the C++ parse. Handing the C++ model to
+  the script instead would remove that; it is not done yet.
+- **Rendering** on lavapipe is unchanged in kind: GPU time rasterized on the CPU, from 1 ms for small comps to 350 ms
+  for `keying_src_palette`. No phone or desktop GPU has been measured here.
 
 ## iOS
 

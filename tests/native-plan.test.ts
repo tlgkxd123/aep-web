@@ -7,10 +7,13 @@ import { describe, expect, it } from "vitest";
 import type { CompItem, Project } from "../src/aep/model.ts";
 import { parseProject } from "../src/aep/parse.ts";
 import "../src/expressions/install.ts";
-import { buildFramePlan, type FramePlan, type PlanContent, type PlanLayer } from "../src/native/plan.ts";
+import { NATIVE_EFFECTS } from "../src/native/effects.ts";
+import { buildFramePlan, inputTimes, type FramePlan, type PlanContent, type PlanLayer } from "../src/native/plan.ts";
 import { GRADIENT_STOPS } from "../src/render/shapes.ts";
 import { decodePlan, encodePlan, PLAN_MAGIC } from "../src/native/wire.ts";
-import { shaderHash, SHADER_DIR, SHADER_HEADER, shaderSymbol } from "../scripts/lib/native.ts";
+import { FX_HEADER, shaderHash, SHADER_DIR, SHADER_HEADER, shaderSymbol } from "../scripts/lib/native.ts";
+import { FX_SHADERS, fxEntryHash, fxSource, fxVertexSource } from "../scripts/lib/native-fx.ts";
+import { convertFx } from "../scripts/lib/fx-convert.ts";
 
 const SAMPLE = resolve("native/tests/data/sample.aevp");
 
@@ -26,6 +29,7 @@ function solidLayer(width: number, height: number, color: [number, number, numbe
     masks: [],
     matrix: translation(x + 1, y + 1),
     zoom: 0,
+    effects: [],
   };
 }
 
@@ -41,6 +45,38 @@ function samplePlan(): Pick<FramePlan, "root" | "images"> {
     closed: true,
     vertices: [0, 0, 0, 0, 0, 0, 3, 0, 0, 0, 1, 0, 3, 3, 0, 0, 0, 0, 0, 3, 0, 0, 0, 0],
   });
+  red.effects.push({
+    matchName: "ADBE Box Blur2",
+    params: [
+      { matchName: "ADBE Box Blur2-0001", value: [2.5] },
+      { matchName: "Custom Param", value: [1, 2, 3, 4] },
+      { matchName: "ADBE Box Blur2-0003", value: [2], menu: [false, true, false] },
+    ],
+    sources: [
+      { param: 4, content: { kind: "solid", width: 2, height: 3, origin: [0, 0], scale: 1, color: [0, 0, 1] }, width: 2, height: 3, kind: 0 },
+      { param: 5, content: null, width: 0, height: 0, kind: 0 },
+    ],
+  });
+  red.effects.push({
+    matchName: "ADBE AudSpect",
+    params: [{ matchName: "ADBE AudSpect-0001", value: [1] }],
+    audio: [{ file: "C:\\media\\tone.wav", scale: 0.5, offset: -0.25, from: -Infinity, to: 2 }],
+    path: { closed: false, vertices: [1, 2, 0, 0, 0.5, 0, 3, 2, -0.5, 0, 0, 0] },
+  });
+  red.effects.push({
+    matchName: "ADBE Echo",
+    params: [{ matchName: "ADBE Echo-0001", value: [-0.25] }],
+    inputs: [
+      {
+        time: 1 / 12,
+        content: { kind: "solid", width: 4, height: 4, origin: [0, 0], scale: 1, color: [1, 0.25, 0] },
+        masks: [{ mode: 6813, inverted: true, opacity: 0.5, feather: 0, expansion: 1, closed: false, vertices: [] }],
+        effects: [{ matchName: "ADBE Box Blur2", params: [{ matchName: "ADBE Box Blur2-0001", value: [1] }] }],
+      },
+      { time: -1 / 6, content: null, masks: [], effects: [] },
+    ],
+  });
+  red.effectLayer = { time: 1 / 3, startTime: -0.5, stretch: 1, width: 4, height: 4, kind: 0 };
   const nested: PlanLayer = {
     ...solidLayer(2, 2, [0, 1, 0], 4, 2),
     blendMode: 5216,
@@ -78,11 +114,37 @@ describe("native render plan", () => {
     const [red, nested, image] = decoded.root.layers;
     expect(red.content).toMatchObject({ kind: "solid", width: 4, height: 4, color: [1, 0.25, 0] });
     expect(red.masks[0]).toMatchObject({ mode: 6813, closed: true, feather: 1.5 });
+    expect(red.effects).toEqual(samplePlan().root.layers[0].effects);
+    expect(red.effectLayer).toEqual({ time: 1 / 3, startTime: -0.5, stretch: 1, width: 4, height: 4, kind: 0 });
     expect(nested.matte?.layer?.content.kind).toBe("solid");
     expect(nested.content.kind === "comp" && nested.content.comp.layers.length).toBe(1);
     expect(image.matte).toEqual({ mode: 4, opacity: 1, layer: null });
     expect(Math.fround(1066.6666)).toBe(image.zoom);
     expect(decoded.images[0].pixels).toEqual(new Uint8Array([10, 20, 30, 255]));
+  });
+
+  it("plans footage stills, sequence frames and video frames for the engine to decode", () => {
+    const project = parseProject(new Uint8Array(readFileSync(resolve("refs/fixtures/footage.aep"))));
+    const comp = (name: string) => [...project.items.values()].find((i): i is CompItem => i.kind === "comp" && i.name === name)!;
+    const still = buildFramePlan(project, comp("footage_png_premul"), 0);
+    expect(still.unsupported).toEqual([]);
+    const footage = still.root.layers.map((l) => l.content).find((c) => c?.kind === "footage");
+    expect(footage).toMatchObject({ kind: "footage", width: 96, height: 72, scale: 1, alphaMode: 1, hasAlpha: true, videoTime: -1 });
+    const frame = buildFramePlan(project, comp("footage_seq_30fps"), 5 / 24).root.layers.map((l) => l.content).find((c) => c?.kind === "footage");
+    expect(frame?.kind === "footage" && frame.file.split(/[\\/]/).pop()).toMatch(/^seq_\d{4}\.png$/);
+    const half = buildFramePlan(project, comp("footage_png_premul"), 0, { scale: 0.5 }).root.layers.map((l) => l.content).find((c) => c?.kind === "footage");
+    expect(half).toMatchObject({ width: 48, height: 36, scale: 0.5 });
+    const back = decodePlan(encodePlan(still)).root.layers.map((l) => l.content).find((c) => c?.kind === "footage");
+    expect(back).toEqual(footage?.kind === "footage" ? { ...footage, matte: footage.matte.map(Math.fround) } : footage);
+    // Video: the frame index over the file's native rate, the seconds the engine's decoder looks up.
+    const video = buildFramePlan(project, comp("footage_video"), 0.5);
+    expect(video.unsupported).toEqual([]);
+    const clip = video.root.layers.map((l) => l.content).find((c) => c?.kind === "footage");
+    expect(clip?.kind === "footage" && clip.videoTime).toBeGreaterThan(0);
+    // JPEG stills go to the engine too (decoded through FFmpeg).
+    const jpeg = buildFramePlan(project, comp("footage_jpeg"), 0);
+    expect(jpeg.unsupported).toEqual([]);
+    expect(jpeg.root.layers.map((l) => l.content).find((c) => c?.kind === "footage")).toMatchObject({ kind: "footage", videoTime: -1 });
   });
 
   it("refuses truncated or foreign bytes", () => {
@@ -189,9 +251,84 @@ describe("native render plan", () => {
   });
 
   it("names what it cannot render natively, so the frame stays with the WebGL renderer", () => {
-    const project = parseProject(new Uint8Array(readFileSync(resolve("refs/fixtures/adjust.aep"))));
-    const comp = [...project.items.values()].find((i): i is CompItem => i.kind === "comp" && i.name === "adjust_blur")!;
-    expect(buildFramePlan(project, comp, 0).unsupported).toEqual([expect.stringMatching(/^adjustment layer effects/)]);
+    const project = parseProject(new Uint8Array(readFileSync(resolve("refs/fixtures/transitions2.aep"))));
+    const comp = [...project.items.values()].find((i): i is CompItem => i.kind === "comp" && i.name === "transitions2_gridwipe_doors")!;
+    expect(buildFramePlan(project, comp, 0).unsupported).toEqual([expect.stringMatching(/^effects \(CC Grid Wipe/)]);
+  });
+
+  it("times the time effects' other frames from their parameters", () => {
+    const comp = { frameDuration: 1 / 24, shutterAngle: 90, shutterPhase: -45 } as CompItem;
+    const params = (values: Record<number, number>) => (index: number, fallback: number) => values[index] ?? fallback;
+    const span = { inPoint: 0, outPoint: 2 };
+    const target = { param: 1, content: null, width: 0, height: 0, kind: 0 };
+    // Posterize Time holds the last frame of its rate: no other frame on one.
+    expect(inputTimes("ADBE Posterize Time", params({ 1: 4 }), 0.6, comp, span, undefined)).toEqual([0.5]);
+    expect(inputTimes("ADBE Posterize Time", params({ 1: 4 }), 0.5, comp, span, undefined)).toEqual([]);
+    expect(inputTimes("ADBE Echo", params({ 1: -0.25, 2: 2 }), 1, comp, span, undefined)).toEqual([0.75, 0.5]);
+    expect(inputTimes("CC Wide Time", params({ 1: 1, 2: 2 }), 1, comp, span, undefined)).toEqual([1 - 2 / 24, 1 - 1 / 24, 1 + 1 / 24]);
+    // Force Motion Blur takes the comp's shutter when its own is off.
+    expect(inputTimes("CC Force Motion Blur", params({ 1: 2, 2: 0 }), 1, comp, span, undefined)).toEqual([1 + (-45 / 360) / 24, 1 + ((-45 + 45) / 360) / 24]);
+    expect(inputTimes("ADBE Difference", params({ 2: 0.5 }), 1, comp, span, undefined)).toEqual([1.5]);
+    expect(inputTimes("ADBE Difference", params({ 2: 0.5 }), 1, comp, span, target)).toEqual([]);
+    // Time Displacement: the map (the layer itself) then the grid steps around the time, held inside the layer.
+    expect(inputTimes("ADBE Time Displacement", params({ 2: 0.1, 3: 10 }), 0.05, comp, span, undefined)).toEqual([0.05, 0, 0, 0.1]);
+    expect(inputTimes("ADBE Time Displacement", params({ 2: 0.1, 3: 10 }), 0.05, comp, span, target)).toEqual([]);
+    expect(inputTimes("ADBE Gaussian Blur 2", params({}), 1, comp, span, undefined)).toEqual([]);
+  });
+
+  it("carries the data Curves and Colorama store, through the wire", () => {
+    const project = parseProject(new Uint8Array(readFileSync(resolve("refs/fixtures/color2.aep"))));
+    const stored = (name: string, matchName: string) => {
+      const comp = [...project.items.values()].find((i): i is CompItem => i.kind === "comp" && i.name === name)!;
+      const plan = buildFramePlan(project, comp, 0);
+      const find = (layers: PlanLayer[]): PlanLayer["effects"][number] | undefined => {
+        for (const layer of layers) {
+          const effect = layer.effects.find((e) => e.matchName === matchName);
+          if (effect) return effect;
+          const inner = layer.content.kind === "comp" ? find(layer.content.comp.layers) : undefined;
+          if (inner) return inner;
+        }
+        return undefined;
+      };
+      const planned = find(plan.root.layers)!;
+      const decoded = find(decodePlan(encodePlan(plan)).root.layers)!;
+      expect(decoded.data).toEqual(planned.data);
+      return planned.data;
+    };
+    // Colorama's output cycle: 64 entries of 8 bytes and their count; Curves' five tables after a 4-byte header.
+    expect(stored("color2_colorama", "APC Colorama")?.map((d) => [d.param, d.bytes.length >= 516])).toEqual([[12, true]]);
+    expect(stored("color2_curves", "ADBE CurvesCustom")?.map((d) => [d.param, d.bytes.length >= 4 + 5 * 256])).toEqual([[1, true]]);
+  });
+
+  it("carries Particular's dot particles through the wire and leaves its sprites to WebGL", () => {
+    const planOf = (file: string, name: string, time: number) => {
+      const project = parseProject(new Uint8Array(readFileSync(resolve(`refs/fixtures/${file}`))));
+      const comp = [...project.items.values()].find((i): i is CompItem => i.kind === "comp" && i.name === name)!;
+      return buildFramePlan(project, comp, time);
+    };
+    const particlesOf = (layers: PlanLayer[]) => layers.flatMap((l) => l.effects.filter((e) => e.matchName === "tc Particular").map((e) => e.particles));
+    const dots = planOf("particular.aep", "particular_glow_blend2", 156 / 30);
+    const planned = particlesOf(dots.root.layers);
+    expect(planned.length).toBeGreaterThan(0);
+    // Rows: add/normal, screen/screen, lighten/normal, add/screen (particle blend / glow blend).
+    expect(planned.map((p) => [p!.particleBlend, p!.glowBlend])).toEqual([
+      [2, 1],
+      [3, 3],
+      [4, 1],
+      [2, 3],
+    ]);
+    for (const p of planned) expect(p!.core.length % 5).toBe(0);
+    const decoded = particlesOf(decodePlan(encodePlan(dots)).root.layers);
+    expect(decoded.map((p) => p!.core.length)).toEqual(planned.map((p) => p!.core.length));
+    expect(decoded[0]!.core[0]).toBeCloseTo(planned[0]!.core[0], 3);
+    const sprites = planOf("particular_sprite.aep", "particular_sprite_types", 156 / 30);
+    expect(sprites.unsupported.some((u) => u.startsWith("Particular sprites"))).toBe(true);
+  });
+
+  it("lists the same effects for both planners (src/native/effects.ts, native/src/effects/list.inc)", () => {
+    const list = readFileSync(resolve("native/src/effects/list.inc"), "utf8");
+    const native = [...list.matchAll(/^AEVK_EFFECT\("([^"]+)", (true|false), (true|false)\)$/gm)].map((m) => [m[1], { scalable: m[2] === "true", passThrough: m[3] === "true" }]);
+    expect(native).toEqual([...NATIVE_EFFECTS]);
   });
 
   it("embeds SPIR-V compiled from the current shader sources (node scripts/generate/native-shaders.ts)", () => {
@@ -203,5 +340,44 @@ describe("native render plan", () => {
       expect(header).toContain(`static const uint32_t ${shaderSymbol(file)}[]`);
     }
     expect(existsSync(join(SHADER_DIR, "..", "src", "engine.cpp"))).toBe(true);
+  });
+
+  it("embeds the effect shaders compiled from the TypeScript effects' current GLSL", async () => {
+    const header = readFileSync(FX_HEADER, "utf8");
+    for (const entry of FX_SHADERS) {
+      const source = await fxSource(entry);
+      expect(header).toContain(`// ${entry.name} sha256 ${await fxEntryHash(entry)}`);
+      const { uniforms, samplers } = convertFx(source, entry.name, await fxVertexSource(entry));
+      for (const u of uniforms) expect(header).toContain(`{"${u.name}", FxType::`);
+      if (samplers.length) expect(header).toContain(`kFxSamplers_${entry.name}[] = {${samplers.map((n) => `"${n}"`).join(", ")}}`);
+    }
+  });
+
+  it("converts WebGL effect shaders to Vulkan GLSL with WebGL's row order and std430 offsets", () => {
+    const { source, uniforms, samplers, paramBytes } = convertFx(
+      `#version 300 es
+precision highp float;
+uniform sampler2D u_a;
+uniform float u_k, u_w[3];
+uniform vec3 u_c;
+uniform sampler2D u_b;
+in vec2 v_uv;
+out vec4 color;
+float sample(float x) { return x; }
+void main() { color = texture(u_a, v_uv) + texelFetch(u_b, ivec2(gl_FragCoord.xy), 0) * sample(u_k); }`,
+      "test",
+    );
+    expect(samplers).toEqual(["u_a", "u_b"]);
+    expect(uniforms.map((u) => [u.name, u.offset, u.stride, u.count])).toEqual([
+      ["u_k", 0, 4, 1],
+      ["u_w", 4, 4, 3],
+      ["u_c", 16, 16, 1],
+    ]);
+    expect(paramBytes).toBe(32);
+    expect(source).toContain("fx_texture(u_a, v_uv)");
+    expect(source).toContain("fx_texelFetch(u_b, ivec2(fxFragCoord.xy), 0)");
+    expect(source).toContain("float fx_sample(float x)");
+    expect(source).toContain("void fx_main()");
+    expect(source).not.toMatch(/^\s*precision/m);
   });
 });

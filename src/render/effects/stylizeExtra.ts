@@ -28,20 +28,14 @@ const threshold16 = (t: number) => Math.floor(t * 32768);
 /** CC Threshold's Channel popup. */
 const ThresholdChannel = { LUMINANCE: 1, RGB: 2, SATURATION: 3, ALPHA: 4 } as const;
 
-// CC Threshold: white where the channel exceeds Threshold, black elsewhere (each of R, G, B on its own with RGB);
-// Invert swaps them, Blend w. Original mixes the layer back in. Luminance compares with Threshold rounded to an
-// 8-bit level, the other channels as 16-bit values.
-registerStock("CC Threshold", (input, p, ctx) =>
-  pixelPass(
-    ctx,
-    input,
-    `uniform float u_threshold;
+/** CC Threshold's shader (also embedded by the native engine). */
+export const THRESHOLD_DECLS = `uniform float u_threshold;
 uniform int u_threshold16;
 uniform int u_channel;
 uniform int u_invert;
 uniform float u_blend;
-const vec3 THRESHOLD_LUMA = vec3(0.3039, 0.5297, 0.1664);${LEVEL16_GLSL}`,
-    `  vec4 c = at(0, p);
+const vec3 THRESHOLD_LUMA = vec3(0.3039, 0.5297, 0.1664);${LEVEL16_GLSL}`;
+export const THRESHOLD_BODY = `  vec4 c = at(0, p);
   vec3 s = straight(c);
   if (u_channel == ${ThresholdChannel.ALPHA}) {
     float a = level16(vec3(c.a)).x > u_threshold16 ? 1.0 : 0.0;
@@ -58,7 +52,17 @@ const vec3 THRESHOLD_LUMA = vec3(0.3039, 0.5297, 0.1664);${LEVEL16_GLSL}`,
   else r = vec3(dot(s, THRESHOLD_LUMA) > u_threshold);
   if (u_invert == 1) r = 1.0 - r;
   r = mix(r, s, u_blend);
-  outColor = vec4(r * c.a, c.a);`,
+  outColor = vec4(r * c.a, c.a);`;
+
+// CC Threshold: white where the channel exceeds Threshold, black elsewhere (each of R, G, B on its own with RGB);
+// Invert swaps them, Blend w. Original mixes the layer back in. Luminance compares with Threshold rounded to an
+// 8-bit level, the other channels as 16-bit values.
+registerStock("CC Threshold", (input, p, ctx) =>
+  pixelPass(
+    ctx,
+    input,
+    THRESHOLD_DECLS,
+    THRESHOLD_BODY,
     (u) => {
       ctx.gl.uniform1f(u("u_threshold"), Math.round(p.num(1, 0.5) * 255) / 255 + THRESHOLD_TIE);
       ctx.gl.uniform1i(u("u_threshold16"), threshold16(p.num(1, 0.5)));
@@ -69,22 +73,26 @@ const vec3 THRESHOLD_LUMA = vec3(0.3039, 0.5297, 0.1664);${LEVEL16_GLSL}`,
   ),
 );
 
+/** CC Threshold RGB's shader. */
+export const THRESHOLD_RGB_DECLS = `uniform ivec3 u_threshold;
+uniform vec3 u_invert;
+uniform float u_blend;${LEVEL16_GLSL}`;
+export const THRESHOLD_RGB_BODY = `  vec4 c = at(0, p);
+  if (c.a <= 0.0) { outColor = vec4(0.0); return; }
+  vec3 s = straight(c);
+  vec3 r = vec3(greaterThan(level16(s), u_threshold));
+  r = mix(r, 1.0 - r, u_invert);
+  r = mix(r, s, u_blend);
+  outColor = vec4(r * c.a, c.a);`;
+
 // CC Threshold RGB: each of R, G, B white where it exceeds its own threshold as 16-bit values, each optionally
 // inverted.
 registerStock("CC Threshold RGB", (input, p, ctx) =>
   pixelPass(
     ctx,
     input,
-    `uniform ivec3 u_threshold;
-uniform vec3 u_invert;
-uniform float u_blend;${LEVEL16_GLSL}`,
-    `  vec4 c = at(0, p);
-  if (c.a <= 0.0) { outColor = vec4(0.0); return; }
-  vec3 s = straight(c);
-  vec3 r = vec3(greaterThan(level16(s), u_threshold));
-  r = mix(r, 1.0 - r, u_invert);
-  r = mix(r, s, u_blend);
-  outColor = vec4(r * c.a, c.a);`,
+    THRESHOLD_RGB_DECLS,
+    THRESHOLD_RGB_BODY,
     (u) => {
       ctx.gl.uniform3i(u("u_threshold"), ...([1, 2, 3].map((i) => threshold16(p.num(i, 0.5))) as [number, number, number]));
       ctx.gl.uniform3f(u("u_invert"), p.bool(4, false) ? 1 : 0, p.bool(5, false) ? 1 : 0, p.bool(6, false) ? 1 : 0);
@@ -108,19 +116,8 @@ export function strobeOn(t: number, duration: number, period: number): boolean {
   return (t * STROBE_TICKS) % p < p - Math.round(duration * STROBE_TICKS);
 }
 
-// Strobe Light: during each strobe the layer's colour combined with Strobe Color by Strobe Operator (or the layer
-// made transparent), mixed with the layer by Blend With Original. Time-based, so drawn every frame.
-registerStock(
-  "ADBE Strobe",
-  (input, p, ctx, layer, time) => {
-    const t = time - layer.startTime;
-    if (p.num(5, 0) > 0) ctx.warn("Strobe Light: Random Strobe Probability is not rendered");
-    if (!strobeOn(t, p.num(3, 0.5), p.num(4, 1))) return input;
-    const blend = Math.min(1, Math.max(0, p.num(2, 0) / 100));
-    return pixelPass(
-      ctx,
-      input,
-      `uniform vec3 u_color;
+/** Strobe Light's shader (layerPass); also embedded by the native engine (scripts/lib/native-fx.ts). */
+export const STROBE_DECLS = `uniform vec3 u_color;
 uniform int u_kind;
 uniform int u_op;
 uniform float u_blend;
@@ -130,8 +127,8 @@ vec3 bits(vec3 a, vec3 b, int op) {
   ivec3 y = ivec3(floor(b * 255.0 + 0.5));
   ivec3 r = op == ${StrobeOperator.AND} ? (x & y) : op == ${StrobeOperator.OR} ? (x | y) : (x ^ y);
   return vec3(r) / 255.0;
-}`,
-      `  vec4 c = at(0, p);
+}`;
+export const STROBE_BODY = `  vec4 c = at(0, p);
   if (u_kind == ${StrobeKind.TRANSPARENT}) { outColor = c * u_blend; return; }
   if (c.a <= 0.0) { outColor = vec4(0.0); return; }
   vec3 s = straight(c);
@@ -149,7 +146,22 @@ vec3 bits(vec3 a, vec3 b, int op) {
   else if (u_op == ${StrobeOperator.SCREEN}) r = s + k - s * k;
   else r = k;
   r = mix(clamp(r, 0.0, 1.0), s, u_blend);
-  outColor = vec4(r * c.a, c.a);`,
+  outColor = vec4(r * c.a, c.a);`;
+
+// Strobe Light: during each strobe the layer's colour combined with Strobe Color by Strobe Operator (or the layer
+// made transparent), mixed with the layer by Blend With Original. Time-based, so drawn every frame.
+registerStock(
+  "ADBE Strobe",
+  (input, p, ctx, layer, time) => {
+    const t = time - layer.startTime;
+    if (p.num(5, 0) > 0) ctx.warn("Strobe Light: Random Strobe Probability is not rendered");
+    if (!strobeOn(t, p.num(3, 0.5), p.num(4, 1))) return input;
+    const blend = Math.min(1, Math.max(0, p.num(2, 0) / 100));
+    return pixelPass(
+      ctx,
+      input,
+      STROBE_DECLS,
+      STROBE_BODY,
       (u) => {
         ctx.gl.uniform3fv(u("u_color"), p.rgb(1, [1, 1, 1]));
         ctx.gl.uniform1i(u("u_kind"), p.choice(6, StrobeKind.COLOR));
@@ -161,20 +173,26 @@ vec3 bits(vec3 a, vec3 b, int op) {
   { cacheable: false, scalable: true },
 );
 
-// Find Edges: each channel's Sobel gradient magnitude (straight colours, edge pixels repeated), drawn dark on white
-// (bright on black with Invert), mixed with the layer by Blend With Original.
-registerStock("ADBE Find Edges", (input, p, ctx, layer) => {
-  const box = layerRect(layer, input);
-  const flat = unpremultiplied(ctx, input);
-  const out = layerPass(
-    ctx,
-    imageRect(input),
-    [input, flat],
-    `uniform int u_invert;
+/**
+ * GLSL: the straight colour of source 1 (unpremultiplied) at a point held within the layer's box `u_box` (x, y,
+ * width, height), so edge pixels repeat.
+ */
+const CLAMPED_AT = `uniform vec4 u_box;
+#define FLAT_CLAMPED(q) at(1, clamp(q, u_box.xy + 0.5, u_box.xy + u_box.zw - 0.5)).rgb`;
+
+/** The body of `unpremultiplied`'s pass. */
+export const UNPREMULTIPLIED_BODY = "  outColor = vec4(straight(at(0, p)), 1.0);";
+/** `input`'s straight colours, opaque: what the effects that interpolate unpremultiplied colours read. */
+function unpremultiplied(ctx: RenderContext, input: LayerImage): LayerImage {
+  return layerPass(ctx, imageRect(input), [input], "", UNPREMULTIPLIED_BODY);
+}
+
+/** Find Edges' shader (sources: the layer, its unpremultiplied colours). */
+export const FIND_EDGES_DECLS = `uniform int u_invert;
 uniform float u_blend;
 ${CLAMPED_AT}
-#define S(q) FLAT_CLAMPED(q)`,
-    `  vec4 c = at(0, p);
+#define S(q) FLAT_CLAMPED(q)`;
+export const FIND_EDGES_BODY = `  vec4 c = at(0, p);
   if (c.a <= 0.0) { outColor = vec4(0.0); return; }
   vec3 tl = S(p + vec2(-1.0, -1.0)), t = S(p + vec2(0.0, -1.0)), tr = S(p + vec2(1.0, -1.0));
   vec3 l = S(p + vec2(-1.0, 0.0)), r = S(p + vec2(1.0, 0.0));
@@ -184,7 +202,19 @@ ${CLAMPED_AT}
   vec3 e = clamp(sqrt(gx * gx + gy * gy), 0.0, 1.0);
   if (u_invert == 0) e = 1.0 - e;
   vec3 o = mix(e, straight(c), u_blend);
-  outColor = vec4(o * c.a, c.a);`,
+  outColor = vec4(o * c.a, c.a);`;
+
+// Find Edges: each channel's Sobel gradient magnitude (straight colours, edge pixels repeated), drawn dark on white
+// (bright on black with Invert), mixed with the layer by Blend With Original.
+registerStock("ADBE Find Edges", (input, p, ctx, layer) => {
+  const box = layerRect(layer, input);
+  const flat = unpremultiplied(ctx, input);
+  const out = layerPass(
+    ctx,
+    imageRect(input),
+    [input, flat],
+    FIND_EDGES_DECLS,
+    FIND_EDGES_BODY,
     (u) => {
       ctx.gl.uniform4f(u("u_box"), box.x, box.y, box.width, box.height);
       ctx.gl.uniform1i(u("u_invert"), p.bool(1, false) ? 1 : 0);
@@ -197,17 +227,19 @@ ${CLAMPED_AT}
   return out;
 });
 
-/**
- * GLSL: the straight colour of source 1 (unpremultiplied) at a point held within the layer's box `u_box` (x, y,
- * width, height), so edge pixels repeat.
- */
-const CLAMPED_AT = `uniform vec4 u_box;
-#define FLAT_CLAMPED(q) at(1, clamp(q, u_box.xy + 0.5, u_box.xy + u_box.zw - 0.5)).rgb`;
-
-/** `input`'s straight colours, opaque: what the effects that interpolate unpremultiplied colours read. */
-function unpremultiplied(ctx: RenderContext, input: LayerImage): LayerImage {
-  return layerPass(ctx, imageRect(input), [input], "", "  outColor = vec4(straight(at(0, p)), 1.0);");
-}
+/** Emboss and Color Emboss's shader (sources: the layer, its unpremultiplied colours). */
+export const EMBOSS_DECLS = `uniform vec2 u_step;
+uniform float u_contrast;
+uniform float u_blend;
+uniform int u_color;
+${CLAMPED_AT}`;
+export const EMBOSS_BODY = `  vec4 c = at(0, p);
+  if (c.a <= 0.0) { outColor = vec4(0.0); return; }
+  vec3 s = straight(c);
+  vec3 d = (FLAT_CLAMPED(p + u_step) - FLAT_CLAMPED(p - u_step)) * u_contrast;
+  vec3 o = clamp((u_color == 1 ? s : vec3(0.5)) + d, 0.0, 1.0);
+  o = mix(o, s, u_blend);
+  outColor = vec4(o * c.a, c.a);`;
 
 // Emboss and Color Emboss: each channel's difference between the layer Relief pixels ahead along Direction and as
 // far behind (bilinear, edge pixels repeated), times Contrast, added to mid grey (Emboss) or to the layer (Color
@@ -223,18 +255,8 @@ function emboss(color: boolean) {
       ctx,
       imageRect(input),
       [input, flat],
-      `uniform vec2 u_step;
-uniform float u_contrast;
-uniform float u_blend;
-uniform int u_color;
-${CLAMPED_AT}`,
-      `  vec4 c = at(0, p);
-  if (c.a <= 0.0) { outColor = vec4(0.0); return; }
-  vec3 s = straight(c);
-  vec3 d = (FLAT_CLAMPED(p + u_step) - FLAT_CLAMPED(p - u_step)) * u_contrast;
-  vec3 o = clamp((u_color == 1 ? s : vec3(0.5)) + d, 0.0, 1.0);
-  o = mix(o, s, u_blend);
-  outColor = vec4(o * c.a, c.a);`,
+      EMBOSS_DECLS,
+      EMBOSS_BODY,
       (u) => {
         ctx.gl.uniform4f(u("u_box"), box.x, box.y, box.width, box.height);
         ctx.gl.uniform2f(u("u_step"), ux * relief, uy * relief);
@@ -252,6 +274,16 @@ ${CLAMPED_AT}`,
 
 registerStock("ADBE Emboss", emboss(false));
 registerStock("ADBE Color Emboss", emboss(true));
+
+/** GLSL: a hash of a lattice point and a seed, 0..1, the same on every GPU. */
+const HASH_GLSL = `
+float hash21(ivec2 q, uint seed) {
+  uvec3 v = uvec3(uvec2(q), seed) * 1664525u + 1013904223u;
+  v.x += v.y * v.z; v.y += v.z * v.x; v.z += v.x * v.y;
+  v ^= v >> 16u;
+  v.x += v.y * v.z;
+  return float(v.x >> 8u) * (1.0 / 16777215.0);
+}`;
 
 /** CC RepeTile's Tiling popup. */
 const Tiling = {
@@ -276,25 +308,8 @@ const Tiling = {
 /** The tilings that turn tiles: they tile a square of the layer's shorter side from its top left corner. */
 const TURNING = new Set<number>([Tiling.FLIP_45, Tiling.CHECKER_CCW, Tiling.CHECKER_CW, Tiling.ROSETTE, Tiling.RANDOM, Tiling.TURN_CW, Tiling.TURN_CCW, Tiling.TWIST]);
 
-// CC RepeTile: the layer's box grown by Expand Right, Left, Down and Up, the new area filled with copies of the
-// layer tiled by Tiling (Slide stretches the layer's edge pixels instead). Twist turns the tiles of a row by 0, 3,
-// 1, 2 quarters clockwise in turn, the odd rows starting two tiles on. Random (look-alike) draws its turns and flips
-// from a seeded hash; After Effects uses its own generator. Blend Tiles averages each pixel's tile with its
-// neighbours (straight colours, transparent ones black), each continued past its edges mirrored: a neighbour k pixels past its edge (0 for the first pixel after a
-// seam) weighs 1 - smoothstep(k / width), width a quarter of the tile times Blend Tiles.
-registerStock("CC RepeTile", (input, p, ctx, layer) => {
-  const k = input.scale ?? 1;
-  const box = layerRect(layer, input);
-  const [right, left, down, up] = [1, 2, 3, 4].map((i) => Math.max(0, Math.round(p.num(i, 0))) * k);
-  const tiling = p.choice(5, Tiling.REPEAT);
-  const blend = Math.min(1, Math.max(0, p.num(6, 0)));
-  const side = Math.min(box.width, box.height);
-  const tile = TURNING.has(tiling) ? { ...box, width: side, height: side } : box;
-  const out = layerPass(
-    ctx,
-    clampRect({ x: box.x - left, y: box.y - up, width: box.width + left + right, height: box.height + up + down }),
-    [input],
-    `uniform vec4 u_rect;
+/** CC RepeTile's shader. */
+export const REPETILE_DECLS = `uniform vec4 u_rect;
 uniform vec4 u_box;
 uniform int u_tiling;
 uniform vec2 u_width;${HASH_GLSL}
@@ -328,8 +343,8 @@ vec2 tileSource(ivec2 c, vec2 f) {
   return u_rect.xy + f * u_rect.zw;
 }
 float rowShift(float row) { return u_tiling == ${Tiling.BRICK} ? 0.5 * mod(row, 2.0) : 0.0; }
-float seamWeight(float outside, float width) { return outside <= 0.0 ? 1.0 : 1.0 - smoothstep(0.0, 1.0, outside / width); }`,
-    `  if (u_tiling == ${Tiling.SLIDE}) { outColor = at(0, clamp(p, u_box.xy + 0.5, u_box.xy + u_box.zw - 0.5)); return; }
+float seamWeight(float outside, float width) { return outside <= 0.0 ? 1.0 : 1.0 - smoothstep(0.0, 1.0, outside / width); }`;
+export const REPETILE_BODY = `  if (u_tiling == ${Tiling.SLIDE}) { outColor = at(0, clamp(p, u_box.xy + 0.5, u_box.xy + u_box.zw - 0.5)); return; }
   vec2 t = (p - u_rect.xy) / u_rect.zw;
   float row = floor(t.y);
   if (u_width.x <= 0.0) {
@@ -356,7 +371,28 @@ float seamWeight(float outside, float width) { return outside <= 0.0 ? 1.0 : 1.0
     }
   }
   sum /= total;
-  outColor = vec4(sum.rgb * sum.a, sum.a);`,
+  outColor = vec4(sum.rgb * sum.a, sum.a);`;
+
+// CC RepeTile: the layer's box grown by Expand Right, Left, Down and Up, the new area filled with copies of the
+// layer tiled by Tiling (Slide stretches the layer's edge pixels instead). Twist turns the tiles of a row by 0, 3,
+// 1, 2 quarters clockwise in turn, the odd rows starting two tiles on. Random (look-alike) draws its turns and flips
+// from a seeded hash; After Effects uses its own generator. Blend Tiles averages each pixel's tile with its
+// neighbours (straight colours, transparent ones black), each continued past its edges mirrored: a neighbour k pixels past its edge (0 for the first pixel after a
+// seam) weighs 1 - smoothstep(k / width), width a quarter of the tile times Blend Tiles.
+registerStock("CC RepeTile", (input, p, ctx, layer) => {
+  const k = input.scale ?? 1;
+  const box = layerRect(layer, input);
+  const [right, left, down, up] = [1, 2, 3, 4].map((i) => Math.max(0, Math.round(p.num(i, 0))) * k);
+  const tiling = p.choice(5, Tiling.REPEAT);
+  const blend = Math.min(1, Math.max(0, p.num(6, 0)));
+  const side = Math.min(box.width, box.height);
+  const tile = TURNING.has(tiling) ? { ...box, width: side, height: side } : box;
+  const out = layerPass(
+    ctx,
+    clampRect({ x: box.x - left, y: box.y - up, width: box.width + left + right, height: box.height + up + down }),
+    [input],
+    REPETILE_DECLS,
+    REPETILE_BODY,
     (u) => {
       const gl = ctx.gl;
       gl.uniform4f(u("u_rect"), tile.x, tile.y, tile.width, tile.height);
@@ -370,36 +406,11 @@ float seamWeight(float outside, float width) { return outside <= 0.0 ? 1.0 : 1.0
   return out;
 });
 
-/** GLSL: a hash of a lattice point and a seed, 0..1, the same on every GPU. */
-const HASH_GLSL = `
-float hash21(ivec2 q, uint seed) {
-  uvec3 v = uvec3(uvec2(q), seed) * 1664525u + 1013904223u;
-  v.x += v.y * v.z; v.y += v.z * v.x; v.z += v.x * v.y;
-  v ^= v >> 16u;
-  v.x += v.y * v.z;
-  return float(v.x >> 8u) * (1.0 / 16777215.0);
-}`;
-
 /** CC Kaleida's Mirroring popup. */
 const Mirroring = { UNFOLD: 1, WHEEL: 2, FISH_HEAD: 3, CAN_MEAS: 4, FLIP_FLOP: 5, FLOWER: 6, DIA_CROSS: 7, FLIPPER: 8, STARLISH: 9 } as const;
 
-// CC Kaleida: the plane around the layer's centre (around Center with Floating Center) cut into squares of Size,
-// each filled by mirrored and turned copies of the square's quarter up and left of Center, as Mirroring arranges
-// them (Starlish folds Flower's eighths once more, into sixteenths); Rotation turns the copies about Center, not
-// the squares. The layer mirrors at its edges.
-registerStock("CC Kaleida", (input, p, ctx, layer) => {
-  const k = input.scale ?? 1;
-  const box = layerRect(layer, input);
-  const [cx, cy] = p.vec(1, layerCenter(layer, input)).map((v) => v * k);
-  const origin = p.bool(5, false) ? [cx, cy] : [box.x + box.width / 2, box.y + box.height / 2];
-  const size = Math.max(1, p.num(2, 30) * k);
-  const mirroring = p.choice(3, Mirroring.UNFOLD);
-  const angle = (p.num(4, 0) * Math.PI) / 180;
-  return warp(
-    ctx,
-    input,
-    box,
-    `uniform vec2 u_anchor;
+/** CC Kaleida's warp map. */
+export const KALEIDA_DECLS = `uniform vec2 u_anchor;
 uniform vec2 u_center;
 uniform float u_cell;
 uniform int u_mode;
@@ -430,7 +441,25 @@ vec2 map(vec2 p) {
   vec2 period = 2.0 * max(u_box.zw - 1.0, 1.0);
   vec2 m = mod(u_center + u - u_box.xy, period);
   return u_box.xy + min(m, period - m) + 0.5;
-}`,
+}`;
+
+// CC Kaleida: the plane around the layer's centre (around Center with Floating Center) cut into squares of Size,
+// each filled by mirrored and turned copies of the square's quarter up and left of Center, as Mirroring arranges
+// them (Starlish folds Flower's eighths once more, into sixteenths); Rotation turns the copies about Center, not
+// the squares. The layer mirrors at its edges.
+registerStock("CC Kaleida", (input, p, ctx, layer) => {
+  const k = input.scale ?? 1;
+  const box = layerRect(layer, input);
+  const [cx, cy] = p.vec(1, layerCenter(layer, input)).map((v) => v * k);
+  const origin = p.bool(5, false) ? [cx, cy] : [box.x + box.width / 2, box.y + box.height / 2];
+  const size = Math.max(1, p.num(2, 30) * k);
+  const mirroring = p.choice(3, Mirroring.UNFOLD);
+  const angle = (p.num(4, 0) * Math.PI) / 180;
+  return warp(
+    ctx,
+    input,
+    box,
+    KALEIDA_DECLS,
     (u) => {
       const gl = ctx.gl;
       gl.uniform2f(u("u_anchor"), origin[0], origin[1]);
@@ -446,21 +475,8 @@ vec2 map(vec2 p) {
 /** CS HexTile's Render popup. */
 const HexRender = { TILE: 1, FOLD_ALIGNED: 2, FOLD_SEAMLESSLY: 3 } as const;
 
-// CS HexTile: a hexagonal lattice through Center (cells Radius from their centre to their flat sides, turned by
-// Rotate), each cell showing the layer around Center, scaled by 1 + Smearing / 100; the Fold renders fold each cell
-// onto one twelfth of it. Tile and Fold Aligned draw the cells slightly inset, with soft edges.
-registerStock("CS HexTile", (input, p, ctx, layer) => {
-  const k = input.scale ?? 1;
-  const box = layerRect(layer, input);
-  const [cx, cy] = p.vec(3, layerCenter(layer, input)).map((v) => v * k);
-  const radius = Math.max(0.5, p.num(2, 20) * k);
-  const angle = (p.num(5, 0) * Math.PI) / 180;
-  if (p.bool(4, false)) ctx.warn("CS HexTile: Lock Center Tile is not rendered");
-  const out = layerPass(
-    ctx,
-    box,
-    [input],
-    `uniform vec2 u_center;
+/** CS HexTile's shader. */
+export const HEXTILE_DECLS = `uniform vec2 u_center;
 uniform float u_radius;
 uniform int u_render;
 uniform vec2 u_turn;
@@ -473,8 +489,8 @@ vec2 foldInto(vec2 o, float wedge) {
   float f = mod(th - wedge, 60.0);
   if (f >= 30.0) f = 60.0 - f;
   return r * vec2(cos(radians(wedge + f)), sin(radians(wedge + f)));
-}`,
-    `  vec2 q = p - u_center;
+}`;
+export const HEXTILE_BODY = `  vec2 q = p - u_center;
   q = vec2(u_turn.x * q.x + u_turn.y * q.y, -u_turn.y * q.x + u_turn.x * q.y);
   float pitch = SQRT3 * u_radius;
   float i0 = floor(q.x / pitch + 0.5);
@@ -492,7 +508,24 @@ vec2 foldInto(vec2 o, float wedge) {
   else if (u_render == ${HexRender.FOLD_SEAMLESSLY}) o = foldInto(o, 270.0);
   o = vec2(u_turn.x * o.x - u_turn.y * o.y, u_turn.y * o.x + u_turn.x * o.y);
   float cover = u_render == ${HexRender.FOLD_SEAMLESSLY} ? 1.0 : clamp((u_radius - hd) * 0.5 * SQRT3, 0.0, 1.0);
-  outColor = at(0, u_center + o + (p - u_center) * u_smear) * cover;`,
+  outColor = at(0, u_center + o + (p - u_center) * u_smear) * cover;`;
+
+// CS HexTile: a hexagonal lattice through Center (cells Radius from their centre to their flat sides, turned by
+// Rotate), each cell showing the layer around Center, scaled by 1 + Smearing / 100; the Fold renders fold each cell
+// onto one twelfth of it. Tile and Fold Aligned draw the cells slightly inset, with soft edges.
+registerStock("CS HexTile", (input, p, ctx, layer) => {
+  const k = input.scale ?? 1;
+  const box = layerRect(layer, input);
+  const [cx, cy] = p.vec(3, layerCenter(layer, input)).map((v) => v * k);
+  const radius = Math.max(0.5, p.num(2, 20) * k);
+  const angle = (p.num(5, 0) * Math.PI) / 180;
+  if (p.bool(4, false)) ctx.warn("CS HexTile: Lock Center Tile is not rendered");
+  const out = layerPass(
+    ctx,
+    box,
+    [input],
+    HEXTILE_DECLS,
+    HEXTILE_BODY,
     (u) => {
       const gl = ctx.gl;
       gl.uniform2f(u("u_center"), cx, cy);
@@ -506,6 +539,31 @@ vec2 foldInto(vec2 o, float wedge) {
   ctx.pool.release(input.target);
   return out;
 });
+
+/** CS BlockLoad's shader. */
+export const BLOCK_LOAD_DECLS = `uniform vec4 u_box;
+uniform float u_block;
+uniform float u_columns;
+uniform float u_revealed;
+uniform int u_first;
+uniform int u_cleared;
+uniform int u_bilinear;
+#define BLOCK_AT(cell, b, last) at(0, u_box.xy + clamp(cell, vec2(0.0), last) * (b) + 0.5)`;
+export const BLOCK_LOAD_BODY = `  vec2 q = p - u_box.xy;
+  vec2 cell = floor(q / u_block);
+  float b = u_block;
+  if (cell.y * u_columns + cell.x >= u_revealed) {
+    if (u_first == 1 && u_cleared == 1) { outColor = vec4(0.0); return; }
+    b = 2.0 * u_block;
+  }
+  vec2 last = ceil(u_box.zw / b) - 1.0;
+  if (u_bilinear == 0) { outColor = BLOCK_AT(floor(q / b), b, last); return; }
+  vec2 g = (q - 0.5) / b;
+  vec2 i = floor(g);
+  vec2 f = g - i;
+  vec4 top = mix(BLOCK_AT(i, b, last), BLOCK_AT(i + vec2(1.0, 0.0), b, last), f.x);
+  vec4 bottom = mix(BLOCK_AT(i + vec2(0.0, 1.0), b, last), BLOCK_AT(i + 1.0, b, last), f.x);
+  outColor = mix(top, bottom, f.y);`;
 
 // CS BlockLoad: the layer drawn in Scans passes of square blocks, each pass half the size of the one before and
 // ending in single pixels, each twice as long as the one before; a pass covers the layer block by block in rows
@@ -528,29 +586,8 @@ registerStock("CS BlockLoad", (input, p, ctx, layer) => {
   return pixelPass(
     ctx,
     input,
-    `uniform vec4 u_box;
-uniform float u_block;
-uniform float u_columns;
-uniform float u_revealed;
-uniform int u_first;
-uniform int u_cleared;
-uniform int u_bilinear;
-#define BLOCK_AT(cell, b, last) at(0, u_box.xy + clamp(cell, vec2(0.0), last) * (b) + 0.5)`,
-    `  vec2 q = p - u_box.xy;
-  vec2 cell = floor(q / u_block);
-  float b = u_block;
-  if (cell.y * u_columns + cell.x >= u_revealed) {
-    if (u_first == 1 && u_cleared == 1) { outColor = vec4(0.0); return; }
-    b = 2.0 * u_block;
-  }
-  vec2 last = ceil(u_box.zw / b) - 1.0;
-  if (u_bilinear == 0) { outColor = BLOCK_AT(floor(q / b), b, last); return; }
-  vec2 g = (q - 0.5) / b;
-  vec2 i = floor(g);
-  vec2 f = g - i;
-  vec4 top = mix(BLOCK_AT(i, b, last), BLOCK_AT(i + vec2(1.0, 0.0), b, last), f.x);
-  vec4 bottom = mix(BLOCK_AT(i + vec2(0.0, 1.0), b, last), BLOCK_AT(i + 1.0, b, last), f.x);
-  outColor = mix(top, bottom, f.y);`,
+    BLOCK_LOAD_DECLS,
+    BLOCK_LOAD_BODY,
     (u) => {
       const gl = ctx.gl;
       gl.uniform4f(u("u_box"), box.x, box.y, box.width, box.height);
@@ -566,6 +603,24 @@ uniform int u_bilinear;
 
 /** Texturize's Texture Placement popup. */
 const TexturePlacement = { TILE: 1, CENTER: 2, STRETCH: 3 } as const;
+
+/** Texturize's relief pass (also embedded by the native engine). */
+export const TEXTURIZE_DECLS = `uniform vec4 u_box;
+uniform vec4 u_texture;
+uniform int u_placement;
+uniform vec2 u_light;
+uniform float u_contrast;
+#define TEXEL(q) at(1, u_texture.xy + (u_placement == ${TexturePlacement.CENTER} ? q : mod(q, u_texture.zw)) + 0.5)
+#define TEXTURE_AT(s) mix(mix(TEXEL(floor(s)), TEXEL(floor(s) + vec2(1.0, 0.0)), fract(s).x), mix(TEXEL(floor(s) + vec2(0.0, 1.0)), TEXEL(floor(s) + 1.0), fract(s).x), fract(s).y)
+#define RELIEF(i) (TEXTURE_AT((i) + u_light) - TEXTURE_AT((i) - u_light))
+#define BILINEAR(F, s) mix(mix(F(floor(s)), F(floor(s) + vec2(1.0, 0.0)), fract(s).x), mix(F(floor(s) + vec2(0.0, 1.0)), F(floor(s) + 1.0), fract(s).x), fract(s).y)`;
+export const TEXTURIZE_BODY = `  vec4 c = at(0, p);
+  if (c.a <= 0.0) { outColor = vec4(0.0); return; }
+  vec2 s = p - u_box.xy - 0.5;
+  if (u_placement == ${TexturePlacement.CENTER}) s -= floor((u_box.zw - u_texture.zw) * 0.5);
+  else if (u_placement == ${TexturePlacement.STRETCH}) s *= u_texture.zw / u_box.zw;
+  vec3 relief = BILINEAR(RELIEF, s).rgb;
+  outColor = vec4(clamp(straight(c) + u_contrast * relief, 0.0, 1.0) * c.a, c.a);`;
 
 // Texturize: the layer's straight colour plus Texture Contrast times the relief of the texture layer, channel by
 // channel: the difference of its colour one texture pixel either way along Light Direction (bilinear), taken at its
@@ -587,22 +642,8 @@ registerStock(
     const out = pixelPass(
       ctx,
       input,
-      `uniform vec4 u_box;
-uniform vec4 u_texture;
-uniform int u_placement;
-uniform vec2 u_light;
-uniform float u_contrast;
-#define TEXEL(q) at(1, u_texture.xy + (u_placement == ${TexturePlacement.CENTER} ? q : mod(q, u_texture.zw)) + 0.5)
-#define TEXTURE_AT(s) mix(mix(TEXEL(floor(s)), TEXEL(floor(s) + vec2(1.0, 0.0)), fract(s).x), mix(TEXEL(floor(s) + vec2(0.0, 1.0)), TEXEL(floor(s) + 1.0), fract(s).x), fract(s).y)
-#define RELIEF(i) (TEXTURE_AT((i) + u_light) - TEXTURE_AT((i) - u_light))
-#define BILINEAR(F, s) mix(mix(F(floor(s)), F(floor(s) + vec2(1.0, 0.0)), fract(s).x), mix(F(floor(s) + vec2(0.0, 1.0)), F(floor(s) + 1.0), fract(s).x), fract(s).y)`,
-      `  vec4 c = at(0, p);
-  if (c.a <= 0.0) { outColor = vec4(0.0); return; }
-  vec2 s = p - u_box.xy - 0.5;
-  if (u_placement == ${TexturePlacement.CENTER}) s -= floor((u_box.zw - u_texture.zw) * 0.5);
-  else if (u_placement == ${TexturePlacement.STRETCH}) s *= u_texture.zw / u_box.zw;
-  vec3 relief = BILINEAR(RELIEF, s).rgb;
-  outColor = vec4(clamp(straight(c) + u_contrast * relief, 0.0, 1.0) * c.a, c.a);`,
+      TEXTURIZE_DECLS,
+      TEXTURIZE_BODY,
       (u) => {
         const gl = ctx.gl;
         gl.uniform4f(u("u_box"), box.x, box.y, box.width, box.height);

@@ -4,9 +4,12 @@
 #include "planner.h"
 
 #include <algorithm>
+#include <cctype>
 #include <cmath>
+#include <cstdio>
 
 #include "evaluate.h"
+#include "particular.h"
 #include "shapes.h"
 
 namespace aep
@@ -21,6 +24,173 @@ const u32 NORMAL = 5212;
 /** Comps nested deeper than this render empty. */
 const s32 MAX_DEPTH = 16;
 const f64 PAD = aevk::kPad;
+/** Comps nested deeper than this are not heard (src/media/mix.ts). */
+const s32 MAX_AUDIO_DEPTH = 16;
+
+/** The declared index of an effect's audio layer parameter (a layer of the comp by index heard by the effect), or 0. */
+u32 AudioLayerParam(const std::string& matchName)
+{
+	return matchName == "ADBE AudSpect" ? 1 : 0;
+}
+
+/** The declared index of an effect's Path parameter (a 1-based mask of its layer, 0 for none), or 0. */
+u32 PathParam(const std::string& matchName)
+{
+	return matchName == "ADBE AudSpect" ? 4 : 0;
+}
+
+/** The declared index of the parameter whose stored data an effect reads (DATA_PARAMS in plan.ts), or 0. */
+u32 DataParam(const std::string& matchName)
+{
+	if (matchName == "ADBE CurvesCustom")
+	{
+		return 1;
+	}
+	return matchName == "APC Colorama" ? 12 : 0;
+}
+
+/** The first value of the parameter declared `index`-th, or 0 (plan.ts effects). */
+f64 PlannedValue(const aevk::Effect& effect, u32 index)
+{
+	const aevk::EffectParam* param = effect.param(index);
+	return param && !param->value.empty() ? param->value[0] : 0;
+}
+
+/** The first value of the parameter declared `index`-th, or `fallback` when absent or not finite (as FxParams::num). */
+f64 PlannedValueOr(const aevk::Effect& effect, u32 index, f64 fallback)
+{
+	const aevk::EffectParam* param = effect.param(index);
+	return param && !param->value.empty() && std::isfinite(param->value[0]) ? param->value[0] : fallback;
+}
+
+/**
+ * The comp times a time effect sees its layer at besides the frame's own (inputTimes in plan.ts), from its parameters
+ * and the source planned for its first layer parameter (null for none): none for any other effect, and for Time
+ * Difference with a Target layer (that layer's content is planned at the offset time instead). Time Displacement
+ * reads the frame's own time first when it has no map layer, then every step of its grid.
+ */
+std::vector<f64> InputTimes(const aevk::Effect& effect, f64 time, const CItem& comp, const CLayer& layer, const aevk::EffectSource* target)
+{
+	const f64 fd = comp.m_fFrameRate != 0 ? 1 / comp.m_fFrameRate : 0;
+	const std::string& name = effect.matchName;
+	std::vector<f64> times;
+	if (name == "ADBE Posterize Time")
+	{
+		const f64 rate = std::max(0.01, PlannedValueOr(effect, 1, 24));
+		const f64 held = std::floor(time * rate + 1e-6) / rate;
+		if (!(std::fabs(held - time) < 1e-9))
+		{
+			times.push_back(held);
+		}
+	}
+	else if (name == "ADBE Echo")
+	{
+		const f64 step = PlannedValueOr(effect, 1, -1.0 / 30);
+		const f64 count = std::max(0.0, std::min(1000.0, JsRound(PlannedValueOr(effect, 2, 1))));
+		for (s32 k = 1; k <= s32(count); k++)
+		{
+			times.push_back(time + k * step);
+		}
+	}
+	else if (name == "CC Wide Time")
+	{
+		const s32 forward = s32(std::max(0.0, JsRound(PlannedValueOr(effect, 1, 1))));
+		const s32 backward = s32(std::max(0.0, JsRound(PlannedValueOr(effect, 2, 1))));
+		for (s32 k = -backward; k <= forward; k++)
+		{
+			if (k)
+			{
+				times.push_back(time + k * fd);
+			}
+		}
+	}
+	else if (name == "CC Force Motion Blur")
+	{
+		const s32 samples = s32(std::max(1.0, JsRound(PlannedValueOr(effect, 1, 8))));
+		const bool override = PlannedValueOr(effect, 2, 1) != 0;
+		const f64 angle = override ? PlannedValueOr(effect, 3, 180) : comp.m_fShutterAngle;
+		const f64 phase = override ? PlannedValueOr(effect, 5, 0) : comp.m_fShutterPhase;
+		for (s32 i = 0; i < samples; i++)
+		{
+			times.push_back(time + ((phase + (angle * i) / samples) / 360) * fd);
+		}
+	}
+	else if (name == "ADBE Difference" && !target)
+	{
+		times.push_back(time + PlannedValueOr(effect, 2, 0));
+	}
+	else if (name == "ADBE Time Displacement")
+	{
+		const f64 maximum = PlannedValueOr(effect, 2, 1);
+		const f64 resolution = std::max(0.01, PlannedValueOr(effect, 3, 60));
+		if ((target && !target->drawn) || maximum == 0)
+		{
+			return times;
+		}
+		const f64 reach = std::fabs(maximum);
+		const f64 first = std::floor((time - reach) * resolution + 1e-6);
+		const f64 last = std::min(first + 1200, std::floor((time + reach) * resolution + 1e-6));
+		if (!target)
+		{
+			times.push_back(time);
+		}
+		for (f64 i = first; i <= last; i++)
+		{
+			times.push_back(std::min(std::max(i / resolution, layer.m_fInPoint), layer.m_fOutPoint - fd));
+		}
+	}
+	return times;
+}
+
+/** The comp time a layer parameter's layer is planned at: Time Difference reads its Target at Time Offset later. */
+f64 SourceTime(const aevk::Effect& effect, f64 time)
+{
+	return effect.matchName == "ADBE Difference" ? time + PlannedValueOr(effect, 2, 0) : time;
+}
+
+/** The mask of `layer` a Path parameter names (1-based, among all its masks), at `time` (maskPath in plan.ts). */
+bool MaskPath(const CLayer& layer, f64 index, f64 time, aevk::EffectPath& out)
+{
+	if (!(index > 0))
+	{
+		return false;
+	}
+	const CPropertyNode* parade = layer.m_Properties.FindGroup("ADBE Mask Parade");
+	if (!parade)
+	{
+		return false;
+	}
+	f64 n = 0;
+	for (const auto& node : parade->m_Children)
+	{
+		const CPropertyNode& mask = *node;
+		if (!mask.m_bGroup || !mask.m_bHasMask || ++n != index)
+		{
+			continue;
+		}
+		const CPropertyNode* prop = mask.FindProperty("ADBE Mask Shape");
+		const CValue shape = prop ? CurrentValue(*prop, time, layer) : CValue();
+		if (!shape.IsShape())
+		{
+			return false;
+		}
+		const sShape& s = *shape.m_pShape;
+		out.closed = s.m_bClosed;
+		out.vertices.clear();
+		for (size_t i = 0; i < s.m_Vertices.size(); i++)
+		{
+			const sVec2 in = i < s.m_InTangents.size() ? s.m_InTangents[i] : sVec2{};
+			const sVec2 o = i < s.m_OutTangents.size() ? s.m_OutTangents[i] : sVec2{};
+			const f64 v[6] = { s.m_Vertices[i].x, s.m_Vertices[i].y, in.x, in.y, o.x, o.y };
+			for (const f64 x : v)
+			{
+				out.vertices.push_back(float(x));
+			}
+		}
+		return true;
+	}
+	return false;
+}
 
 bool IsRenderable(const CLayer& layer)
 {
@@ -140,6 +310,74 @@ std::vector<const CPropertyNode*> EnabledEffects(const CLayer& layer)
 	return effects;
 }
 
+/** An effect the native engine renders (src/native/effects.ts nativeEffect). */
+struct sNativeEffect
+{
+	const char* m_pMatchName;
+	bool m_bScalable;
+	bool m_bPassThrough;
+};
+
+/** The declared index `n` of a parameter named "<effect>-000n" (src/native/wire.ts paramIndex), or 0. */
+u32 ParamIndex(const std::string& effect, const std::string& matchName)
+{
+	if (matchName.size() != effect.size() + 5 || matchName.compare(0, effect.size(), effect) != 0 || matchName[effect.size()] != '-')
+	{
+		return 0;
+	}
+	u32 index = 0;
+	for (size_t i = effect.size() + 1; i < matchName.size(); i++)
+	{
+		const char c = matchName[i];
+		if (c < '0' || c > '9')
+		{
+			return 0;
+		}
+		index = index * 10 + u32(c - '0');
+	}
+	return index;
+}
+
+const sNativeEffect* NativeEffect(const std::string& matchName)
+{
+	static const sNativeEffect s_Effects[] = {
+#define AEVK_EFFECT(name, scalable, passThrough) { name, scalable, passThrough },
+#include "../src/effects/list.inc"
+#undef AEVK_EFFECT
+	};
+	static const sNativeEffect s_Pseudo = { "Pseudo/", true, true };
+	for (const sNativeEffect& effect : s_Effects)
+	{
+		if (matchName == effect.m_pMatchName)
+		{
+			return &effect;
+		}
+	}
+	return matchName.rfind("Pseudo/", 0) == 0 ? &s_Pseudo : nullptr;
+}
+
+/** The name of a plugin the native engine skips as After Effects does when it is not installed (MISSING_PLUGINS), or null. */
+const char* MissingPlugin(const std::string& matchName)
+{
+	static const char* const s_Plugins[][2] = {
+		{ "Fandev XMult", "XMult" },
+		{ "S_Blur", "Sapphire S_Blur" },
+		{ "S_BlurDirectional", "Sapphire S_BlurDirectional" },
+		{ "S_Shake", "Sapphire S_Shake" },
+		{ "S_Glow", "Sapphire S_Glow" },
+		{ "S_ZGlow", "Sapphire S_ZGlow" },
+		{ "S_Flicker", "Sapphire S_Flicker" },
+	};
+	for (const auto& plugin : s_Plugins)
+	{
+		if (matchName == plugin[0])
+		{
+			return plugin[1];
+		}
+	}
+	return nullptr;
+}
+
 f64 NumberAt(const CPropertyNode* prop, f64 time, const CLayer& layer, f64 fallback)
 {
 	if (!prop)
@@ -169,6 +407,102 @@ f64 SourcePixelAspect(const CLayer& layer, const CItem& comp, const CProject& pr
 	const f64 source = item->m_fPixelAspect != 0 && !std::isnan(item->m_fPixelAspect) ? item->m_fPixelAspect : 1;
 	const f64 target = comp.m_fPixelAspect != 0 && !std::isnan(comp.m_fPixelAspect) ? comp.m_fPixelAspect : 1;
 	return source / target;
+}
+
+/** The layer's source time at comp time `time`: Time Remap when enabled, else start time and stretch (footage.ts). */
+f64 LayerSourceTime(const CLayer& layer, f64 time)
+{
+	if (layer.m_bTimeRemapEnabled)
+	{
+		if (const CPropertyNode* remap = layer.m_Properties.FindProperty("ADBE Time Remapping"))
+		{
+			const CValue value = CurrentValue(*remap, time, layer);
+			if (value.IsNumber())
+			{
+				return value.m_V[0];
+			}
+		}
+	}
+	return LayerTimeAt(layer, time);
+}
+
+/** The frame of footage shown at `sourceTime` seconds of footage time, after loops (footage.ts footageFrameIndex). */
+u32 FootageFrameIndex(const CItem& item, f64 sourceTime)
+{
+	const sFootageSource& footage = item.m_Footage;
+	if (footage.m_bIsStill || item.m_fFrameRate == 0 || std::isnan(item.m_fFrameRate))
+	{
+		return 0;
+	}
+	const f64 loops = footage.m_uLoop ? footage.m_uLoop : 1;
+	const f64 perLoop = std::max(1.0, std::floor((item.m_fDuration / loops) * item.m_fFrameRate + 0.5));
+	const f64 frame = std::min(std::max(std::floor(sourceTime * item.m_fFrameRate + 1e-6), 0.0), perLoop * loops - 1);
+	return u32(std::fmod(frame, perLoop));
+}
+
+/** The lowercased extension of a file name, empty without one. */
+std::string FileExtension(const std::string& file)
+{
+	const size_t dot = file.find_last_of('.');
+	const size_t slash = file.find_last_of("/\\");
+	if (dot == std::string::npos || (slash != std::string::npos && dot < slash))
+	{
+		return std::string();
+	}
+	std::string ext = file.substr(dot + 1);
+	for (char& c : ext)
+	{
+		c = char(std::tolower(static_cast<unsigned char>(c)));
+	}
+	return ext;
+}
+
+/**
+ * Footage files the engine decodes itself, by extension (plan.ts NATIVE_IMAGE): PNG, BMP and TIFF (native/src/image.cpp)
+ * and JPEG (native/src/video.cpp's decodeStill).
+ */
+bool IsNativeImage(const std::string& file)
+{
+	const std::string ext = FileExtension(file);
+	return ext == "png" || ext == "bmp" || ext == "tif" || ext == "tiff" || ext == "jpg" || ext == "jpeg";
+}
+
+/** Video files the engine decodes itself (native/src/video.cpp), by extension (plan.ts NATIVE_VIDEO). */
+bool IsNativeVideo(const std::string& file)
+{
+	const std::string ext = FileExtension(file);
+	return ext == "mp4" || ext == "mov" || ext == "m4v" || ext == "webm" || ext == "mkv" || ext == "avi";
+}
+
+/**
+ * The file a footage item shows at `sourceTime` and, for video, the seconds of the file's own time whose picture
+ * shows (negative otherwise); an empty file for files the engine does not decode (plan.ts footagePlan).
+ */
+std::string FootageFile(const CItem& item, f64 sourceTime, f64& videoTime)
+{
+	videoTime = -1;
+	if (item.m_eSource != SOURCE_FILE)
+	{
+		return std::string();
+	}
+	std::string file = item.m_File;
+	const sFootageSource& footage = item.m_Footage;
+	if (footage.m_bSequence)
+	{
+		const size_t slash = file.find_last_of("/\\");
+		const std::string folder = slash == std::string::npos ? file : file.substr(0, slash);
+		file = folder + "/" + footage.FrameName(footage.m_uStartFrame + FootageFrameIndex(item, sourceTime));
+	}
+	else if (IsNativeVideo(file))
+	{
+		/** footageStore.videoFrame: the frame index over the file's native rate, else the item's, else 30. */
+		const f64 rate = footage.m_fNativeFrameRate > 0 ? footage.m_fNativeFrameRate
+			: item.m_fFrameRate > 0 ? item.m_fFrameRate
+			: 30;
+		videoTime = FootageFrameIndex(item, sourceTime) / rate;
+		return file;
+	}
+	return IsNativeImage(file) ? file : std::string();
 }
 
 u32 MatteMode(u32 trackMatteType)
@@ -219,6 +553,21 @@ bool HasExpressions(const CPropertyNode& node)
 }
 
 } /** namespace */
+
+bool ProjectHasExpressions(const CProject& project)
+{
+	for (const auto& entry : project.m_Items)
+	{
+		for (const auto& layer : entry.second->m_Layers)
+		{
+			if (HasExpressions(layer->m_Properties))
+			{
+				return true;
+			}
+		}
+	}
+	return false;
+}
 
 f64 ScaledSize(f64 size, f64 scale)
 {
@@ -298,10 +647,6 @@ void CFramePlanner::PlanComp(const CItem& comp, f64 time, s32 depth, f64 scale, 
 		{
 			continue;
 		}
-		if (layer->m_bAdjustment && !EnabledEffects(*layer).empty())
-		{
-			Unsupported("adjustment layer effects (\"" + layer->m_Name + "\")");
-		}
 		placed.blendMode = layer->m_uBlendMode;
 		placed.opacity = float(LocalTransform(*layer, time).m_fOpacity / 100);
 		const CLayer* matteLayer = layer->m_uTrackMatteType != NO_MATTE ? MatteLayerOf(*layer, comp) : nullptr;
@@ -330,17 +675,33 @@ void CFramePlanner::PlanComp(const CItem& comp, f64 time, s32 depth, f64 scale, 
 bool CFramePlanner::Placed(const CLayer& layer, const CItem& comp, f64 time, const sCamera* camera, s32 depth, f64 scale,
 	bool adjustment, aevk::Layer& out)
 {
-	if (!adjustment)
+	/** An adjustment layer's effects run on the composite below it (placeAdjustment in renderer.ts), at the comp's scale. */
 	{
-		const std::vector<const CPropertyNode*> effects = EnabledEffects(layer);
-		if (!effects.empty())
+		std::string missing;
+		bool unscalable = false;
+		for (const CPropertyNode* effect : EnabledEffects(layer))
 		{
-			std::string names;
-			for (size_t i = 0; i < effects.size(); i++)
+			const sNativeEffect* native = NativeEffect(effect->m_MatchName);
+			if (const char* plugin = MissingPlugin(effect->m_MatchName))
 			{
-				names += (i ? ", " : "") + effects[i]->m_EffectName;
+				Warn(std::string(plugin) + " plugin is not installed; After Effects skips it");
 			}
-			Unsupported("effects (" + names + " on \"" + layer.m_Name + "\")");
+			if (!native)
+			{
+				missing += (missing.empty() ? "" : ", ") + (effect->m_EffectName.empty() ? effect->m_MatchName : effect->m_EffectName);
+			}
+			else if (!native->m_bScalable)
+			{
+				unscalable = true;
+			}
+		}
+		if (!missing.empty())
+		{
+			Unsupported("effects (" + missing + " on \"" + layer.m_Name + "\")");
+		}
+		else if (scale != 1 && unscalable)
+		{
+			Unsupported("effects at a reduced resolution (\"" + layer.m_Name + "\")");
 		}
 	}
 	if (!Content(layer, time, depth, scale, out.content))
@@ -377,8 +738,244 @@ bool CFramePlanner::Placed(const CLayer& layer, const CItem& comp, f64 time, con
 	out.opacity = 1;
 	StoreMatrix(matrix, out.matrix);
 	out.zoom = float(zoom);
-	Masks(layer, time, scale, out.masks);
+	/** As plan.ts: the content's own scale (footage is not drawn above its size). */
+	Masks(layer, time, out.content.kind == aevk::ContentKind::Footage && scale >= 1 ? 1.0 : scale, out.masks);
+	out.effects.clear();
+	Effects(layer, comp, time, depth, out.effects);
+	if (!out.effects.empty())
+	{
+		aevk::EffectLayer& info = out.effectLayer;
+		info.time = time;
+		info.startTime = layer.m_fStartTime;
+		info.stretch = layer.m_fStretch != 0 ? layer.m_fStretch / 100 : 1;
+		info.width = float(layer.m_fWidth);
+		info.height = float(layer.m_fHeight);
+		info.kind = layer.m_eType == LAYER_AV ? 0 : layer.m_eType == LAYER_SHAPE ? 1 : 2;
+	}
 	return true;
+}
+
+void CFramePlanner::Effects(const CLayer& layer, const CItem& comp, f64 time, s32 depth, std::vector<aevk::Effect>& out,
+	const CPropertyNode* before)
+{
+	for (const CPropertyNode* effect : EnabledEffects(layer))
+	{
+		if (effect == before)
+		{
+			break;
+		}
+		const sNativeEffect* native = NativeEffect(effect->m_MatchName);
+		if (!native || native->m_bPassThrough)
+		{
+			continue;
+		}
+		aevk::Effect planned;
+		planned.matchName = effect->m_MatchName;
+		/** Layer parameters by declared index and the layer index they name, planned once the parameters are known. */
+		std::vector<std::pair<u32, f64>> named;
+		for (const auto& child : effect->m_Children)
+		{
+			const CPropertyNode& node = *child;
+			if (node.m_bGroup)
+			{
+				continue;
+			}
+			const CValue value = CurrentValue(node, time, layer, effect);
+			if (!value.IsNumeric())
+			{
+				continue;
+			}
+			aevk::EffectParam param;
+			param.index = ParamIndex(effect->m_MatchName, node.m_MatchName);
+			if (!param.index)
+			{
+				param.matchName = node.m_MatchName;
+			}
+			for (u32 i = 0; i < value.Count(); i++)
+			{
+				param.value.push_back(value.m_V[i]);
+			}
+			for (const std::string& option : node.m_Options)
+			{
+				param.menu.push_back(option.rfind("(-", 0) == 0 ? 1 : 0);
+			}
+			const u32 index = param.index;
+			const f64 first = value.m_V[0];
+			planned.params.push_back(std::move(param));
+			if (node.m_uControlType == CONTROL_LAYER && index)
+			{
+				named.emplace_back(index, JsRound(first));
+			}
+		}
+		const f64 sourceTime = SourceTime(planned, time);
+		for (const auto& [index, i] : named)
+		{
+			/** As the effects' layer parameters read it: another layer of the comp by index, never the layer itself. */
+			const CLayer* other = nullptr;
+			if (i > 0)
+			{
+				for (const auto& candidate : comp.m_Layers)
+				{
+					if (candidate->m_iIndex == i && candidate.get() != &layer)
+					{
+						other = candidate.get();
+						break;
+					}
+				}
+			}
+			if (!other)
+			{
+				continue;
+			}
+			aevk::EffectSource source;
+			source.param = index;
+			source.drawn = Content(*other, sourceTime, depth, 1, source.content);
+			if (source.drawn)
+			{
+				source.layer.width = float(other->m_fWidth);
+				source.layer.height = float(other->m_fHeight);
+				source.layer.kind = other->m_eType == LAYER_AV ? 0 : other->m_eType == LAYER_SHAPE ? 1 : 2;
+			}
+			else
+			{
+				source.content = aevk::Content();
+			}
+			planned.sources.push_back(std::move(source));
+		}
+		if (const u32 audioParam = AudioLayerParam(effect->m_MatchName))
+		{
+			/** Any layer of the comp by its exact index, the effect's own included. */
+			const f64 index = PlannedValue(planned, audioParam);
+			for (const auto& candidate : comp.m_Layers)
+			{
+				if (candidate->m_iIndex == index)
+				{
+					planned.hasAudio = true;
+					Audio(*candidate, time, planned.audio);
+					break;
+				}
+			}
+		}
+		if (const u32 pathParam = PathParam(effect->m_MatchName))
+		{
+			planned.hasPath = MaskPath(layer, PlannedValue(planned, pathParam), time, planned.path);
+		}
+		for (const f64 t : InputTimes(planned, time, comp, layer, planned.source(1)))
+		{
+			planned.inputs.emplace_back();
+			Input(layer, comp, t, depth, effect, planned.inputs.back());
+		}
+		if (const u32 dataParam = DataParam(effect->m_MatchName))
+		{
+			char suffix[8];
+			std::snprintf(suffix, sizeof(suffix), "-%04u", unsigned(dataParam));
+			const auto found = effect->m_InstanceData.find(effect->m_MatchName + suffix);
+			if (found != effect->m_InstanceData.end())
+			{
+				planned.data.push_back({ dataParam, found->second });
+			}
+		}
+		if (effect->m_MatchName == "tc Particular")
+		{
+			sParticularSplats splats;
+			if (!ParticularSplats(*effect, layer, comp, time, layer.m_fWidth, layer.m_fHeight, splats))
+			{
+				Unsupported("Particular sprites (\"" + layer.m_Name + "\")");
+			}
+			else
+			{
+				planned.hasParticles = true;
+				planned.particles.glow.assign(splats.m_Glow.begin(), splats.m_Glow.end());
+				planned.particles.core.assign(splats.m_Core.begin(), splats.m_Core.end());
+				for (u32 c = 0; c < 3; c++)
+				{
+					planned.particles.color[c] = float(splats.m_Color[c]);
+				}
+				planned.particles.glowBlend = splats.m_uGlowBlend;
+				planned.particles.particleBlend = splats.m_uParticleBlend;
+			}
+		}
+		out.push_back(std::move(planned));
+	}
+}
+
+void CFramePlanner::Input(const CLayer& layer, const CItem& comp, f64 t, s32 depth, const CPropertyNode* effect, aevk::EffectInput& out)
+{
+	out.time = t;
+	out.drawn = Content(layer, t, depth, 1, out.content);
+	if (!out.drawn)
+	{
+		out.content = aevk::Content();
+		return;
+	}
+	Masks(layer, t, out.content.scale, out.masks);
+	Effects(layer, comp, t, depth, out.effects, effect);
+}
+
+void CFramePlanner::Audio(const CLayer& layer, f64 time, std::vector<aevk::AudioSource>& out)
+{
+	AudioVisit(layer, time, 1, 0, -INFINITY, INFINITY, 0, out);
+}
+
+void CFramePlanner::AudioVisit(const CLayer& layer, f64 time, f64 scale, f64 offset, f64 from, f64 to, s32 depth,
+	std::vector<aevk::AudioSource>& out)
+{
+	if (depth > MAX_AUDIO_DEPTH || scale == 0)
+	{
+		return;
+	}
+	if (depth > 0)
+	{
+		/** A nested layer is heard between its in and out points, in the outer comp's time. */
+		const f64 lo = std::min(layer.m_fInPoint, layer.m_fOutPoint);
+		const f64 hi = std::max(layer.m_fInPoint, layer.m_fOutPoint);
+		from = std::max(from, scale > 0 ? (lo - offset) / scale : (hi - offset) / scale);
+		to = std::min(to, scale > 0 ? (hi - offset) / scale : (lo - offset) / scale);
+		if (from >= to)
+		{
+			return;
+		}
+	}
+	const f64 stretch = layer.m_fStretch != 0 ? layer.m_fStretch / 100 : 1;
+	f64 innerScale = scale / stretch;
+	f64 innerOffset = (offset - layer.m_fStartTime) / stretch;
+	if (layer.m_bTimeRemapEnabled)
+	{
+		if (const CPropertyNode* remap = layer.m_Properties.FindProperty("ADBE Time Remapping"))
+		{
+			const CValue value = ValueAtTime(*remap, scale * time + offset, layer);
+			if (value.IsNumber())
+			{
+				innerScale = scale;
+				innerOffset = value.m_V[0] - scale * time;
+			}
+		}
+	}
+	const CItem* source = layer.m_uSourceId ? m_Project.Item(layer.m_uSourceId) : nullptr;
+	if (!source)
+	{
+		return;
+	}
+	if (source->m_eKind == ITEM_COMP)
+	{
+		for (const auto& child : source->m_Layers)
+		{
+			if (child->m_bAudioEnabled)
+			{
+				AudioVisit(*child, time, innerScale, innerOffset, from, to, depth + 1, out);
+			}
+		}
+	}
+	else if (source->m_eKind == ITEM_FOOTAGE && source->m_bHasAudio && source->m_eSource == SOURCE_FILE)
+	{
+		aevk::AudioSource heard;
+		heard.file = source->m_File;
+		heard.scale = innerScale;
+		heard.offset = innerOffset;
+		heard.from = from;
+		heard.to = to;
+		out.push_back(std::move(heard));
+	}
 }
 
 bool CFramePlanner::Content(const CLayer& layer, f64 time, s32 depth, f64 scale, aevk::Content& out)
@@ -443,7 +1040,40 @@ bool CFramePlanner::Content(const CLayer& layer, f64 time, s32 depth, f64 scale,
 	}
 	if (source && source->m_eKind == ITEM_FOOTAGE)
 	{
-		Unsupported("footage (\"" + source->m_Name + "\")");
+		/** As the WebGL renderer: a placeholder and footage without video (audio) draw nothing. */
+		if (source->m_eSource == SOURCE_PLACEHOLDER)
+		{
+			Warn("placeholder \"" + source->m_Name + "\" has no footage; After Effects refuses to render it");
+		}
+		else if (source->m_fWidth > 0)
+		{
+			f64 videoTime = -1;
+			const std::string file = FootageFile(*source, LayerSourceTime(layer, time), videoTime);
+			if (!file.empty())
+			{
+				const sFootageSource& footage = source->m_Footage;
+				const bool reduced = scale < 1;
+				const auto side = [reduced, scale](f64 size)
+				{
+					return reduced ? std::max(1.0, std::ceil(size * scale - 1e-6)) : size;
+				};
+				out.kind = aevk::ContentKind::Footage;
+				out.width = ToUint32(side(source->m_fWidth));
+				out.height = ToUint32(side(source->m_fHeight));
+				out.scale = float(reduced ? scale : 1);
+				aevk::FootageFrame& frame = out.footage;
+				frame.file = file;
+				frame.sourceWidth = ToUint32(source->m_fWidth);
+				frame.sourceHeight = ToUint32(source->m_fHeight);
+				frame.hasAlpha = footage.m_bHasAlpha;
+				frame.invertAlpha = footage.m_bInvertAlpha;
+				frame.alphaMode = footage.m_uAlphaMode == ALPHA_IGNORE ? 2 : footage.m_uAlphaMode == ALPHA_PREMULTIPLIED ? 1 : 0;
+				frame.matte = { float(footage.m_PremulColor[0]), float(footage.m_PremulColor[1]), float(footage.m_PremulColor[2]) };
+				frame.videoTime = videoTime;
+				return true;
+			}
+			Unsupported("footage (\"" + source->m_Name + "\")");
+		}
 	}
 	return false;
 }

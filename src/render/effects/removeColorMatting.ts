@@ -4,7 +4,8 @@ import { effectVector } from "../effectParams.ts";
 import { registerEffect } from "../registry.ts";
 import { mapPass, PASS_HEADER } from "./fxextraUtil.ts";
 
-const RCM_FS = `${PASS_HEADER}
+/** Also embedded by the native engine. */
+export const RCM_FS = `${PASS_HEADER}
 uniform vec3 u_background;
 void main() {
   vec4 c = texture(u_source, v_uv);

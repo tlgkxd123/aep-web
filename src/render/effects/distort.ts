@@ -13,6 +13,15 @@ const center = (r: Rect, k: number, layerWidth: number, layerHeight: number): [n
 
 // Transform: the layer image through anchor, position, scale, skew and rotation, at Opacity, within the
 // layer's box. Its motion blur is not rendered.
+/** Also embedded by the native engine. */
+export const GEOMETRY_POST = "  outColor = c * u_opacity;";
+
+/** Also embedded by the native engine. */
+export const GEOMETRY_DECLS = `uniform vec3 u_m0;
+uniform vec3 u_m1;
+uniform float u_opacity;
+vec2 map(vec2 p) { return vec2(dot(u_m0, vec3(p, 1.0)), dot(u_m1, vec3(p, 1.0))); }`;
+
 registerStock("ADBE Geometry2", (input, p, ctx, layer) => {
   const k = input.scale ?? 1;
   const rect = layerRect(layer, input);
@@ -34,20 +43,26 @@ registerStock("ADBE Geometry2", (input, p, ctx, layer) => {
     ctx,
     input,
     unionRect(rect, imageRect(input)),
-    `uniform vec3 u_m0;
-uniform vec3 u_m1;
-uniform float u_opacity;
-vec2 map(vec2 p) { return vec2(dot(u_m0, vec3(p, 1.0)), dot(u_m1, vec3(p, 1.0))); }`,
+    GEOMETRY_DECLS,
     (u) => {
       ctx.gl.uniform3f(u("u_m0"), inverse[0], inverse[2], inverse[4]);
       ctx.gl.uniform3f(u("u_m1"), inverse[1], inverse[3], inverse[5]);
       ctx.gl.uniform1f(u("u_opacity"), opacity);
     },
-    "  outColor = c * u_opacity;",
+    GEOMETRY_POST,
   );
 });
 
 // Offset: the layer shifted so its centre lands on Shift Center To, wrapping around its box.
+/** Also embedded by the native engine. */
+export const OFFSET_DECLS = `uniform vec4 u_rect;
+uniform vec2 u_shift;
+uniform float u_blend;`;
+
+/** Also embedded by the native engine. */
+export const OFFSET_BODY = `  vec2 q = clamp(u_rect.xy + mod(p - u_shift - u_rect.xy, u_rect.zw), u_rect.xy + 0.5, u_rect.xy + u_rect.zw - 0.5);
+  outColor = mix(at(0, q), at(0, p), u_blend);`;
+
 registerStock("ADBE Offset", (input, p, ctx, layer) => {
   const k = input.scale ?? 1;
   const rect = layerRect(layer, input);
@@ -58,11 +73,8 @@ registerStock("ADBE Offset", (input, p, ctx, layer) => {
     ctx,
     rect,
     [input],
-    `uniform vec4 u_rect;
-uniform vec2 u_shift;
-uniform float u_blend;`,
-    `  vec2 q = clamp(u_rect.xy + mod(p - u_shift - u_rect.xy, u_rect.zw), u_rect.xy + 0.5, u_rect.xy + u_rect.zw - 0.5);
-  outColor = mix(at(0, q), at(0, p), u_blend);`,
+    OFFSET_DECLS,
+    OFFSET_BODY,
     (u) => {
       ctx.gl.uniform4f(u("u_rect"), rect.x, rect.y, rect.width, rect.height);
       ctx.gl.uniform2f(u("u_shift"), (sx - c[0]) * k, (sy - c[1]) * k);
@@ -75,6 +87,17 @@ uniform float u_blend;`,
 });
 
 // Corner Pin: the layer's box mapped projectively onto the four pins; the output covers the pinned quad.
+/** Also embedded by the native engine. */
+export const CORNER_PIN_DECLS = `uniform mat3 u_inverse;
+uniform vec4 u_rect;
+vec2 map(vec2 p) {
+  vec3 h = u_inverse * vec3(p, 1.0);
+  if (h.z <= 0.0) return vec2(-1e9);
+  vec2 uv = h.xy / h.z;
+  if (uv.x < 0.0 || uv.y < 0.0 || uv.x > 1.0 || uv.y > 1.0) return vec2(-1e9);
+  return u_rect.xy + uv * u_rect.zw;
+}`;
+
 registerStock("ADBE Corner Pin", (input, p, ctx, layer) => {
   const k = input.scale ?? 1;
   const rect = layerRect(layer, input);
@@ -92,15 +115,7 @@ registerStock("ADBE Corner Pin", (input, p, ctx, layer) => {
     ctx,
     input,
     out,
-    `uniform mat3 u_inverse;
-uniform vec4 u_rect;
-vec2 map(vec2 p) {
-  vec3 h = u_inverse * vec3(p, 1.0);
-  if (h.z <= 0.0) return vec2(-1e9);
-  vec2 uv = h.xy / h.z;
-  if (uv.x < 0.0 || uv.y < 0.0 || uv.x > 1.0 || uv.y > 1.0) return vec2(-1e9);
-  return u_rect.xy + uv * u_rect.zw;
-}`,
+    CORNER_PIN_DECLS,
     (u) => {
       // Row-major to GLSL's column-major.
       const m = inverse;
@@ -113,6 +128,24 @@ vec2 map(vec2 p) {
 // Motion Tile: the layer shrunk to Tile Width x Tile Height and repeated around Tile Center over an output of
 // Output Width x Output Height of the layer's box; alternate columns (or rows, with Horizontal Phase Shift) shift
 // by Phase, and alternate tiles are mirrored with Mirror Edges.
+/** Also embedded by the native engine. */
+export const MOTION_TILE_DECLS = `uniform vec2 u_center;
+uniform vec2 u_tile;
+uniform vec4 u_rect;
+uniform float u_phase;
+uniform int u_horizontal;
+uniform int u_mirror;
+vec2 map(vec2 p) {
+  vec2 t = (p - u_center) / u_tile + 0.5;
+  vec2 cell = floor(t);
+  if (u_horizontal == 1) t.x += mod(cell.y, 2.0) * u_phase;
+  else t.y += mod(cell.x, 2.0) * u_phase;
+  cell = floor(t);
+  vec2 f = fract(t);
+  if (u_mirror == 1) f = mix(f, 1.0 - f, mod(cell, 2.0));
+  return clamp(u_rect.xy + f * u_rect.zw, u_rect.xy + 0.5, u_rect.xy + u_rect.zw - 0.5);
+}`;
+
 registerStock("ADBE Tile", (input, p, ctx, layer) => {
   const k = input.scale ?? 1;
   const rect = layerRect(layer, input);
@@ -131,22 +164,7 @@ registerStock("ADBE Tile", (input, p, ctx, layer) => {
     ctx,
     input,
     out,
-    `uniform vec2 u_center;
-uniform vec2 u_tile;
-uniform vec4 u_rect;
-uniform float u_phase;
-uniform int u_horizontal;
-uniform int u_mirror;
-vec2 map(vec2 p) {
-  vec2 t = (p - u_center) / u_tile + 0.5;
-  vec2 cell = floor(t);
-  if (u_horizontal == 1) t.x += mod(cell.y, 2.0) * u_phase;
-  else t.y += mod(cell.x, 2.0) * u_phase;
-  cell = floor(t);
-  vec2 f = fract(t);
-  if (u_mirror == 1) f = mix(f, 1.0 - f, mod(cell, 2.0));
-  return clamp(u_rect.xy + f * u_rect.zw, u_rect.xy + 0.5, u_rect.xy + u_rect.zw - 0.5);
-}`,
+    MOTION_TILE_DECLS,
     (u) => {
       ctx.gl.uniform2f(u("u_center"), cx, cy);
       ctx.gl.uniform2f(u("u_tile"), tile[0], tile[1]);

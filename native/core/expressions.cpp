@@ -4,6 +4,7 @@
  */
 #include "expressions.h"
 
+#include <algorithm>
 #include <chrono>
 #include <cmath>
 
@@ -259,8 +260,11 @@ bool CExpressionEngine::Start(const CProject& project, std::string& error)
 		error = "cannot start QuickJS";
 		return false;
 	}
-	/** Generous for one project's model; a runaway expression fails instead of taking the app down. */
-	JS_SetMemoryLimit(m_pRuntime, size_t(512) << 20);
+	/**
+	 * Generous for one project's model, which the script holds at up to ten times the file's size; a runaway expression
+	 * fails instead of taking the app down.
+	 */
+	JS_SetMemoryLimit(m_pRuntime, std::max(size_t(512) << 20, project.m_Bytes.size() * 16));
 	JS_SetMaxStackSize(m_pRuntime, size_t(1) << 20);
 	m_pContext = JS_NewContext(m_pRuntime);
 	if (!m_pContext)

@@ -1,7 +1,9 @@
 // Headless renderer: renders plan files (src/native/wire.ts) and writes each frame's straight RGBA, rows top first,
 // next to it as <plan>.rgba (or into --out). Prints one JSON line per frame, and the device with --info.
 //
-//   aevk-render [--info] [--out dir] [--bench n] plan.aevp...
+//   aevk-render [--info] [--out dir] [--media dir]... [--bench n] plan.aevp...
+//
+// --media names a folder to look for the footage and sounds plans name (Audio Spectrum's audio), searched recursively.
 //
 // --bench renders each plan n times after a first, untimed one and prints the median milliseconds of each stage
 // instead of writing frames: reading the plan, recording the commands, the GPU's work, and reading the frame back.
@@ -94,14 +96,16 @@ int main(int argc, char** argv) {
   std::string outDir;
   bool info = false;
   int runs = 0;
+  aevk::EngineOptions options;
   for (int i = 1; i < argc; i++) {
     if (!std::strcmp(argv[i], "--info")) info = true;
     else if (!std::strcmp(argv[i], "--out") && i + 1 < argc) outDir = argv[++i];
+    else if (!std::strcmp(argv[i], "--media") && i + 1 < argc) options.mediaFolders.push_back(argv[++i]);
     else if (!std::strcmp(argv[i], "--bench") && i + 1 < argc) runs = std::max(1, std::atoi(argv[++i]));
     else plans.push_back(argv[i]);
   }
   std::string error;
-  auto engine = aevk::Engine::create(aevk::EngineOptions(), error);
+  auto engine = aevk::Engine::create(options, error);
   if (!engine) {
     std::printf("{\"error\":%s}\n", jsonString(error).c_str());
     return 2;

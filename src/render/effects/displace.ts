@@ -93,27 +93,8 @@ const WaveType = { SINE: 1, NOISE: 8, SMOOTH_NOISE: 9 } as const;
 /** Wave Warp's Pinning choices. */
 const WavePin = { NONE: 1, ALL: 2, CENTER: 3, LEFT: 4, TOP: 5, RIGHT: 6, BOTTOM: 7, HORIZONTAL: 8, VERTICAL: 9 } as const;
 
-// Wave Warp: the layer moved across Direction (degrees, clockwise from up; the waves travel along it) by Wave Height
-// times a wave of Wave Width pixels (stockMath.ts waveShape, Noise and Smooth Noise random), travelling Wave Speed
-// cycles a second from Phase (degrees). Pinning holds the chosen edges (or the centre), easing over one Wave Width.
-// The layer grows by the wave height.
-registerStock(
-  "ADBE Wave Warp",
-  (input, p, ctx, layer, time) => {
-    const k = input.scale ?? 1;
-    const height = p.num(2, 10) * k;
-    if (Math.abs(height) < 1e-3) return input;
-    const width = Math.max(1, p.num(3, 40)) * k;
-    const travel = directionVector(p.num(4, 90));
-    const normal = [-travel[1], travel[0]];
-    const shift = p.num(5, 1) * layerTimeAt(layer, time) - p.num(7, 0) / 360;
-    const box = layerRect(layer, input);
-    const rect = clampRect(growRect(imageRect(input), Math.abs(normal[0] * height), Math.abs(normal[1] * height)));
-    return warp(
-      ctx,
-      input,
-      rect,
-      `uniform int u_type;
+/** Wave Warp's field (also embedded by the native engine). */
+export const WAVE_WARP_DECLS = `uniform int u_type;
 uniform float u_height;
 uniform float u_width;
 uniform vec2 u_travel;
@@ -156,7 +137,29 @@ float pinned(vec2 p) {
   if (u_pin == ${WavePin.VERTICAL}) return lo.x * hi.x;
   return 1.0;
 }
-vec2 map(vec2 p) { return p - u_normal * (u_height * wave(dot(p, u_travel) / u_width - u_shift) * pinned(p)); }`,
+vec2 map(vec2 p) { return p - u_normal * (u_height * wave(dot(p, u_travel) / u_width - u_shift) * pinned(p)); }`;
+
+// Wave Warp: the layer moved across Direction (degrees, clockwise from up; the waves travel along it) by Wave Height
+// times a wave of Wave Width pixels (stockMath.ts waveShape, Noise and Smooth Noise random), travelling Wave Speed
+// cycles a second from Phase (degrees). Pinning holds the chosen edges (or the centre), easing over one Wave Width.
+// The layer grows by the wave height.
+registerStock(
+  "ADBE Wave Warp",
+  (input, p, ctx, layer, time) => {
+    const k = input.scale ?? 1;
+    const height = p.num(2, 10) * k;
+    if (Math.abs(height) < 1e-3) return input;
+    const width = Math.max(1, p.num(3, 40)) * k;
+    const travel = directionVector(p.num(4, 90));
+    const normal = [-travel[1], travel[0]];
+    const shift = p.num(5, 1) * layerTimeAt(layer, time) - p.num(7, 0) / 360;
+    const box = layerRect(layer, input);
+    const rect = clampRect(growRect(imageRect(input), Math.abs(normal[0] * height), Math.abs(normal[1] * height)));
+    return warp(
+      ctx,
+      input,
+      rect,
+      WAVE_WARP_DECLS,
       (u) => {
         const gl = ctx.gl;
         gl.uniform1i(u("u_type"), p.choice(1, WaveType.SINE));
@@ -173,21 +176,8 @@ vec2 map(vec2 p) { return p - u_normal * (u_height * wave(dot(p, u_travel) / u_w
   { scalable: true },
 );
 
-// Bulge: the ellipse of Horizontal and Vertical Radius about Bulge Center magnified (positive Bulge Height) or
-// pinched (negative) on stockMath.ts' bulgeShape; Pin All Edges holds the layer's edges. Taper Radius is not drawn.
-registerStock("ADBE Bulge", (input, p, ctx, layer) => {
-  const shape = bulgeShape(p.num(4, 1));
-  if (!shape) return input;
-  const k = input.scale ?? 1;
-  const radius = [Math.max(1e-3, p.num(1, 50)) * k, Math.max(1e-3, p.num(2, 50)) * k];
-  const center = p.vec(3, layerCenter(layer, input));
-  if (p.num(5, 0) > 0) ctx.warn("Bulge: Taper Radius is ignored");
-  const box = layerRect(layer, input);
-  return warp(
-    ctx,
-    input,
-    imageRect(input),
-    `uniform vec2 u_center;
+/** Bulge's field (also embedded by the native engine). */
+export const BULGE_DECLS = `uniform vec2 u_center;
 uniform vec2 u_radius;
 uniform float u_invR;
 uniform float u_arcScale;
@@ -208,7 +198,23 @@ vec2 map(vec2 p) {
     move *= clamp(min(min(lo.x, lo.y), min(hi.x, hi.y)) / u_reach, 0.0, 1.0);
   }
   return u_center + v * (1.0 + u_sign * move) * u_radius;
-}`,
+}`;
+
+// Bulge: the ellipse of Horizontal and Vertical Radius about Bulge Center magnified (positive Bulge Height) or
+// pinched (negative) on stockMath.ts' bulgeShape; Pin All Edges holds the layer's edges. Taper Radius is not drawn.
+registerStock("ADBE Bulge", (input, p, ctx, layer) => {
+  const shape = bulgeShape(p.num(4, 1));
+  if (!shape) return input;
+  const k = input.scale ?? 1;
+  const radius = [Math.max(1e-3, p.num(1, 50)) * k, Math.max(1e-3, p.num(2, 50)) * k];
+  const center = p.vec(3, layerCenter(layer, input));
+  if (p.num(5, 0) > 0) ctx.warn("Bulge: Taper Radius is ignored");
+  const box = layerRect(layer, input);
+  return warp(
+    ctx,
+    input,
+    imageRect(input),
+    BULGE_DECLS,
     (u) => {
       const gl = ctx.gl;
       gl.uniform2f(u("u_center"), center[0] * k, (center[1] ?? 0) * k);
@@ -224,6 +230,19 @@ vec2 map(vec2 p) {
   );
 });
 
+/** Twirl's field (also embedded by the native engine). */
+export const TWIRL_DECLS = `uniform vec2 u_center;
+uniform float u_radius;
+uniform float u_angle;
+vec2 map(vec2 p) {
+  vec2 v = p - u_center;
+  float d = length(v);
+  if (d >= u_radius) return p;
+  float f = 1.0 - d / u_radius;
+  float a = -u_angle * f * f;
+  return u_center + vec2(cos(a) * v.x - sin(a) * v.y, sin(a) * v.x + cos(a) * v.y);
+}`;
+
 // Twirl: the layer turned about Twirl Center by Angle (degrees, clockwise) at the centre, easing to nothing at Twirl
 // Radius, a percentage of the layer's larger side (stockMath.ts twirlTurn).
 registerStock("ADBE Twirl", (input, p, ctx, layer) => {
@@ -237,17 +256,7 @@ registerStock("ADBE Twirl", (input, p, ctx, layer) => {
     ctx,
     input,
     imageRect(input),
-    `uniform vec2 u_center;
-uniform float u_radius;
-uniform float u_angle;
-vec2 map(vec2 p) {
-  vec2 v = p - u_center;
-  float d = length(v);
-  if (d >= u_radius) return p;
-  float f = 1.0 - d / u_radius;
-  float a = -u_angle * f * f;
-  return u_center + vec2(cos(a) * v.x - sin(a) * v.y, sin(a) * v.x + cos(a) * v.y);
-}`,
+    TWIRL_DECLS,
     (u) => {
       ctx.gl.uniform2f(u("u_center"), center[0] * k, (center[1] ?? 0) * k);
       ctx.gl.uniform1f(u("u_radius"), radius);
@@ -263,6 +272,24 @@ const OpticsOrientation = { HORIZONTAL: 1, VERTICAL: 2, DIAGONAL: 3 } as const;
  * the layer's: Unlimited stops at 8, as the stretched corners run off towards infinity at wide fields of view.
  */
 const OPTICS_RESIZE = [0, 1, 2, 4, 8];
+
+/** Optics Compensation's field (also embedded by the native engine). */
+export const OPTICS_DECLS = `uniform vec2 u_center;
+uniform vec2 u_focals;
+uniform int u_reverse;
+vec2 map(vec2 p) {
+  vec2 v = p - u_center;
+  float r = length(v);
+  if (r < 1e-6) return p;
+  float source;
+  if (u_reverse == 1) source = u_focals.y * atan(r / u_focals.x);
+  else {
+    float a = r / u_focals.y;
+    if (a >= 1.5707963) return vec2(-1e9);
+    source = u_focals.x * tan(a);
+  }
+  return u_center + v * (source / r);
+}`;
 
 // Optics Compensation: the layer seen through a fisheye lens of Field Of View across its width, height or diagonal
 // (FOV Orientation) about View Center, or with Reverse Lens Distortion the fisheye removed (stockMath.ts
@@ -285,22 +312,7 @@ registerStock("ADBE Optics Compensation", (input, p, ctx, layer) => {
     ctx,
     input,
     rect,
-    `uniform vec2 u_center;
-uniform vec2 u_focals;
-uniform int u_reverse;
-vec2 map(vec2 p) {
-  vec2 v = p - u_center;
-  float r = length(v);
-  if (r < 1e-6) return p;
-  float source;
-  if (u_reverse == 1) source = u_focals.y * atan(r / u_focals.x);
-  else {
-    float a = r / u_focals.y;
-    if (a >= 1.5707963) return vec2(-1e9);
-    source = u_focals.x * tan(a);
-  }
-  return u_center + v * (source / r);
-}`,
+    OPTICS_DECLS,
     (u) => {
       ctx.gl.uniform2f(u("u_center"), center[0], center[1] ?? 0);
       ctx.gl.uniform2f(u("u_focals"), focals[0], focals[1]);

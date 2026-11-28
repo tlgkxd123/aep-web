@@ -6,7 +6,7 @@
 import { layerTimeAt } from "../../aep/evaluate.ts";
 import type { Layer } from "../../aep/model.ts";
 import type { LayerImage } from "../registry.ts";
-import { cornerPinInverse } from "./stockMath.ts";
+import { cornerPinInverse, project, squareToQuad } from "./stockMath.ts";
 import { clampRect, growRect, imageRect, layerPass, layerRect, registerStock, unionRect, warp, type Params, type Rect } from "./stockUtil.ts";
 
 /** A point parameter in image pixels, at the image's scale; `shift` 0.5 for effects placing points on pixel centres. */
@@ -28,6 +28,16 @@ function nothing(input: LayerImage, ctx: Parameters<typeof warp>[0]): LayerImage
 // Spherize: the disc of Radius about Center of Sphere magnified as if wrapped on a sphere. The point at a fraction t of
 // the radius shows the layer at t (0.6419 + 0.2268 t^2 + 0.1313 t^4) of it (fitted to After Effects' renders to within
 // 0.05 pixels); the layer grows to the disc.
+/** Also embedded by the native engine. */
+export const SPHERIZE_DECLS = `uniform vec2 u_center;
+uniform float u_radius;
+vec2 map(vec2 p) {
+  vec2 v = p - u_center;
+  float t2 = dot(v, v) / (u_radius * u_radius);
+  if (t2 >= 1.0) return p;
+  return u_center + v * (0.6419 + t2 * (0.2268 + 0.1313 * t2));
+}`;
+
 registerStock("ADBE Spherize", (input, p, ctx, layer) => {
   const k = input.scale ?? 1;
   const radius = Math.max(0, p.num(1, 0)) * k;
@@ -38,14 +48,7 @@ registerStock("ADBE Spherize", (input, p, ctx, layer) => {
     ctx,
     input,
     rect,
-    `uniform vec2 u_center;
-uniform float u_radius;
-vec2 map(vec2 p) {
-  vec2 v = p - u_center;
-  float t2 = dot(v, v) / (u_radius * u_radius);
-  if (t2 >= 1.0) return p;
-  return u_center + v * (0.6419 + t2 * (0.2268 + 0.1313 * t2));
-}`,
+    SPHERIZE_DECLS,
     (u) => {
       ctx.gl.uniform2f(u("u_center"), c[0], c[1]);
       ctx.gl.uniform1f(u("u_radius"), radius);
@@ -56,6 +59,23 @@ vec2 map(vec2 p) {
 // Ripple: rings about Ripple Center move the layer by Wave Height / 4 times cos(pi d / Wave Width + Phase - 2 pi Speed
 // t) at distance d, fading over a smoothstep to nothing at Radius percent of the layer's diagonal. Asymmetric moves
 // pixels along (1, 1), Symmetric away from the centre. The layer grows by the largest move.
+/** Also embedded by the native engine. */
+export const RIPPLE_DECLS = `uniform vec2 u_center;
+uniform float u_reach;
+uniform float u_amplitude;
+uniform float u_width;
+uniform float u_phase;
+uniform int u_symmetric;
+vec2 map(vec2 p) {
+  vec2 v = p - u_center;
+  float d = length(v);
+  if (d >= u_reach) return p;
+  float f = 1.0 - d / u_reach;
+  float move = u_amplitude * f * f * (3.0 - 2.0 * f) * cos(3.14159265 * d / u_width + u_phase);
+  if (u_symmetric == 1) return d > 0.0 ? p + v * (move / d) : p;
+  return p + vec2(move);
+}`;
+
 registerStock(
   "ADBE Ripple",
   (input, p, ctx, layer, time) => {
@@ -73,21 +93,7 @@ registerStock(
       ctx,
       input,
       rect,
-      `uniform vec2 u_center;
-uniform float u_reach;
-uniform float u_amplitude;
-uniform float u_width;
-uniform float u_phase;
-uniform int u_symmetric;
-vec2 map(vec2 p) {
-  vec2 v = p - u_center;
-  float d = length(v);
-  if (d >= u_reach) return p;
-  float f = 1.0 - d / u_reach;
-  float move = u_amplitude * f * f * (3.0 - 2.0 * f) * cos(3.14159265 * d / u_width + u_phase);
-  if (u_symmetric == 1) return d > 0.0 ? p + v * (move / d) : p;
-  return p + vec2(move);
-}`,
+      RIPPLE_DECLS,
       (u) => {
         const gl = ctx.gl;
         gl.uniform2f(u("u_center"), c[0], c[1]);
@@ -109,6 +115,24 @@ const MagnifyBlend = { NONE: 1, NORMAL: 2 } as const;
 // grows Size (and Feather) with the magnification; Resize Layer grows the layer to the magnified area. Blending None
 // replaces the layer there, Normal lays the magnified layer over it; the other modes and the Soft and Scatter scalings
 // are drawn as Normal and Standard.
+/** Also embedded by the native engine. */
+export const MAGNIFY_DECLS = `uniform vec2 u_center;
+uniform float u_inverse;
+uniform float u_extent;
+uniform float u_ease;
+uniform int u_square;
+uniform float u_opacity;
+uniform int u_replace;`;
+
+/** Also embedded by the native engine. */
+export const MAGNIFY_BODY = `  vec2 v = p - u_center;
+  float d = u_square == 1 ? max(abs(v.x), abs(v.y)) : length(v);
+  float t = clamp((u_extent + u_ease - d) / (2.0 * u_ease), 0.0, 1.0);
+  float w = t * t * (3.0 - 2.0 * t) * u_opacity;
+  vec4 o = at(0, p);
+  vec4 m = at(0, u_center + v * u_inverse);
+  outColor = u_replace == 1 ? mix(o, m, w) : m * w + o * (1.0 - m.a * w);`;
+
 registerStock("ADBE Magnify", (input, p, ctx, layer) => {
   const k = input.scale ?? 1;
   const c = point(p, 1, layer, input, 0);
@@ -125,20 +149,8 @@ registerStock("ADBE Magnify", (input, p, ctx, layer) => {
     ctx,
     rect,
     [input],
-    `uniform vec2 u_center;
-uniform float u_inverse;
-uniform float u_extent;
-uniform float u_ease;
-uniform int u_square;
-uniform float u_opacity;
-uniform int u_replace;`,
-    `  vec2 v = p - u_center;
-  float d = u_square == 1 ? max(abs(v.x), abs(v.y)) : length(v);
-  float t = clamp((u_extent + u_ease - d) / (2.0 * u_ease), 0.0, 1.0);
-  float w = t * t * (3.0 - 2.0 * t) * u_opacity;
-  vec4 o = at(0, p);
-  vec4 m = at(0, u_center + v * u_inverse);
-  outColor = u_replace == 1 ? mix(o, m, w) : m * w + o * (1.0 - m.a * w);`,
+    MAGNIFY_DECLS,
+    MAGNIFY_BODY,
     (u) => {
       const gl = ctx.gl;
       gl.uniform2f(u("u_center"), c[0], c[1]);
@@ -158,6 +170,18 @@ uniform int u_replace;`,
 // CC Lens: a disc of radius Size percent of half the layer's diagonal about Center; the point at a fraction t of the
 // radius shows the layer at (1 - Convergence / 100 t^2) of its distance. The disc's edge fades over sqrt(2) pixels and
 // nothing is drawn outside it.
+/** Also embedded by the native engine. */
+export const LENS_POST = "  outColor = c * clamp((u_radius - length(p - u_center)) / 1.41421356, 0.0, 1.0);";
+
+/** Also embedded by the native engine. */
+export const LENS_DECLS = `uniform vec2 u_center;
+uniform float u_radius;
+uniform float u_convergence;
+vec2 map(vec2 p) {
+  vec2 v = p - u_center;
+  return u_center + v * (1.0 - u_convergence * dot(v, v) / (u_radius * u_radius));
+}`;
+
 registerStock("CC Lens", (input, p, ctx, layer) => {
   const box = layerRect(layer, input);
   const radius = (Math.max(0, p.num(2, 50)) / 100) * (Math.hypot(box.width, box.height) / 2);
@@ -167,19 +191,13 @@ registerStock("CC Lens", (input, p, ctx, layer) => {
     ctx,
     input,
     clampRect(discRect(c, radius)),
-    `uniform vec2 u_center;
-uniform float u_radius;
-uniform float u_convergence;
-vec2 map(vec2 p) {
-  vec2 v = p - u_center;
-  return u_center + v * (1.0 - u_convergence * dot(v, v) / (u_radius * u_radius));
-}`,
+    LENS_DECLS,
     (u) => {
       ctx.gl.uniform2f(u("u_center"), c[0], c[1]);
       ctx.gl.uniform1f(u("u_radius"), radius);
       ctx.gl.uniform1f(u("u_convergence"), p.num(3, 100) / 100);
     },
-    "  outColor = c * clamp((u_radius - length(p - u_center)) / 1.41421356, 0.0, 1.0);",
+    LENS_POST,
   );
 });
 
@@ -229,6 +247,18 @@ vec4 footprintSample(vec2 p, float shear) {
 // CC Slant: the layer slanted by Slant / 100 pixels across per pixel above Floor and scaled vertically about it by
 // Height percent; without Stretching the slant keeps the layer's slanted sides at their length. Set Color fills it
 // with Color.
+/** Also embedded by the native engine. */
+export const SLANT_DECLS = `uniform float u_slant;
+uniform float u_height;
+uniform float u_floor;
+uniform vec4 u_color;
+${SHEAR_SAMPLE}`;
+
+/** Also embedded by the native engine. */
+export const SLANT_BODY = `  float y = u_floor + (p.y - u_floor) / u_height;
+  vec4 c = shearSample(vec2(p.x - u_slant * (u_floor - y), y), vec2(1.0 + 2.0 * abs(u_slant / u_height), max(1.0, 1.0 / abs(u_height))));
+  outColor = u_color.a > 0.0 ? vec4(u_color.rgb * c.a, c.a) : c;`;
+
 registerStock("CC Slant", (input, p, ctx, layer) => {
   const slant = p.num(1, 0) / 100;
   const stretch = p.bool(2, true);
@@ -250,14 +280,8 @@ registerStock("CC Slant", (input, p, ctx, layer) => {
     ctx,
     rect,
     [input],
-    `uniform float u_slant;
-uniform float u_height;
-uniform float u_floor;
-uniform vec4 u_color;
-${SHEAR_SAMPLE}`,
-    `  float y = u_floor + (p.y - u_floor) / u_height;
-  vec4 c = shearSample(vec2(p.x - u_slant * (u_floor - y), y), vec2(1.0 + 2.0 * abs(u_slant / u_height), max(1.0, 1.0 / abs(u_height))));
-  outColor = u_color.a > 0.0 ? vec4(u_color.rgb * c.a, c.a) : c;`,
+    SLANT_DECLS,
+    SLANT_BODY,
     (u) => {
       const gl = ctx.gl;
       gl.uniform1f(u("u_slant"), slant);
@@ -275,6 +299,35 @@ ${SHEAR_SAMPLE}`,
 // footprint, placed as the layer scaled about Center would be and repeated over the layer's box every tile size less
 // one pixel: the tile is sampled bilinearly between its pixel centres, half a pixel in, so a repeat starts on its
 // first pixel and ends just short of its last. Blend w. Original mixes the layer back in.
+/** Also embedded by the native engine. */
+export const TILER_AVERAGE_DECLS = `uniform vec2 u_axis;
+uniform float u_step;
+uniform float u_from;`;
+
+/** Also embedded by the native engine. */
+export const TILER_AVERAGE_BODY = `  float a = u_from + floor(dot(p, u_axis)) * u_step;
+  float b = a + u_step;
+  vec4 sum = vec4(0.0);
+  for (float i = floor(a); i < b; i += 1.0) {
+    float w = min(b, i + 1.0) - max(a, i);
+    sum += at(0, mix(p, vec2(i + 0.5), u_axis)) * w;
+  }
+  outColor = sum / u_step;`;
+
+/** Also embedded by the native engine. */
+export const TILER_DECLS = `uniform vec2 u_origin0;
+uniform vec2 u_period;
+uniform float u_blend;`;
+
+/** Also embedded by the native engine. */
+export const TILER_BODY = `  vec2 g = mod(p - u_origin0 - 0.5, u_period);
+  vec2 j0 = floor(g);
+  vec2 f = g - j0;
+  vec2 j1 = j0 + 1.5;
+  j0 += 0.5;
+  vec4 t = mix(mix(at(0, j0), at(0, vec2(j1.x, j0.y)), f.x), mix(at(0, vec2(j0.x, j1.y)), at(0, j1), f.x), f.y);
+  outColor = mix(t, at(1, p), u_blend);`;
+
 registerStock("CC Tiler", (input, p, ctx, layer) => {
   const box = layerRect(layer, input);
   const scale = Math.min(1, Math.max(0, p.num(1, 1)));
@@ -287,17 +340,8 @@ registerStock("CC Tiler", (input, p, ctx, layer) => {
       ctx,
       rect,
       [source],
-      `uniform vec2 u_axis;
-uniform float u_step;
-uniform float u_from;`,
-      `  float a = u_from + floor(dot(p, u_axis)) * u_step;
-  float b = a + u_step;
-  vec4 sum = vec4(0.0);
-  for (float i = floor(a); i < b; i += 1.0) {
-    float w = min(b, i + 1.0) - max(a, i);
-    sum += at(0, mix(p, vec2(i + 0.5), u_axis)) * w;
-  }
-  outColor = sum / u_step;`,
+      TILER_AVERAGE_DECLS,
+      TILER_AVERAGE_BODY,
       (u) => {
         ctx.gl.uniform2f(u("u_axis"), 1 - axis, axis);
         ctx.gl.uniform1f(u("u_step"), step);
@@ -312,16 +356,8 @@ uniform float u_from;`,
     ctx,
     box,
     [tile, input],
-    `uniform vec2 u_origin0;
-uniform vec2 u_period;
-uniform float u_blend;`,
-    `  vec2 g = mod(p - u_origin0 - 0.5, u_period);
-  vec2 j0 = floor(g);
-  vec2 f = g - j0;
-  vec2 j1 = j0 + 1.5;
-  j0 += 0.5;
-  vec4 t = mix(mix(at(0, j0), at(0, vec2(j1.x, j0.y)), f.x), mix(at(0, vec2(j0.x, j1.y)), at(0, j1), f.x), f.y);
-  outColor = mix(t, at(1, p), u_blend);`,
+    TILER_DECLS,
+    TILER_BODY,
     (u) => {
       ctx.gl.uniform2f(u("u_origin0"), c[0] * (1 - scale), c[1] * (1 - scale));
       ctx.gl.uniform2f(u("u_period"), tw - 1, th - 1);
@@ -334,28 +370,11 @@ uniform float u_blend;`,
   return out;
 });
 
-/** CC Split's pull towards the line at its middle, as a fraction of the distance from Point A to Point B. */
-export const splitPull = (split: number) => 0.006 * Math.max(0, split);
-/** How far from the line CC Split's pull reaches, as a fraction of the distance from Point A to Point B. */
-export const SPLIT_REACH = 0.86;
+/** Also embedded by the native engine. */
+export const SPLIT_POST = "  outColor = c * tearAlpha(p);";
 
-// CC Split, CC Split 2: the layer torn open along the segment from Point A to Point B. A pixel at distance d from the
-// line, a fraction t of the way along the segment, shows the layer d - m nearer the line, m = Split / 100 * 0.6 |AB|
-// sin^2(pi t) (1 - d / (0.86 |AB|)); where m reaches past the line the tear is open, its edge fading over the two
-// layer pixels past the line. CC Split 2 pulls the side to the right of A to B by Split 1 and the other by Split 2.
-function registerSplit(matchName: string, two: boolean) {
-  registerStock(matchName, (input, p, ctx, layer) => {
-    const a = point(p, 1, layer, input);
-    const b = point(p, 2, layer, input);
-    const length = Math.hypot(b[0] - a[0], b[1] - a[1]);
-    const right = splitPull(p.num(3, 0)) * length;
-    const left = two ? splitPull(p.num(4, 0)) * length : right;
-    if (length < 1e-3 || (right < 1e-3 && left < 1e-3)) return input;
-    return warp(
-      ctx,
-      input,
-      imageRect(input),
-      `uniform vec2 u_a;
+/** Also embedded by the native engine. */
+export const SPLIT_DECLS = `uniform vec2 u_a;
 uniform vec2 u_axis;
 uniform float u_length;
 uniform vec2 u_pulls;
@@ -382,7 +401,30 @@ vec2 map(vec2 p) {
   vec2 n = vec2(-u_axis.y, u_axis.x);
   float v = dot(p - u_a, n);
   return p - n * (sign(v) * m);
-}`,
+}`;
+
+/** CC Split's pull towards the line at its middle, as a fraction of the distance from Point A to Point B. */
+export const splitPull = (split: number) => 0.006 * Math.max(0, split);
+/** How far from the line CC Split's pull reaches, as a fraction of the distance from Point A to Point B. */
+export const SPLIT_REACH = 0.86;
+
+// CC Split, CC Split 2: the layer torn open along the segment from Point A to Point B. A pixel at distance d from the
+// line, a fraction t of the way along the segment, shows the layer d - m nearer the line, m = Split / 100 * 0.6 |AB|
+// sin^2(pi t) (1 - d / (0.86 |AB|)); where m reaches past the line the tear is open, its edge fading over the two
+// layer pixels past the line. CC Split 2 pulls the side to the right of A to B by Split 1 and the other by Split 2.
+function registerSplit(matchName: string, two: boolean) {
+  registerStock(matchName, (input, p, ctx, layer) => {
+    const a = point(p, 1, layer, input);
+    const b = point(p, 2, layer, input);
+    const length = Math.hypot(b[0] - a[0], b[1] - a[1]);
+    const right = splitPull(p.num(3, 0)) * length;
+    const left = two ? splitPull(p.num(4, 0)) * length : right;
+    if (length < 1e-3 || (right < 1e-3 && left < 1e-3)) return input;
+    return warp(
+      ctx,
+      input,
+      imageRect(input),
+      SPLIT_DECLS,
       (u) => {
         const gl = ctx.gl;
         gl.uniform2f(u("u_a"), a[0], a[1]);
@@ -391,7 +433,7 @@ vec2 map(vec2 p) {
         gl.uniform2f(u("u_pulls"), right, left);
         gl.uniform1f(u("u_reach"), SPLIT_REACH * length);
       },
-      "  outColor = c * tearAlpha(p);",
+      SPLIT_POST,
     );
   });
 }
@@ -404,6 +446,32 @@ const BenderStyle = { BEND: 1, MARILYN: 2, SHARP: 3, BOXER: 4 } as const;
 // 200 of half the layer's diagonal (of the distance from Base to Top with Adjust To Distance) to the right of the
 // line times the style's profile: Bend u^2 (on along its tangent past Top), Sharp a triangle peaking half way, Marilyn
 // that triangle smoothstepped, Boxer smoothstep(u) (held past Top); below Base nothing moves.
+/** Also embedded by the native engine. */
+export const BENDER_BODY = "  outColor = footprintSample(p, 1.0);";
+
+/** Also embedded by the native engine. */
+export const BENDER_DECLS = `uniform vec2 u_base;
+uniform vec2 u_axis;
+uniform float u_length;
+uniform float u_amount;
+uniform int u_style;
+float profile(float u) {
+  if (u <= 0.0) return 0.0;
+  if (u_style == 1) return u <= 1.0 ? u * u : 2.0 * u - 1.0;
+  float sharp = max(0.0, 1.0 - abs(2.0 * u - 1.0));
+  if (u_style == 2) return smoothstep(0.0, 1.0, sharp);
+  if (u_style == 3) return sharp;
+  return smoothstep(0.0, 1.0, u);
+}
+vec2 map(vec2 p) {
+  vec2 n = vec2(-u_axis.y, u_axis.x);
+  float u = dot(p - u_base, u_axis) / u_length;
+  if (u <= 0.0) return p;
+  return p - n * (u_amount * profile(u));
+}
+${SHEAR_SAMPLE}
+${FOOTPRINT_SAMPLE}`;
+
 registerStock("CC Bender", (input, p, ctx, layer) => {
   const top = point(p, 4, layer, input);
   const base = point(p, 5, layer, input);
@@ -428,28 +496,8 @@ registerStock("CC Bender", (input, p, ctx, layer) => {
     ctx,
     clampRect(growRect(r, grow)),
     [input],
-    `uniform vec2 u_base;
-uniform vec2 u_axis;
-uniform float u_length;
-uniform float u_amount;
-uniform int u_style;
-float profile(float u) {
-  if (u <= 0.0) return 0.0;
-  if (u_style == 1) return u <= 1.0 ? u * u : 2.0 * u - 1.0;
-  float sharp = max(0.0, 1.0 - abs(2.0 * u - 1.0));
-  if (u_style == 2) return smoothstep(0.0, 1.0, sharp);
-  if (u_style == 3) return sharp;
-  return smoothstep(0.0, 1.0, u);
-}
-vec2 map(vec2 p) {
-  vec2 n = vec2(-u_axis.y, u_axis.x);
-  float u = dot(p - u_base, u_axis) / u_length;
-  if (u <= 0.0) return p;
-  return p - n * (u_amount * profile(u));
-}
-${SHEAR_SAMPLE}
-${FOOTPRINT_SAMPLE}`,
-    "  outColor = footprintSample(p, 1.0);",
+    BENDER_DECLS,
+    BENDER_BODY,
     (u) => {
       const gl = ctx.gl;
       gl.uniform2f(u("u_base"), base[0], base[1]);
@@ -527,6 +575,45 @@ export function bezierMesh(pts: number[][], cells: number): number[][] {
 
 // Bezier Warp: the layer's box drawn on `bezierMesh` with Quality cells a side, each cell bilinear; past the mesh's
 // edge the nearest cell carries on, so the layer's own transparent border draws the edge.
+/** Also embedded by the native engine. */
+export const BEZMESH_DECLS = `uniform vec2 u_nodes[${(BEZIER_MAX_CELLS + 1) ** 2}];
+uniform int u_cells;
+uniform vec4 u_box;
+${CROSS}
+${BILINEAR_INVERSE}
+vec2 map(vec2 p) {
+  float best = 1e9;
+  vec2 uv = vec2(-1e9);
+  for (int j = 0; j < ${BEZIER_MAX_CELLS}; j++) {
+    if (j >= u_cells) break;
+    for (int i = 0; i < ${BEZIER_MAX_CELLS}; i++) {
+      if (i >= u_cells) break;
+      int n = j * (u_cells + 1) + i;
+      vec2 a = u_nodes[n];
+      vec2 b = u_nodes[n + 1];
+      vec2 c = u_nodes[n + u_cells + 1];
+      vec2 e = u_nodes[n + u_cells + 2];
+      for (int t = 0; t < 2; t++) {
+        // Columns picked as vectors and solved by hand: a select between matrices miscompiles on some Vulkan drivers.
+        vec2 c0 = t == 0 ? b - a : e - c;
+        vec2 c1 = t == 0 ? e - b : c - a;
+        float det = c0.x * c1.y - c1.x * c0.y;
+        if (abs(det) < 1e-9) continue;
+        vec2 q = p - a;
+        vec2 w = vec2(c1.y * q.x - c1.x * q.y, c0.x * q.y - c0.y * q.x) / det;
+        vec2 ab = w;
+        float d = max(0.0, max(max(-ab.x, -ab.y), max(ab.x - 1.0, ab.y - 1.0)));
+        d = max(d, t == 0 ? ab.y - ab.x : ab.x - ab.y);
+        if (d <= best) {
+          best = d;
+          uv = (vec2(float(i), float(j)) + ab) / float(u_cells);
+        }
+      }
+    }
+  }
+  return best > 1.0 ? vec2(-1e9) : u_box.xy + uv * u_box.zw;
+}`;
+
 registerStock("ADBE BEZMESH", (input, p, ctx, layer) => {
   const k = input.scale ?? 1;
   const box = layerRect(layer, input);
@@ -558,39 +645,7 @@ registerStock("ADBE BEZMESH", (input, p, ctx, layer) => {
     ctx,
     input,
     out,
-    `uniform vec2 u_nodes[${(BEZIER_MAX_CELLS + 1) ** 2}];
-uniform int u_cells;
-uniform vec4 u_box;
-${CROSS}
-${BILINEAR_INVERSE}
-vec2 map(vec2 p) {
-  float best = 1e9;
-  vec2 uv = vec2(-1e9);
-  for (int j = 0; j < ${BEZIER_MAX_CELLS}; j++) {
-    if (j >= u_cells) break;
-    for (int i = 0; i < ${BEZIER_MAX_CELLS}; i++) {
-      if (i >= u_cells) break;
-      int n = j * (u_cells + 1) + i;
-      vec2 a = u_nodes[n];
-      vec2 b = u_nodes[n + 1];
-      vec2 c = u_nodes[n + u_cells + 1];
-      vec2 e = u_nodes[n + u_cells + 2];
-      for (int t = 0; t < 2; t++) {
-        mat2 m = t == 0 ? mat2(b - a, e - b) : mat2(e - c, c - a);
-        if (abs(determinant(m)) < 1e-9) continue;
-        vec2 w = inverse(m) * (p - a);
-        vec2 ab = t == 0 ? vec2(w.x, w.y) : vec2(w.x, w.x + w.y);
-        float d = max(0.0, max(max(-ab.x, -ab.y), max(ab.x - 1.0, ab.y - 1.0)));
-        d = max(d, t == 0 ? ab.y - ab.x : ab.x - ab.y);
-        if (d <= best) {
-          best = d;
-          uv = (vec2(float(i), float(j)) + ab) / float(u_cells);
-        }
-      }
-    }
-  }
-  return best > 1.0 ? vec2(-1e9) : u_box.xy + uv * u_box.zw;
-}`,
+    BEZMESH_DECLS,
     (u) => {
       ctx.gl.uniform2fv(u("u_nodes[0]"), nodes.flat());
       ctx.gl.uniform1i(u("u_cells"), cells);
@@ -599,27 +654,10 @@ vec2 map(vec2 p) {
   );
 });
 
-// CC Power Pin: the layer's box, grown by the Expansion percentages of its size, mapped projectively onto the four
-// pins (bilinearly at Perspective 0); the output covers the pinned quad.
-registerStock("CC Power Pin", (input, p, ctx, layer) => {
-  const k = input.scale ?? 1;
-  const box = layerRect(layer, input);
-  const [x0, y0, x1, y1] = [box.x / k, box.y / k, (box.x + box.width) / k, (box.y + box.height) / k];
-  const pins = [p.vec(2, [x0, y0]), p.vec(3, [x1, y0]), p.vec(4, [x0, y1]), p.vec(5, [x1, y1])].map((v) => [v[0] * k, (v[1] ?? 0) * k]);
-  const inverse = cornerPinInverse(pins[0], pins[1], pins[2], pins[3]);
-  const xs = pins.map((v) => v[0]);
-  const ys = pins.map((v) => v[1]);
-  const out = clampRect({ x: Math.min(...xs), y: Math.min(...ys), width: Math.max(...xs) - Math.min(...xs), height: Math.max(...ys) - Math.min(...ys) });
-  if (!inverse || out.width < 1 || out.height < 1) return nothing(input, ctx);
-  const perspective = Math.min(1, Math.max(0, p.num(6, 1)));
-  if (perspective > 0 && perspective < 1) ctx.warn("CC Power Pin: Perspective between 0 and 100% is drawn as full perspective");
-  const [top, left, right, bottom] = [9, 10, 11, 12].map((i) => p.num(i, 0) / 100);
-  const source = { x: box.x - left * box.width, y: box.y - top * box.height, width: box.width * (1 + left + right), height: box.height * (1 + top + bottom) };
-  const result = layerPass(
-    ctx,
-    out,
-    [input],
-    `uniform mat3 u_inverse;
+// CC Power Pin: the layer's box mapped projectively (bilinearly at Perspective 0) onto the four pins, each edge of the
+// quad first carried on past its pins by its Expansion percentage of the map; the output covers that quad.
+/** Also embedded by the native engine. */
+export const POWER_PIN_DECLS = `uniform mat3 u_inverse;
 uniform vec4 u_rect;
 uniform vec2 u_pins[4];
 uniform int u_bilinear;
@@ -634,14 +672,54 @@ vec3 pinned(vec2 p) {
 }
 vec2 map(vec2 p) {
   return u_rect.xy + pinned(p).xy * u_rect.zw;
-}`,
-    `  vec3 uv = pinned(p);
+}`;
+
+/** Also embedded by the native engine. */
+export const POWER_PIN_BODY = `  vec3 uv = pinned(p);
   if (uv.z <= 0.0 || uv.x < 0.0 || uv.y < 0.0 || uv.x > 1.0 || uv.y > 1.0) { outColor = vec4(0.0); return; }
-  outColor = footprintSample(p, 1.0);`,
+  outColor = footprintSample(p, 1.0);`;
+
+/** The points at unit-square coordinates `at` of the map taking the unit square's corners to `pins` (bilinear or projective). */
+export function expandedPins(pins: number[][], at: number[][], bilinear: boolean): number[][] {
+  const m = squareToQuad(pins[0], pins[1], pins[2], pins[3]);
+  return at.map(([u, v]) =>
+    bilinear
+      ? [0, 1].map((c) => pins[0][c] * (1 - u) * (1 - v) + pins[1][c] * u * (1 - v) + pins[2][c] * (1 - u) * v + pins[3][c] * u * v)
+      : project(m, [u, v]),
+  );
+}
+
+registerStock("CC Power Pin", (input, p, ctx, layer) => {
+  const k = input.scale ?? 1;
+  const box = layerRect(layer, input);
+  const [x0, y0, x1, y1] = [box.x / k, box.y / k, (box.x + box.width) / k, (box.y + box.height) / k];
+  const placed = [p.vec(2, [x0, y0]), p.vec(3, [x1, y0]), p.vec(4, [x0, y1]), p.vec(5, [x1, y1])].map((v) => [v[0] * k, (v[1] ?? 0) * k]);
+  const perspective = Math.min(1, Math.max(0, p.num(6, 1)));
+  if (perspective > 0 && perspective < 1) ctx.warn("CC Power Pin: Perspective between 0 and 100% is drawn as full perspective");
+  const [top, left, right, bottom] = [9, 10, 11, 12].map((i) => p.num(i, 0) / 100);
+  // Expansion moves each edge of the quad out by its percentage of the pinned map, and the whole layer fills it
+  // (measured against After Effects).
+  const pins = expandedPins(placed, [
+    [-left, -top],
+    [1 + right, -top],
+    [-left, 1 + bottom],
+    [1 + right, 1 + bottom],
+  ], perspective === 0);
+  const inverse = cornerPinInverse(pins[0], pins[1], pins[2], pins[3]);
+  const xs = pins.map((v) => v[0]);
+  const ys = pins.map((v) => v[1]);
+  const out = clampRect({ x: Math.min(...xs), y: Math.min(...ys), width: Math.max(...xs) - Math.min(...xs), height: Math.max(...ys) - Math.min(...ys) });
+  if (!inverse || out.width < 1 || out.height < 1) return nothing(input, ctx);
+  const result = layerPass(
+    ctx,
+    out,
+    [input],
+    POWER_PIN_DECLS,
+    POWER_PIN_BODY,
     (u) => {
       const m = inverse;
       ctx.gl.uniformMatrix3fv(u("u_inverse"), false, [m[0], m[3], m[6], m[1], m[4], m[7], m[2], m[5], m[8]]);
-      ctx.gl.uniform4f(u("u_rect"), source.x, source.y, source.width, source.height);
+      ctx.gl.uniform4f(u("u_rect"), box.x, box.y, box.width, box.height);
       ctx.gl.uniform2fv(u("u_pins[0]"), pins.flat());
       ctx.gl.uniform1i(u("u_bilinear"), perspective === 0 ? 1 : 0);
     },

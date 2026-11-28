@@ -8,6 +8,16 @@ import { imageRect, layerPass, layerRect, registerStock } from "./stockUtil.ts";
 const completionOf = (v: number) => Math.min(1, Math.max(0, v / 100));
 
 // Linear Wipe: a straight edge sweeps along Wipe Angle (90 wipes from the left) across the layer's box.
+/** Also embedded by the native engine. */
+export const LINEAR_WIPE_DECLS = `uniform vec2 u_dir;
+uniform float u_edge;
+uniform float u_feather;`;
+
+/** Also embedded by the native engine. */
+export const LINEAR_WIPE_BODY = `  float d = u_edge - dot(p, u_dir);
+  float cut = u_feather > 0.0 ? clamp(d / (2.0 * u_feather) + 0.5, 0.0, 1.0) : (d > 0.0 ? 1.0 : 0.0);
+  outColor = at(0, p) * (1.0 - cut);`;
+
 registerStock("ADBE Linear Wipe", (input, p, ctx, layer) => {
   const completion = completionOf(p.num(1, 0));
   if (completion <= 0) return input;
@@ -20,12 +30,8 @@ registerStock("ADBE Linear Wipe", (input, p, ctx, layer) => {
     ctx,
     imageRect(input),
     [input],
-    `uniform vec2 u_dir;
-uniform float u_edge;
-uniform float u_feather;`,
-    `  float d = u_edge - dot(p, u_dir);
-  float cut = u_feather > 0.0 ? clamp(d / (2.0 * u_feather) + 0.5, 0.0, 1.0) : (d > 0.0 ? 1.0 : 0.0);
-  outColor = at(0, p) * (1.0 - cut);`,
+    LINEAR_WIPE_DECLS,
+    LINEAR_WIPE_BODY,
     (u) => {
       ctx.gl.uniform2f(u("u_dir"), dir[0], dir[1]);
       ctx.gl.uniform1f(u("u_edge"), edge);
@@ -42,6 +48,24 @@ const RadialWipe = { CLOCKWISE: 1, COUNTERCLOCKWISE: 2, BOTH: 3 } as const;
 
 // Radial Wipe: a sector from Start Angle around Wipe Center opens by Completion x 360 degrees (clockwise,
 // counterclockwise, or half each way); the feather softens its edges by arc length.
+/** Also embedded by the native engine. */
+export const RADIAL_WIPE_DECLS = `uniform vec2 u_center;
+uniform float u_start;
+uniform float u_middle;
+uniform float u_half;
+uniform float u_feather;`;
+
+/** Also embedded by the native engine. */
+export const RADIAL_WIPE_BODY = `  vec2 v = p - u_center;
+  float angle = degrees(atan(v.x, -v.y));
+  float rel = mod(angle - u_start - u_middle + 180.0, 360.0) - 180.0;
+  float d = u_half - abs(rel);
+  float cut;
+  if (u_half >= 180.0) cut = 1.0;
+  else if (u_feather > 0.0) cut = clamp(radians(d) * length(v) / (2.0 * u_feather) + 0.5, 0.0, 1.0);
+  else cut = d > 0.0 ? 1.0 : 0.0;
+  outColor = at(0, p) * (1.0 - cut);`;
+
 registerStock("ADBE Radial Wipe", (input, p, ctx, layer) => {
   const completion = completionOf(p.num(1, 0));
   if (completion <= 0) return input;
@@ -56,20 +80,8 @@ registerStock("ADBE Radial Wipe", (input, p, ctx, layer) => {
     ctx,
     imageRect(input),
     [input],
-    `uniform vec2 u_center;
-uniform float u_start;
-uniform float u_middle;
-uniform float u_half;
-uniform float u_feather;`,
-    `  vec2 v = p - u_center;
-  float angle = degrees(atan(v.x, -v.y));
-  float rel = mod(angle - u_start - u_middle + 180.0, 360.0) - 180.0;
-  float d = u_half - abs(rel);
-  float cut;
-  if (u_half >= 180.0) cut = 1.0;
-  else if (u_feather > 0.0) cut = clamp(radians(d) * length(v) / (2.0 * u_feather) + 0.5, 0.0, 1.0);
-  else cut = d > 0.0 ? 1.0 : 0.0;
-  outColor = at(0, p) * (1.0 - cut);`,
+    RADIAL_WIPE_DECLS,
+    RADIAL_WIPE_BODY,
     (u) => {
       ctx.gl.uniform2f(u("u_center"), cx * k, cy * k);
       ctx.gl.uniform1f(u("u_start"), p.num(2, 0));
@@ -85,6 +97,22 @@ uniform float u_feather;`,
 
 // Venetian Blinds: stripes of Width pixels across Direction (0 gives horizontal slats), each wiped from its
 // start by Completion of its width.
+/** Also embedded by the native engine. */
+export const VENETIAN_DECLS = `uniform vec2 u_origin0;
+uniform vec2 u_dir;
+uniform float u_width;
+uniform float u_completion;
+uniform float u_feather;`;
+
+/** Also embedded by the native engine. */
+export const VENETIAN_BODY = `  float local = mod(dot(p - u_origin0, u_dir), u_width);
+  float d = u_completion * u_width - local;
+  float cut;
+  if (u_completion >= 1.0) cut = 1.0;
+  else if (u_feather > 0.0) cut = clamp(d / (2.0 * u_feather) + 0.5, 0.0, 1.0);
+  else cut = d > 0.0 ? 1.0 : 0.0;
+  outColor = at(0, p) * (1.0 - cut);`;
+
 registerStock("ADBE Venetian Blinds", (input, p, ctx, layer) => {
   const completion = completionOf(p.num(1, 0));
   if (completion <= 0) return input;
@@ -96,18 +124,8 @@ registerStock("ADBE Venetian Blinds", (input, p, ctx, layer) => {
     ctx,
     imageRect(input),
     [input],
-    `uniform vec2 u_origin0;
-uniform vec2 u_dir;
-uniform float u_width;
-uniform float u_completion;
-uniform float u_feather;`,
-    `  float local = mod(dot(p - u_origin0, u_dir), u_width);
-  float d = u_completion * u_width - local;
-  float cut;
-  if (u_completion >= 1.0) cut = 1.0;
-  else if (u_feather > 0.0) cut = clamp(d / (2.0 * u_feather) + 0.5, 0.0, 1.0);
-  else cut = d > 0.0 ? 1.0 : 0.0;
-  outColor = at(0, p) * (1.0 - cut);`,
+    VENETIAN_DECLS,
+    VENETIAN_BODY,
     (u) => {
       ctx.gl.uniform2f(u("u_origin0"), rect.x, rect.y);
       ctx.gl.uniform2f(u("u_dir"), Math.sin(angle), -Math.cos(angle));

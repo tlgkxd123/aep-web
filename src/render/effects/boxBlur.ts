@@ -43,7 +43,7 @@ vec4 pAt(ivec2 t, int i) {
 `;
 
 /** P[b+1] from P[b]: the sum of 2^(b+1) consecutive samples starting at each index. */
-const LEVEL_FS = `${AXIS_HEADER}
+export const LEVEL_FS = `${AXIS_HEADER}
 uniform int u_outOffset;
 uniform int u_step;
 void main() {
@@ -53,7 +53,7 @@ void main() {
 }`;
 
 /** Adds the next binary piece of the window [i - n, i + n] to the running sum. */
-const ACCUMULATE_FS = `${AXIS_HEADER}
+export const ACCUMULATE_FS = `${AXIS_HEADER}
 uniform int u_hasAcc;
 uniform int u_start;
 void main() {
@@ -66,7 +66,7 @@ void main() {
  * The window sum plus the fractional outer taps, divided by the full window, or with u_inside by the weight of
  * the taps within [u_lo, u_hi) (After Effects' Repeat Edge Pixels: the extent of the previous pass).
  */
-const FINISH_FS = `${AXIS_HEADER}
+export const FINISH_FS = `${AXIS_HEADER}
 uniform int u_n;
 uniform float u_frac;
 uniform int u_inside;
@@ -89,7 +89,7 @@ void main() {
 }`;
 
 /** The padded RGBA8 layer image into a float image; u_offset maps float texels to input texels (GL rows). */
-const LOAD_FS = `#version 300 es
+export const LOAD_FS = `#version 300 es
 precision highp float;
 uniform sampler2D u_source;
 uniform ivec2 u_offset;
@@ -102,7 +102,7 @@ void main() {
 }`;
 
 /** The u_size window at u_crop of a float image into a padded RGBA8 layer image. */
-const STORE_FS = `#version 300 es
+export const STORE_FS = `#version 300 es
 precision highp float;
 uniform sampler2D u_source;
 uniform ivec2 u_size;

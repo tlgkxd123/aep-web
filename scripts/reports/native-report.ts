@@ -36,6 +36,8 @@ if (!tool) {
   process.exit(1);
 }
 const DEFAULT_FPS = 24;
+/** Where the fixtures' footage and sounds are (Audio Spectrum's audio, by the path the project recorded). */
+const MEDIA = [join(ROOT, "fixtures"), join(ROOT, "media")].filter((dir) => existsSync(dir));
 const KNOWN: Record<string, string> = {
   "mask_feather@0": "AE's feather falls off ~0.01 faster inside the edge than a Gaussian; outside it matches exactly",
 };
@@ -84,7 +86,7 @@ let device = "";
 if (planned.length) {
   let stdout = "";
   try {
-    stdout = execFileSync(tool, ["--info", ...planned.map((j) => j.plan!)], { encoding: "utf8", maxBuffer: 1 << 26 });
+    stdout = execFileSync(tool, ["--info", ...MEDIA.flatMap((dir) => ["--media", dir]), ...planned.map((j) => j.plan!)], { encoding: "utf8", maxBuffer: 1 << 26 });
   } catch (error) {
     stdout = String((error as { stdout?: string }).stdout ?? "");
   }

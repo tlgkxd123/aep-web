@@ -27,13 +27,26 @@ export function mapPass(ctx: RenderContext, input: LayerImage, fragment: string,
 }
 
 /** A new image with the same pixels as `input` (which stays valid). */
+/** copyImage's pass (also embedded by the native engine). */
+export const COPY_FS = `${PASS_HEADER}void main() { outColor = texture(u_source, v_uv); }`;
+
 export function copyImage(ctx: RenderContext, input: LayerImage): LayerImage {
   const out = ctx.pool.acquire(input.target.width, input.target.height, false);
-  ctx.pass(ctx.program(`${PASS_HEADER}void main() { outColor = texture(u_source, v_uv); }`), out, [input.target], (uniform) =>
+  ctx.pass(ctx.program(COPY_FS), out, [input.target], (uniform) =>
     ctx.gl.uniform1i(uniform("u_source"), 0),
   );
   return { ...input, target: out };
 }
+
+/** grown()'s pass (also embedded by the native engine). */
+export const GROWN_FS = `${PASS_HEADER}
+uniform vec2 u_outSize;
+uniform vec2 u_inSize;
+uniform float u_grow;
+void main() {
+  vec2 p = v_uv * u_outSize - u_grow;
+  outColor = (p.x < 0.0 || p.y < 0.0 || p.x > u_inSize.x || p.y > u_inSize.y) ? vec4(0.0) : texture(u_source, p / u_inSize);
+}`;
 
 /** A copy of `input` grown by `grow` pixels on every side (content keeps its layer-space position). */
 export function grown(ctx: RenderContext, input: LayerImage, grow: number): LayerImage {
@@ -42,15 +55,7 @@ export function grown(ctx: RenderContext, input: LayerImage, grow: number): Laye
   const width = input.width + 2 * g;
   const height = input.height + 2 * g;
   const out = ctx.pool.acquire(width + 2 * ctx.pad, height + 2 * ctx.pad);
-  const fragment = `${PASS_HEADER}
-uniform vec2 u_outSize;
-uniform vec2 u_inSize;
-uniform float u_grow;
-void main() {
-  vec2 p = v_uv * u_outSize - u_grow;
-  outColor = (p.x < 0.0 || p.y < 0.0 || p.x > u_inSize.x || p.y > u_inSize.y) ? vec4(0.0) : texture(u_source, p / u_inSize);
-}`;
-  ctx.pass(ctx.program(fragment), out, [input.target], (uniform) => {
+  ctx.pass(ctx.program(GROWN_FS), out, [input.target], (uniform) => {
     ctx.gl.uniform1i(uniform("u_source"), 0);
     ctx.gl.uniform2f(uniform("u_outSize"), out.width, out.height);
     ctx.gl.uniform2f(uniform("u_inSize"), input.target.width, input.target.height);

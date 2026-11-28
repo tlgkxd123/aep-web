@@ -7,6 +7,23 @@ import { copyImage } from "./fxextraUtil.ts";
 import { blurrinessSigma } from "./stockMath.ts";
 import { blurAxes, compOf, gaussian, imageRect, layerCenter, layerPass, layerRect, registerStock, unionRect, type Params } from "./stockUtil.ts";
 
+/** Channel Blur's mix of its two-pass and three-pass blurs (also embedded by the native engine). */
+export const CHANNEL_BLUR_MIX_DECLS = "uniform float u_t;";
+export const CHANNEL_BLUR_MIX_BODY = "  outColor = mix(at(0, p), at(1, p), u_t);";
+/** Channel Blur's colour before blurring: straight colour (black where transparent) times the blurred alpha, opaque. */
+export const CHANNEL_BLUR_COLOUR_BODY = "  vec4 c = at(0, p);\n  outColor = vec4(c.a < 1.5 / 255.0 ? vec3(0.0) : straight(c) * at(1, p).a, 1.0);";
+
+/**
+ * Channel Blur's result from `count` images, the last the blurred alpha: red, green and blue from the images `pick`
+ * names, clamped to that alpha (also embedded by the native engine, with each channel's own image).
+ */
+export function channelBlurComposeBody(count: number, pick: number[]): string {
+  return `  vec4 s[${count}];
+${Array.from({ length: count }, (_, i) => `  s[${i}] = at(${i}, p);`).join("\n")}
+  float a = s[${count - 1}].a;
+  outColor = vec4(clamp(vec3(s[${pick[0]}].r, s[${pick[1]}].g, s[${pick[2]}].b), 0.0, a), a);`;
+}
+
 /**
  * Channel Blur's blur of one Blurriness b, in box passes with a fractional outer tap: one of radius b/2 up to 1, two
  * of 0.37b up to 2, three of 0.37b from 2.5 and between 2 and 2.5 the two-pass and three-pass results mixed linearly.
@@ -19,7 +36,7 @@ function channelBoxBlur(ctx: RenderContext, source: LayerImage, blurriness: numb
   if (b <= 2 || b >= 2.5) return boxBlur(ctx, source, { ...options, radius, iterations: b <= 2 ? 2 : 3 });
   const two = boxBlur(ctx, source, { ...options, radius, iterations: 2 });
   const three = boxBlur(ctx, copyImage(ctx, two), { ...options, radius, iterations: 1 });
-  const out = layerPass(ctx, unionRect(imageRect(two), imageRect(three)), [two, three], "uniform float u_t;", "  outColor = mix(at(0, p), at(1, p), u_t);",
+  const out = layerPass(ctx, unionRect(imageRect(two), imageRect(three)), [two, three], CHANNEL_BLUR_MIX_DECLS, CHANNEL_BLUR_MIX_BODY,
     (u) => ctx.gl.uniform1f(u("u_t"), (b - 2) / 0.5), source.scale);
   ctx.pool.release(two.target);
   ctx.pool.release(three.target);
@@ -43,7 +60,7 @@ registerStock("ADBE Channel Blur", (input, p, ctx, layer) => {
     imageRect(input),
     [input, alpha],
     "",
-    "  vec4 c = at(0, p);\n  outColor = vec4(c.a < 1.5 / 255.0 ? vec3(0.0) : straight(c) * at(1, p).a, 1.0);",
+    CHANNEL_BLUR_COLOUR_BODY,
     undefined,
     input.scale,
   );
@@ -57,10 +74,7 @@ registerStock("ADBE Channel Blur", (input, p, ctx, layer) => {
     imageRect(alpha),
     images,
     "",
-    `  vec4 s[${images.length}];
-${images.map((_, i) => `  s[${i}] = at(${i}, p);`).join("\n")}
-  float a = s[${images.length - 1}].a;
-  outColor = vec4(clamp(vec3(s[${pick[0]}].r, s[${pick[1]}].g, s[${pick[2]}].b), 0.0, a), a);`,
+    channelBlurComposeBody(images.length, pick),
     undefined,
     input.scale,
   );
@@ -85,7 +99,8 @@ vec4 fetch(ivec2 c) {
  * One step of the median's search: per channel, the state (the median's bits found so far, 0..255) gains bit
  * u_bit where fewer than half of the window's values lie below state + u_bit.
  */
-const MEDIAN_STEP_FS = `#version 300 es
+/** Also embedded by the native engine. */
+export const MEDIAN_STEP_FS = `#version 300 es
 precision highp float;
 ${FETCH_GLSL}
 uniform sampler2D u_state;
@@ -109,7 +124,8 @@ void main() {
 }`;
 
 /** The median (u_state) into a padded RGBA8 image; Dust & Scratches keeps pixels within u_threshold of it. */
-const MEDIAN_STORE_FS = `#version 300 es
+/** Also embedded by the native engine. */
+export const MEDIAN_STORE_FS = `#version 300 es
 precision highp float;
 ${FETCH_GLSL}
 uniform sampler2D u_state;
@@ -178,6 +194,24 @@ registerStock("ADBE Dust & Scratches", (input, p, ctx) => {
 
 const CrossMode = { BLEND: 1, ADD: 2, SCREEN: 3, MULTIPLY: 4, LIGHTEN: 5, DARKEN: 6 } as const;
 
+/** CC Cross Blur's combination of its horizontal and vertical blurs by Transfer Mode (also embedded by the native engine). */
+export const CROSS_BLUR_DECLS = "uniform int u_mode;";
+export const CROSS_BLUR_BODY = `  vec4 a = at(0, p);
+  vec4 b = at(1, p);
+  vec4 r;
+  if (u_mode == ${CrossMode.BLEND}) r = 0.5 * (a + b);
+  else if (u_mode == ${CrossMode.ADD}) r = vec4(a.rgb + b.rgb, a.a + b.a - a.a * b.a);
+  else {
+    vec3 sa = straight(a), sb = straight(b), m;
+    if (u_mode == ${CrossMode.SCREEN}) m = sa + sb - sa * sb;
+    else if (u_mode == ${CrossMode.MULTIPLY}) m = sa * sb;
+    else if (u_mode == ${CrossMode.LIGHTEN}) m = max(sa, sb);
+    else m = min(sa, sb);
+    r = vec4((1.0 - b.a) * a.rgb + (1.0 - a.a) * b.rgb + a.a * b.a * m, a.a + b.a - a.a * b.a);
+  }
+  r = clamp(r, 0.0, 1.0);
+  outColor = vec4(min(r.rgb, vec3(r.a)), r.a);`;
+
 // CC Cross Blur: the layer blurred along x as Channel Blur blurs by Radius X and along y by Radius Y (premultiplied).
 // Blend averages the two and Add sums them (alphas screened); the other Transfer Modes composite one over the other
 // with that blend of their straight colours where both cover.
@@ -202,22 +236,8 @@ registerStock("CS CrossBlur", (input, p, ctx, layer) => {
     ctx,
     rect,
     images,
-    "uniform int u_mode;",
-    `  vec4 a = at(0, p);
-  vec4 b = at(1, p);
-  vec4 r;
-  if (u_mode == ${CrossMode.BLEND}) r = 0.5 * (a + b);
-  else if (u_mode == ${CrossMode.ADD}) r = vec4(a.rgb + b.rgb, a.a + b.a - a.a * b.a);
-  else {
-    vec3 sa = straight(a), sb = straight(b), m;
-    if (u_mode == ${CrossMode.SCREEN}) m = sa + sb - sa * sb;
-    else if (u_mode == ${CrossMode.MULTIPLY}) m = sa * sb;
-    else if (u_mode == ${CrossMode.LIGHTEN}) m = max(sa, sb);
-    else m = min(sa, sb);
-    r = vec4((1.0 - b.a) * a.rgb + (1.0 - a.a) * b.rgb + a.a * b.a * m, a.a + b.a - a.a * b.a);
-  }
-  r = clamp(r, 0.0, 1.0);
-  outColor = vec4(min(r.rgb, vec3(r.a)), r.a);`,
+    CROSS_BLUR_DECLS,
+    CROSS_BLUR_BODY,
     (u) => ctx.gl.uniform1i(u("u_mode"), p.choice(3, CrossMode.BLEND)),
     input.scale,
   );
@@ -246,19 +266,8 @@ vec3 lab2rgb(vec3 lab) {
   return linearToSrgb(l);
 }`;
 
-// Bilateral Blur: each pixel averages its neighbours within Radius in CIE Lab (transparent neighbours count as
-// black; the pixel keeps its own alpha), weighted by a Gaussian of their distance and by one of their Lab
-// difference from it relative to Threshold; without Colorize on L alone, giving grey.
-registerStock("ADBE Bilateral", (input, p, ctx) => {
-  const k = input.scale ?? 1;
-  const radius = Math.max(0, p.num(1, 25)) * k;
-  if (radius < 0.5) return input;
-  const window = Math.min(MAX_WINDOW, Math.ceil(radius));
-  const out = layerPass(
-    ctx,
-    imageRect(input),
-    [input],
-    `uniform int u_window;
+/** Bilateral Blur's pass (also embedded by the native engine). */
+export const BILATERAL_DECLS = `uniform int u_window;
 uniform float u_sigma;
 uniform float u_threshold;
 uniform int u_colorize;
@@ -266,8 +275,8 @@ ${LAB_GLSL}
 vec3 value(vec4 c) {
   vec3 lab = rgb2lab(c.rgb);
   return u_colorize == 1 ? lab : vec3(lab.x, 0.0, 0.0);
-}`,
-    `  vec4 centre = at(0, p);
+}`;
+export const BILATERAL_BODY = `  vec4 centre = at(0, p);
   vec3 c = value(centre);
   vec3 sum = vec3(0.0);
   float wsum = 0.0;
@@ -284,7 +293,22 @@ vec3 value(vec4 c) {
     }
   }
   vec3 rgb = clamp(lab2rgb(sum / max(wsum, 1e-6)), 0.0, centre.a);
-  outColor = vec4(rgb, centre.a);`,
+  outColor = vec4(rgb, centre.a);`;
+
+// Bilateral Blur: each pixel averages its neighbours within Radius in CIE Lab (transparent neighbours count as
+// black; the pixel keeps its own alpha), weighted by a Gaussian of their distance and by one of their Lab
+// difference from it relative to Threshold; without Colorize on L alone, giving grey.
+registerStock("ADBE Bilateral", (input, p, ctx) => {
+  const k = input.scale ?? 1;
+  const radius = Math.max(0, p.num(1, 25)) * k;
+  if (radius < 0.5) return input;
+  const window = Math.min(MAX_WINDOW, Math.ceil(radius));
+  const out = layerPass(
+    ctx,
+    imageRect(input),
+    [input],
+    BILATERAL_DECLS,
+    BILATERAL_BODY,
     (u) => {
       const gl = ctx.gl;
       gl.uniform1i(u("u_window"), window);
@@ -317,26 +341,13 @@ function smartThresholdScale(radius: number): number {
   return t[t.length - 1][1];
 }
 
-// Smart Blur: each pixel averages the neighbours within Radius that differ from it by at most Threshold (levels of
-// 255, every channel), a threshold that shrinks as Radius grows (SMART_THRESHOLD_SCALE). Edge Only draws white over
-// black where the right or lower neighbour differs by more, Edge Overlay those edges over the layer; both leave the
-// layer's last column and row as they are.
-registerStock("ADBE Smart Blur", (input, p, ctx, layer) => {
-  const k = input.scale ?? 1;
-  const radius = Math.max(0, p.num(1, 3)) * k;
-  const window = Math.min(MAX_WINDOW, Math.round(radius));
-  if (window < 1) return input;
-  const bounds = layerRect(layer, input);
-  const out = layerPass(
-    ctx,
-    imageRect(input),
-    [input],
-    `uniform int u_window;
+/** Smart Blur's pass (also embedded by the native engine). */
+export const SMART_BLUR_DECLS = `uniform int u_window;
 uniform float u_radius;
 uniform float u_threshold;
 uniform int u_mode;
-uniform vec2 u_end;`,
-    `  vec4 c = at(0, p);
+uniform vec2 u_end;`;
+export const SMART_BLUR_BODY = `  vec4 c = at(0, p);
   if (u_mode != ${SmartMode.NORMAL}) {
     if (p.x + 1.0 > u_end.x || p.y + 1.0 > u_end.y) { outColor = c; return; }
     bool edge = false;
@@ -358,7 +369,24 @@ uniform vec2 u_end;`,
       if (max(max(diff.r, diff.g), max(diff.b, diff.a)) <= u_threshold) { sum += s; n += 1.0; }
     }
   }
-  outColor = n > 0.0 ? sum / n : c;`,
+  outColor = n > 0.0 ? sum / n : c;`;
+
+// Smart Blur: each pixel averages the neighbours within Radius that differ from it by at most Threshold (levels of
+// 255, every channel), a threshold that shrinks as Radius grows (SMART_THRESHOLD_SCALE). Edge Only draws white over
+// black where the right or lower neighbour differs by more, Edge Overlay those edges over the layer; both leave the
+// layer's last column and row as they are.
+registerStock("ADBE Smart Blur", (input, p, ctx, layer) => {
+  const k = input.scale ?? 1;
+  const radius = Math.max(0, p.num(1, 3)) * k;
+  const window = Math.min(MAX_WINDOW, Math.round(radius));
+  if (window < 1) return input;
+  const bounds = layerRect(layer, input);
+  const out = layerPass(
+    ctx,
+    imageRect(input),
+    [input],
+    SMART_BLUR_DECLS,
+    SMART_BLUR_BODY,
     (u) => {
       const gl = ctx.gl;
       gl.uniform1i(u("u_window"), window);
@@ -545,26 +573,8 @@ float prop(vec2 q) {
 /** Camera Lens Blur's Shape popup: Triangle (3 sides) to Decagon (10). */
 const irisSides = (choice: number) => Math.min(10, Math.max(3, choice + 2));
 
-// Camera Lens Blur: each pixel averages the layer over the iris, a regular polygon of Shape's sides with a corner
-// pointing down and Blur Radius to its corners, rounded toward a circle by Roundness, turned by Rotation and then
-// widened by Aspect Ratio along x. Samples weigh fully inside the iris and fade to nothing one pixel beyond it. With
-// Use "Linear" Working Space it averages in linear light (gamma 2.2). Highlights brighter than Threshold are boosted
-// by Gain; the blur map, Diffraction Fringe and Saturation are not drawn. Repeat Edge Pixels clamps the samples to
-// the layer.
-registerStock("ADBE Camera Lens Blur", (input, p, ctx, layer) => {
-  const k = input.scale ?? 1;
-  const radius = Math.max(0, p.num(1, 5)) * k;
-  if (radius < 0.5) return input;
-  if (Math.round(p.num(10, 0)) > 0) ctx.warn("Camera Lens Blur: the blur map is not drawn");
-  const repeat = p.bool(21, false) ? layerRect(layer, input) : undefined;
-  const aspect = Math.max(0.01, p.num(5, 1));
-  const window = Math.min(MAX_WINDOW, Math.ceil(radius * Math.max(1, aspect)) + 1);
-  const rect = repeat ?? { x: input.origin[0] - window, y: input.origin[1] - window, width: input.width + 2 * window, height: input.height + 2 * window };
-  const out = layerPass(
-    ctx,
-    rect,
-    [input],
-    `uniform int u_window;
+/** Camera Lens Blur's pass (also embedded by the native engine). */
+export const CAMERA_LENS_DECLS = `uniform int u_window;
 uniform float u_radius;
 uniform float u_sides;
 uniform float u_round;
@@ -590,8 +600,8 @@ vec4 lin(vec4 c) {
   if (u_linear == 0) return c;
   vec3 s = straight(c);
   return vec4(pow(s, vec3(2.2)) * c.a, c.a);
-}`,
-    `  vec4 sum = vec4(0.0);
+}`;
+export const CAMERA_LENS_BODY = `  vec4 sum = vec4(0.0);
   float n = 0.0;
   for (int dy = -u_window; dy <= u_window; dy++) {
     for (int dx = -u_window; dx <= u_window; dx++) {
@@ -609,7 +619,29 @@ vec4 lin(vec4 c) {
   vec4 r = n > 0.0 ? sum / n : vec4(0.0);
   if (u_linear == 1 && r.a > 0.0) r.rgb = pow(clamp(r.rgb / r.a, 0.0, 1.0), vec3(1.0 / 2.2)) * r.a;
   r = clamp(r, 0.0, 1.0);
-  outColor = vec4(min(r.rgb, vec3(r.a)), r.a);`,
+  outColor = vec4(min(r.rgb, vec3(r.a)), r.a);`;
+
+// Camera Lens Blur: each pixel averages the layer over the iris, a regular polygon of Shape's sides with a corner
+// pointing down and Blur Radius to its corners, rounded toward a circle by Roundness, turned by Rotation and then
+// widened by Aspect Ratio along x. Samples weigh fully inside the iris and fade to nothing one pixel beyond it. With
+// Use "Linear" Working Space it averages in linear light (gamma 2.2). Highlights brighter than Threshold are boosted
+// by Gain; the blur map, Diffraction Fringe and Saturation are not drawn. Repeat Edge Pixels clamps the samples to
+// the layer.
+registerStock("ADBE Camera Lens Blur", (input, p, ctx, layer) => {
+  const k = input.scale ?? 1;
+  const radius = Math.max(0, p.num(1, 5)) * k;
+  if (radius < 0.5) return input;
+  if (Math.round(p.num(10, 0)) > 0) ctx.warn("Camera Lens Blur: the blur map is not drawn");
+  const repeat = p.bool(21, false) ? layerRect(layer, input) : undefined;
+  const aspect = Math.max(0.01, p.num(5, 1));
+  const window = Math.min(MAX_WINDOW, Math.ceil(radius * Math.max(1, aspect)) + 1);
+  const rect = repeat ?? { x: input.origin[0] - window, y: input.origin[1] - window, width: input.width + 2 * window, height: input.height + 2 * window };
+  const out = layerPass(
+    ctx,
+    rect,
+    [input],
+    CAMERA_LENS_DECLS,
+    CAMERA_LENS_BODY,
     (u) => {
       const gl = ctx.gl;
       gl.uniform1i(u("u_window"), window);
@@ -648,19 +680,14 @@ interface RadialOptions {
   reduce: number;
 }
 
-/** Each pixel's samples along the ray from (zoom) or arc about (spin) the centre; releases `input`. */
-function radialPass(ctx: RenderContext, input: LayerImage, o: RadialOptions): LayerImage {
-  const out = layerPass(
-    ctx,
-    imageRect(input),
-    [input],
-    `uniform vec2 u_center;
+/** The radial blurs' pass (also embedded by the native engine). */
+export const RADIAL_PASS_DECLS = `uniform vec2 u_center;
 uniform int u_path;
 uniform vec2 u_range;
 uniform int u_taps;
 uniform float u_fade;
-uniform int u_reduce;`,
-    `  vec2 v = p - u_center;
+uniform int u_reduce;`;
+export const RADIAL_PASS_BODY = `  vec2 v = p - u_center;
   vec4 acc = u_reduce == ${RadialReduce.MIN} ? vec4(1.0) : vec4(0.0);
   float wsum = 0.0;
   for (int i = 0; i < ${RADIAL_TAPS}; i++) {
@@ -675,7 +702,16 @@ uniform int u_reduce;`,
     else acc += s * w;
     wsum += w;
   }
-  outColor = u_reduce == ${RadialReduce.MEAN} ? acc / wsum : acc;`,
+  outColor = u_reduce == ${RadialReduce.MEAN} ? acc / wsum : acc;`;
+
+/** Each pixel's samples along the ray from (zoom) or arc about (spin) the centre; releases `input`. */
+function radialPass(ctx: RenderContext, input: LayerImage, o: RadialOptions): LayerImage {
+  const out = layerPass(
+    ctx,
+    imageRect(input),
+    [input],
+    RADIAL_PASS_DECLS,
+    RADIAL_PASS_BODY,
     (u) => {
       const gl = ctx.gl;
       gl.uniform2f(u("u_center"), o.center[0], o.center[1] ?? 0);
@@ -838,6 +874,23 @@ uniform int u_overflow;`,
 
 const NoiseHlsType = { UNIFORM: 1, SQUARED: 2, GRAIN: 3 } as const;
 
+/** Noise HLS's pass (also embedded by the native engine). */
+export const NOISE_HLS_DECLS = `${RAND_GLSL}
+uniform vec3 u_amounts;
+uniform float u_seed;
+uniform float u_cell;
+uniform int u_type;`;
+export const NOISE_HLS_BODY = `  vec4 c = at(0, p);
+  if (c.a <= 0.0) { outColor = c; return; }
+  vec2 cell = p / u_cell;
+  vec3 n = vec3(rand(cell, u_seed, 1u, 1), rand(cell, u_seed, 2u, 1), rand(cell, u_seed, 3u, 1)) * 2.0 - 1.0;
+  if (u_type == ${NoiseHlsType.SQUARED}) n = sign(n) * n * n;
+  vec3 hsl = rgb2hsl(straight(c));
+  hsl.x = fract(hsl.x + 0.5 * n.x * u_amounts.x);
+  hsl.z = clamp(hsl.z + 0.5 * n.y * u_amounts.y, 0.0, 1.0);
+  hsl.y = clamp(hsl.y + 0.5 * n.z * u_amounts.z, 0.0, 1.0);
+  outColor = vec4(clamp(hsl2rgb(hsl), 0.0, 1.0) * c.a, c.a);`;
+
 /** Noise HLS and Noise HLS Auto: Hue, Lightness and Saturation each moved by noise of up to their amount. */
 function noiseHls(input: LayerImage, ctx: RenderContext, p: Params, seed: number): LayerImage {
   const amounts = [p.num(2, 0), p.num(3, 0), p.num(4, 0)].map((v) => Math.max(0, v) / 100);
@@ -848,21 +901,8 @@ function noiseHls(input: LayerImage, ctx: RenderContext, p: Params, seed: number
     ctx,
     imageRect(input),
     [input],
-    `${RAND_GLSL}
-uniform vec3 u_amounts;
-uniform float u_seed;
-uniform float u_cell;
-uniform int u_type;`,
-    `  vec4 c = at(0, p);
-  if (c.a <= 0.0) { outColor = c; return; }
-  vec2 cell = p / u_cell;
-  vec3 n = vec3(rand(cell, u_seed, 1u, 1), rand(cell, u_seed, 2u, 1), rand(cell, u_seed, 3u, 1)) * 2.0 - 1.0;
-  if (u_type == ${NoiseHlsType.SQUARED}) n = sign(n) * n * n;
-  vec3 hsl = rgb2hsl(straight(c));
-  hsl.x = fract(hsl.x + 0.5 * n.x * u_amounts.x);
-  hsl.z = clamp(hsl.z + 0.5 * n.y * u_amounts.y, 0.0, 1.0);
-  hsl.y = clamp(hsl.y + 0.5 * n.z * u_amounts.z, 0.0, 1.0);
-  outColor = vec4(clamp(hsl2rgb(hsl), 0.0, 1.0) * c.a, c.a);`,
+    NOISE_HLS_DECLS,
+    NOISE_HLS_BODY,
     (u) => {
       const gl = ctx.gl;
       gl.uniform3f(u("u_amounts"), amounts[0], amounts[1], amounts[2]);

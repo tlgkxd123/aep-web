@@ -1,4 +1,5 @@
 // Decoding: the sample plan tests/native-plan.test.ts encodes (tests/data/sample.aevp), and damaged plans.
+#include <cmath>
 #include <fstream>
 #include <iterator>
 
@@ -34,6 +35,45 @@ TEST(decodes_the_sample_plan) {
   CHECK(solid.masks[0].vertices.size() == 24);
   CHECK_NEAR(solid.masks[0].feather, 1.5, 0);
   CHECK_NEAR(solid.masks[0].vertices[6], 3, 0);
+  CHECK(solid.effects.size() == 3 && solid.effects[0].matchName == "ADBE Box Blur2");
+  CHECK_NEAR(solid.effectLayer.time, 1.0 / 3, 0);
+  CHECK_NEAR(solid.effectLayer.startTime, -0.5, 0);
+  CHECK_NEAR(solid.effectLayer.stretch, 1, 0);
+  CHECK(solid.effectLayer.width == 4 && solid.effectLayer.kind == 0);
+  const Effect& blur = solid.effects[0];
+  CHECK(blur.params.size() == 3);
+  CHECK(blur.param(1) && blur.param(1)->value.size() == 1);
+  CHECK_NEAR(blur.param(1)->value[0], 2.5, 0);
+  CHECK(blur.params[1].index == 0 && blur.params[1].matchName == "Custom Param" && blur.params[1].value.size() == 4);
+  CHECK(blur.param(3) && blur.param(3)->menu.size() == 3 && blur.param(3)->menu[1] == 1 && blur.param(3)->menu[0] == 0);
+  CHECK(!blur.param(2));
+  CHECK(blur.sources.size() == 2 && blur.source(4) && blur.source(5) && !blur.source(3));
+  CHECK(blur.source(4)->drawn && blur.source(4)->content.kind == ContentKind::Solid && blur.source(4)->content.height == 3);
+  CHECK(blur.source(4)->layer.width == 2 && blur.source(4)->layer.height == 3 && blur.source(4)->layer.kind == 0);
+  CHECK(!blur.source(5)->drawn);
+  CHECK(!blur.hasAudio && blur.audio.empty() && !blur.hasPath);
+  const Effect& spectrum = solid.effects[1];
+  CHECK(spectrum.matchName == "ADBE AudSpect" && spectrum.sources.empty());
+  CHECK(spectrum.hasAudio && spectrum.audio.size() == 1 && spectrum.audio[0].file == "C:\\media\\tone.wav");
+  CHECK_NEAR(spectrum.audio[0].scale, 0.5, 0);
+  CHECK_NEAR(spectrum.audio[0].offset, -0.25, 0);
+  CHECK(std::isinf(spectrum.audio[0].from) && spectrum.audio[0].from < 0);
+  CHECK_NEAR(spectrum.audio[0].to, 2, 0);
+  CHECK(spectrum.hasPath && !spectrum.path.closed && spectrum.path.vertices.size() == 12);
+  CHECK_NEAR(spectrum.path.vertices[6], 3, 0);
+  CHECK_NEAR(spectrum.path.vertices[8], -0.5, 0);
+  CHECK(spectrum.inputs.empty() && blur.inputs.empty());
+  const Effect& echo = solid.effects[2];
+  CHECK(echo.matchName == "ADBE Echo" && echo.inputs.size() == 2);
+  CHECK_NEAR(echo.inputs[0].time, 1.0 / 12, 0);
+  CHECK(echo.inputs[0].drawn && echo.inputs[0].content.kind == ContentKind::Solid && echo.inputs[0].content.width == 4);
+  CHECK(echo.inputs[0].masks.size() == 1 && echo.inputs[0].masks[0].inverted && echo.inputs[0].masks[0].vertices.empty());
+  CHECK_NEAR(echo.inputs[0].masks[0].expansion, 1, 0);
+  CHECK(echo.inputs[0].effects.size() == 1 && echo.inputs[0].effects[0].matchName == "ADBE Box Blur2");
+  CHECK_NEAR(echo.inputs[0].effects[0].param(1)->value[0], 1, 0);
+  CHECK(!echo.inputs[1].drawn && echo.inputs[1].masks.empty() && echo.inputs[1].effects.empty());
+  CHECK_NEAR(echo.inputs[1].time, -1.0 / 6, 0);
+  CHECK(plan.root.layers[1].effects.empty());
   const Layer& nested = plan.root.layers[1];
   CHECK(nested.content.kind == ContentKind::Comp && nested.content.comp);
   CHECK(nested.blendMode == 5216);
@@ -63,7 +103,7 @@ TEST(refuses_damaged_plans) {
   longer.push_back(0);
   CHECK(!decodePlan(longer.data(), longer.size(), plan, error));
   std::vector<uint8_t> version = bytes;
-  version[4] = 99;
+  version[4] = 99;  // not kPlanVersion
   CHECK(!decodePlan(version.data(), version.size(), plan, error));
   // A layer count far beyond what the bytes could hold.
   std::vector<uint8_t> count = bytes;

@@ -27,6 +27,20 @@ public:
 		U32(bits);
 	}
 
+	void F64(f64 v)
+	{
+		u64 bits;
+		std::memcpy(&bits, &v, 8);
+		U32(u32(bits));
+		U32(u32(bits >> 32));
+	}
+
+	void Str(const std::string& text)
+	{
+		U32(u32(text.size()));
+		m_Bytes.insert(m_Bytes.end(), text.begin(), text.end());
+	}
+
 	void Raw(const std::vector<u8>& data) { m_Bytes.insert(m_Bytes.end(), data.begin(), data.end()); }
 
 	std::vector<u8> m_Bytes;
@@ -122,6 +136,18 @@ void WriteContent(CWriter& w, const aevk::Content& content)
 			WritePaint(w, paint);
 		}
 		break;
+	case aevk::ContentKind::Footage:
+		w.Str(content.footage.file);
+		w.U32(content.footage.sourceWidth);
+		w.U32(content.footage.sourceHeight);
+		w.U32((content.footage.hasAlpha ? 1u : 0u) | (content.footage.invertAlpha ? 2u : 0u));
+		w.U32(content.footage.alphaMode);
+		for (const float c : content.footage.matte)
+		{
+			w.F32(c);
+		}
+		w.F64(content.footage.videoTime);
+		break;
 	}
 }
 
@@ -140,6 +166,116 @@ void WriteMask(CWriter& w, const aevk::Mask& mask)
 	}
 }
 
+void WriteEffect(CWriter& w, const aevk::Effect& effect)
+{
+	w.Str(effect.matchName);
+	w.U32(u32(effect.params.size()));
+	for (const aevk::EffectParam& param : effect.params)
+	{
+		w.U32(param.index);
+		if (!param.index)
+		{
+			w.Str(param.matchName);
+		}
+		w.U32(u32(param.value.size()));
+		for (const f64 v : param.value)
+		{
+			w.F64(v);
+		}
+		w.U32(u32(param.menu.size()));
+		for (const u8 separator : param.menu)
+		{
+			w.U32(separator ? 1 : 0);
+		}
+	}
+	w.U32(u32(effect.sources.size()));
+	for (const aevk::EffectSource& source : effect.sources)
+	{
+		w.U32(source.param);
+		w.U32(source.drawn ? 1 : 0);
+		if (source.drawn)
+		{
+			WriteContent(w, source.content);
+			w.F32(source.layer.width);
+			w.F32(source.layer.height);
+			w.U32(source.layer.kind);
+		}
+	}
+	w.U32((effect.hasAudio ? 1u : 0u) | (effect.hasPath ? 2u : 0u) | (effect.inputs.empty() ? 0u : 4u) | (effect.data.empty() ? 0u : 8u) | (effect.hasParticles ? 16u : 0u));
+	if (effect.hasAudio)
+	{
+		w.U32(u32(effect.audio.size()));
+		for (const aevk::AudioSource& audio : effect.audio)
+		{
+			w.Str(audio.file);
+			w.F64(audio.scale);
+			w.F64(audio.offset);
+			w.F64(audio.from);
+			w.F64(audio.to);
+		}
+	}
+	if (effect.hasPath)
+	{
+		w.U32(effect.path.closed ? 1 : 0);
+		w.U32(u32(effect.path.vertices.size() / 6));
+		for (const float v : effect.path.vertices)
+		{
+			w.F32(v);
+		}
+	}
+	if (!effect.inputs.empty())
+	{
+		w.U32(u32(effect.inputs.size()));
+		for (const aevk::EffectInput& input : effect.inputs)
+		{
+			w.F64(input.time);
+			w.U32(input.drawn ? 1 : 0);
+			if (!input.drawn)
+			{
+				continue;
+			}
+			WriteContent(w, input.content);
+			w.U32(u32(input.masks.size()));
+			for (const aevk::Mask& mask : input.masks)
+			{
+				WriteMask(w, mask);
+			}
+			w.U32(u32(input.effects.size()));
+			for (const aevk::Effect& inner : input.effects)
+			{
+				WriteEffect(w, inner);
+			}
+		}
+	}
+	if (!effect.data.empty())
+	{
+		w.U32(u32(effect.data.size()));
+		for (const aevk::EffectData& data : effect.data)
+		{
+			w.U32(data.param);
+			w.U32(u32(data.bytes.size()));
+			w.Raw(data.bytes);
+		}
+	}
+	if (effect.hasParticles)
+	{
+		for (const std::vector<float>* splats : { &effect.particles.glow, &effect.particles.core })
+		{
+			w.U32(u32(splats->size() / 5));
+			for (const float v : *splats)
+			{
+				w.F32(v);
+			}
+		}
+		for (const float c : effect.particles.color)
+		{
+			w.F32(c);
+		}
+		w.U32(effect.particles.glowBlend);
+		w.U32(effect.particles.particleBlend);
+	}
+}
+
 void WriteLayer(CWriter& w, const aevk::Layer& layer)
 {
 	w.U32(layer.adjustment ? 1 : 0);
@@ -155,6 +291,21 @@ void WriteLayer(CWriter& w, const aevk::Layer& layer)
 	for (const aevk::Mask& mask : layer.masks)
 	{
 		WriteMask(w, mask);
+	}
+	w.U32(u32(layer.effects.size()));
+	if (!layer.effects.empty())
+	{
+		const aevk::EffectLayer& info = layer.effectLayer;
+		w.F64(info.time);
+		w.F64(info.startTime);
+		w.F64(info.stretch);
+		w.F32(info.width);
+		w.F32(info.height);
+		w.U32(info.kind);
+		for (const aevk::Effect& effect : layer.effects)
+		{
+			WriteEffect(w, effect);
+		}
 	}
 	w.U32(layer.matteMode);
 	if (layer.matteMode != aevk::matte::None)

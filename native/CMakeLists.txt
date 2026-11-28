@@ -16,20 +16,53 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_POSITION_INDEPENDENT_CODE ON)
 
 option(AEVK_TOOLS "Build the headless renderer and the tests" ON)
+option(AEVK_FFMPEG "Decode video footage with FFmpeg (libavformat, libavcodec, libswscale) on the desktop when it is installed" ON)
 
 add_library(aevk STATIC
   src/capi.cpp
+  src/effects/audio_spectrum.cpp
+  src/effects/particular.cpp
+  src/effects/blur.cpp
+  src/effects/blur_sharpen.cpp
+    src/effects/stylize_stock.cpp
+    src/effects/distort_stock.cpp
+    src/effects/keying.cpp
+    src/effects/distort_extra.cpp
+    src/effects/displace.cpp
+    src/effects/blur_noise.cpp
+    src/effects/vignette_minimax.cpp
+    src/effects/keylight.cpp
+    src/effects/light_shadow.cpp
+    src/effects/time.cpp
+  src/effects/transitions.cpp
+  src/effects/box_blur.cpp
+  src/effects/channel.cpp
+  src/effects/color.cpp
+  src/effects/deep_glow.cpp
+  src/effects/generate.cpp
+  src/effects/gaussian.cpp
+  src/effects/registry.cpp
+  src/effects/simple.cpp
+  src/effects/stock.cpp
+  src/effects/stylize.cpp
   src/engine.cpp
+  src/fx.cpp
   src/geometry.cpp
+  src/image.cpp
+  src/media.cpp
   src/plan.cpp
   src/playback.cpp
+  src/spectrum.cpp
+  src/video.cpp
   src/vk.cpp
 )
 target_include_directories(aevk PUBLIC include src)
 
 if(ANDROID)
-  # The NDK's sysroot holds the Vulkan headers; the loader is opened at run time.
-  target_link_libraries(aevk PUBLIC android log)
+  # The NDK's sysroot holds the Vulkan headers; the loader is opened at run time. Video footage goes through the
+  # phone's own decoders (mediandk); stills through AImageDecoder, found at run time in libjnigraphics.
+  target_sources(aevk PRIVATE src/video_android.cpp)
+  target_link_libraries(aevk PUBLIC android log mediandk)
   set(AEVK_TOOLS OFF)
 else()
   find_package(Vulkan QUIET)
@@ -45,6 +78,21 @@ else()
   endif()
   if(UNIX)
     target_link_libraries(aevk PUBLIC ${CMAKE_DL_LIBS})
+  endif()
+  # Video footage: FFmpeg's libraries where pkg-config finds them (libavformat-dev, libavcodec-dev, libswscale-dev);
+  # without them video layers draw nothing, with a warning.
+  if(AEVK_FFMPEG)
+    find_package(PkgConfig QUIET)
+    if(PKG_CONFIG_FOUND)
+      pkg_check_modules(AEVK_AV QUIET IMPORTED_TARGET libavformat libavcodec libavutil libswscale)
+    endif()
+    if(AEVK_AV_FOUND)
+      target_link_libraries(aevk PRIVATE PkgConfig::AEVK_AV)
+      target_compile_definitions(aevk PRIVATE AEVK_HAVE_FFMPEG=1)
+      message(STATUS "aevk: video footage through FFmpeg ${AEVK_AV_libavcodec_VERSION}")
+    else()
+      message(STATUS "aevk: FFmpeg not found, video footage will draw nothing")
+    endif()
   endif()
   # Desktop windows: Win32 always, xcb on Linux when its headers are installed (libxcb1-dev).
   set(AEVK_DESKTOP_WINDOW OFF)
@@ -74,6 +122,7 @@ add_library(aepcore STATIC
   core/evaluate.cpp
   core/model.cpp
   core/parse.cpp
+  core/particular.cpp
   core/planner.cpp
   core/riff.cpp
   core/shapes.cpp
@@ -127,10 +176,58 @@ else()
   target_compile_options(aepplayer PRIVATE -Wall -Wextra -Wno-missing-field-initializers)
 endif()
 
+# The app's interface (native/ui): one Dear ImGui (MIT) interface for the desktop app and the Android app, drawn by the
+# engine over the comp (Engine::presentUi). Dear ImGui is fetched at configure time.
+option(AEP_UI "Build the app's interface (fetches Dear ImGui)" ON)
+if(AEP_UI)
+  include(FetchContent)
+  FetchContent_Declare(imgui
+    GIT_REPOSITORY https://github.com/ocornut/imgui.git
+    GIT_TAG f5befd2d29e66809cd1110a152e375a7f1981f06 # v1.91.9b
+  )
+  FetchContent_GetProperties(imgui)
+  if(NOT imgui_POPULATED)
+    FetchContent_Populate(imgui)
+  endif()
+  add_library(imgui STATIC
+    ${imgui_SOURCE_DIR}/imgui.cpp
+    ${imgui_SOURCE_DIR}/imgui_draw.cpp
+    ${imgui_SOURCE_DIR}/imgui_tables.cpp
+    ${imgui_SOURCE_DIR}/imgui_widgets.cpp
+  )
+  # ui/aep_imconfig.h: 32-bit indices (a long timeline draws more than 65536 vertices in one window), no obsolete API.
+  target_include_directories(imgui PUBLIC ${imgui_SOURCE_DIR} ${CMAKE_CURRENT_SOURCE_DIR}/ui)
+  target_compile_definitions(imgui PUBLIC IMGUI_USER_CONFIG="aep_imconfig.h")
+  # The interface font: Roboto Medium (Apache 2.0), which Dear ImGui ships in misc/fonts.
+  set(AEP_UI_FONT ${imgui_SOURCE_DIR}/misc/fonts/Roboto-Medium.ttf)
+  set(AEP_UI_FONT_CPP ${CMAKE_CURRENT_BINARY_DIR}/ui_font.cpp)
+  add_custom_command(
+    OUTPUT ${AEP_UI_FONT_CPP}
+    COMMAND ${CMAKE_COMMAND} -DINPUT=${AEP_UI_FONT} -DOUTPUT=${AEP_UI_FONT_CPP} -DNAME=g_UiFont
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/embed.cmake
+    DEPENDS ${AEP_UI_FONT} ${CMAKE_CURRENT_SOURCE_DIR}/cmake/embed.cmake
+    COMMENT "Embedding the interface font"
+  )
+  add_library(aepui STATIC ui/app.cpp ui/files.cpp ui/render.cpp ${AEP_UI_FONT_CPP})
+  target_include_directories(aepui PUBLIC ui)
+  target_link_libraries(aepui PUBLIC aepplayer imgui)
+  if(MSVC)
+    target_compile_options(aepui PRIVATE /W4)
+  else()
+    target_compile_options(aepui PRIVATE -Wall -Wextra -Wno-missing-field-initializers)
+  endif()
+endif()
+
 if(ANDROID)
   add_library(aevk_jni SHARED android/aevk_jni.cpp android/aep_player_jni.cpp)
   target_link_libraries(aevk_jni PRIVATE aevk aepplayer)
   set_target_properties(aevk aepcore aepplayer aevk_jni PROPERTIES CXX_VISIBILITY_PRESET hidden VISIBILITY_INLINES_HIDDEN ON)
+  # The app's native screen (NativeAppActivity): the interface in native/ui on the display's frame clock.
+  if(AEP_UI)
+    target_sources(aevk_jni PRIVATE android/aep_app_jni.cpp)
+    target_link_libraries(aevk_jni PRIVATE aepui)
+    set_target_properties(aepui imgui PROPERTIES CXX_VISIBILITY_PRESET hidden VISIBILITY_INLINES_HIDDEN ON)
+  endif()
   # 16 KB pages: Android 15 devices may use them, and Google Play requires libraries aligned for them.
   target_link_options(aevk_jni PRIVATE -Wl,--exclude-libs,ALL -Wl,--gc-sections -Wl,-z,max-page-size=16384)
 endif()
@@ -159,8 +256,25 @@ if(AEVK_TOOLS)
     endif()
   endif()
 
+  # The desktop app: the interface in native/ui in a window, on Linux and Windows.
+  if(AEVK_DESKTOP_WINDOW AND AEP_UI)
+    add_executable(aep-app tools/aep_app.cpp)
+    target_link_libraries(aep-app PRIVATE aepui)
+    if(WIN32)
+      set_target_properties(aep-app PROPERTIES WIN32_EXECUTABLE OFF)
+    else()
+      target_include_directories(aep-app PRIVATE ${AEVK_XCB_INCLUDE_DIR})
+      target_link_libraries(aep-app PRIVATE ${AEVK_XCB_LIBRARY})
+    endif()
+    if(MSVC)
+      target_compile_options(aep-app PRIVATE /W4)
+    else()
+      target_compile_options(aep-app PRIVATE -Wall -Wextra -Wno-missing-field-initializers)
+    endif()
+  endif()
+
   enable_testing()
-  add_executable(aevk-tests tests/main.cpp tests/plan_test.cpp tests/playback_test.cpp tests/render_test.cpp)
+  add_executable(aevk-tests tests/main.cpp tests/plan_test.cpp tests/media_test.cpp tests/image_test.cpp tests/playback_test.cpp tests/render_test.cpp)
   target_link_libraries(aevk-tests PRIVATE aevk)
   target_compile_definitions(aevk-tests PRIVATE AEVK_TEST_DATA="${CMAKE_CURRENT_SOURCE_DIR}/tests/data")
   add_test(NAME aevk-tests COMMAND aevk-tests)

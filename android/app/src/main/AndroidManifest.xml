@@ -67,6 +67,42 @@
 
         </activity>
 
+        <!-- The native screen: the C++ interface (native/ui) on the Vulkan engine, the same one the desktop app has.
+             It opens .aep projects; the web app above keeps the editor, .zip projects and Avee templates. -->
+        <activity
+            android:configChanges="orientation|keyboardHidden|keyboard|screenSize|smallestScreenSize|screenLayout|uiMode|navigation"
+            android:name=".NativeAppActivity"
+            android:label="@string/title_activity_native"
+            android:theme="@style/AppTheme.Native"
+            android:launchMode="singleTask"
+            android:exported="true">
+
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:scheme="content" />
+                <data android:scheme="file" />
+                <data android:mimeType="application/vnd.adobe.aftereffects.project" />
+                <data android:mimeType="application/x-aep" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:scheme="content" />
+                <data android:scheme="file" />
+                <data android:host="*" />
+                <data android:mimeType="*/*" />
+                <data android:pathPattern=".*\\.aep" />
+                <data android:pathPattern=".*\\..*\\.aep" />
+                <data android:pathPattern=".*\\.AEP" />
+            </intent-filter>
+        </activity>
+
         <provider
             android:name="androidx.core.content.FileProvider"
             android:authorities="${applicationId}.fileprovider"

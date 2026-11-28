@@ -1,5 +1,7 @@
 #include "engine.h"
 
+#include "fx.h"
+
 #include <algorithm>
 #include <chrono>
 #include <cmath>
@@ -10,6 +12,7 @@
 #include <tuple>
 
 #include "geometry.h"
+#include "media.h"
 #include "shaders.inc"
 #include "vk.h"
 
@@ -21,6 +24,9 @@ namespace aevk {
 namespace {
 
 constexpr VkFormat kColorFormat = VK_FORMAT_R8G8B8A8_UNORM;
+/** Effects' float targets (floatTargets.ts): RGBA32F sampled nearest, RGBA16F ("half") filtered linearly. */
+constexpr VkFormat kFloatFormat = VK_FORMAT_R32G32B32A32_SFLOAT;
+constexpr VkFormat kHalfFormat = VK_FORMAT_R16G16B16A16_SFLOAT;
 /** Read-back frames: straight RGBA computed in integers (straight.frag). */
 constexpr VkFormat kStraightFormat = VK_FORMAT_R8G8B8A8_UINT;
 /** Frames a pooled target may go unused before it is deleted. */
@@ -113,6 +119,8 @@ struct Target {
   size_t bytes = 0;
   uint64_t released = 0;
   uint64_t frame = 0;
+  /** Acquired as transparent and not drawn since: cleared before anything reads it. */
+  bool pendingClear = false;
 };
 
 struct Buffer {
@@ -123,11 +131,20 @@ struct Buffer {
 };
 
 /** A layer's image in its own pixels (see LayerImage in src/render/registry.ts). */
-struct LayerImage {
-  Target* target = nullptr;
-  uint32_t width = 0, height = 0;
-  float originX = 0, originY = 0;
-  float scale = 1;
+using LayerImage = FxImage;
+
+/** The push constants of the interface's pipeline (ui.vert, ui.frag). */
+struct UiPush {
+  float scale[2];
+  float translate[2];
+  float uvRect[4];
+  int32_t premultiplied;
+};
+
+/** The fragment push constants of an effect pass (scripts/lib/fx-convert.ts). */
+struct FxPush {
+  float size[2];
+  int32_t quantize;
 };
 
 struct Frame::State {
@@ -142,6 +159,8 @@ struct Swapchain {
   VkExtent2D extent{};
   VkRenderPass pass = VK_NULL_HANDLE;
   VkPipeline pipeline = VK_NULL_HANDLE;
+  /** The interface's pipeline (presentUi), made with the window's render pass. */
+  VkPipeline uiPipeline = VK_NULL_HANDLE;
   std::vector<VkImage> images;
   std::vector<VkImageView> views;
   std::vector<VkFramebuffer> framebuffers;
@@ -176,9 +195,21 @@ struct Engine::Impl {
   std::map<VkFormat, VkRenderPass> passes;
   std::vector<VkShaderModule> modules;
   VkShaderModule layerVert = VK_NULL_HANDLE, fullscreenVert = VK_NULL_HANDLE, layerFrag = VK_NULL_HANDLE;
-  VkPipeline layerPipe = VK_NULL_HANDLE, compositePipe = VK_NULL_HANDLE, maskPipe = VK_NULL_HANDLE, premultiplyPipe = VK_NULL_HANDLE;
+  VkPipeline layerPipe = VK_NULL_HANDLE, compositePipe = VK_NULL_HANDLE, maskPipe = VK_NULL_HANDLE, premultiplyPipe = VK_NULL_HANDLE,
+             footagePipe = VK_NULL_HANDLE, footageYuvPipe = VK_NULL_HANDLE;
   VkPipeline coveragePipe = VK_NULL_HANDLE, featherPipe = VK_NULL_HANDLE, combinePipe = VK_NULL_HANDLE, paintPipe = VK_NULL_HANDLE;
   VkPipeline straightPipe = VK_NULL_HANDLE;
+  VkDescriptorSetLayout fxSetLayout = VK_NULL_HANDLE;
+  VkPipelineLayout fxPipelineLayout = VK_NULL_HANDLE;
+  std::map<std::pair<uint32_t, VkFormat>, VkPipeline> fxPipes;
+  /** Programs with vertex shaders (FxContext::draw), by shader, format and blend. */
+  std::map<std::tuple<uint32_t, VkFormat, FxBlend>, VkPipeline> fxDrawPipes;
+  std::vector<VkShaderModule> fxVertexModules = std::vector<VkShaderModule>(fx::kCount, VK_NULL_HANDLE);
+  MediaLibrary media;
+  /** Times the recorded work was submitted mid-frame (flush), which frees the descriptor sets allocated before. */
+  uint64_t flushes = 0;
+  std::vector<VkShaderModule> fxModules = std::vector<VkShaderModule>(fx::kCount, VK_NULL_HANDLE);
+  std::vector<std::string> warnings;
   FrameTimings timings;
   Buffer edges;
   VkDeviceSize edgesUsed = 0;
@@ -190,6 +221,13 @@ struct Engine::Impl {
   uint64_t frameNumber = 0;
   const Plan* plan = nullptr;
   Swapchain swap;
+  /** The interface (presentUi): a sampler and the vertex buffer, its own push constants, and the textures it made. */
+  VkDescriptorSetLayout uiSetLayout = VK_NULL_HANDLE;
+  VkPipelineLayout uiPipelineLayout = VK_NULL_HANDLE;
+  VkShaderModule uiVert = VK_NULL_HANDLE, uiFrag = VK_NULL_HANDLE;
+  Buffer uiVertices, uiIndices;
+  std::map<uint64_t, Target*> uiTextures;
+  uint64_t nextUiTexture = 1;
 
   ~Impl() { destroy(); }
 
@@ -380,7 +418,8 @@ struct Engine::Impl {
     return pass;
   }
 
-  VkPipeline pipeline(VkShaderModule vert, VkShaderModule frag, VkRenderPass pass, bool strip) {
+  VkPipeline pipeline(VkShaderModule vert, VkShaderModule frag, VkRenderPass pass, bool strip, VkPipelineLayout layout = VK_NULL_HANDLE,
+                      FxBlend blendMode = FxBlend::None) {
     VkPipelineShaderStageCreateInfo stages[2]{};
     stages[0].sType = stages[1].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
     stages[0].stage = VK_SHADER_STAGE_VERTEX_BIT;
@@ -404,6 +443,17 @@ struct Engine::Impl {
     multisample.rasterizationSamples = VK_SAMPLE_COUNT_1_BIT;
     VkPipelineColorBlendAttachmentState blend{};
     blend.colorWriteMask = VK_COLOR_COMPONENT_R_BIT | VK_COLOR_COMPONENT_G_BIT | VK_COLOR_COMPONENT_B_BIT | VK_COLOR_COMPONENT_A_BIT;
+    if (blendMode != FxBlend::None) {
+      blend.blendEnable = VK_TRUE;
+      const bool over = blendMode == FxBlend::Over;
+      blend.srcColorBlendFactor = blend.srcAlphaBlendFactor = VK_BLEND_FACTOR_ONE;
+      blend.dstColorBlendFactor = blend.dstAlphaBlendFactor = over ? VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA : VK_BLEND_FACTOR_ONE;
+      blend.colorBlendOp = blend.alphaBlendOp = blendMode == FxBlend::Max ? VK_BLEND_OP_MAX : VK_BLEND_OP_ADD;
+      if (blendMode == FxBlend::Screen) {
+        blend.dstColorBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_COLOR;
+        blend.dstAlphaBlendFactor = VK_BLEND_FACTOR_ONE_MINUS_SRC_ALPHA;
+      }
+    }
     VkPipelineColorBlendStateCreateInfo blending{VK_STRUCTURE_TYPE_PIPELINE_COLOR_BLEND_STATE_CREATE_INFO};
     blending.attachmentCount = 1;
     blending.pAttachments = &blend;
@@ -421,7 +471,7 @@ struct Engine::Impl {
     create.pMultisampleState = &multisample;
     create.pColorBlendState = &blending;
     create.pDynamicState = &dynamicState;
-    create.layout = pipelineLayout;
+    create.layout = layout ? layout : pipelineLayout;
     create.renderPass = pass;
     VkPipeline result;
     AEVK_CHECK(vk::vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &create, nullptr, &result));
@@ -455,7 +505,30 @@ struct Engine::Impl {
     pipelineInfo.pushConstantRangeCount = 1;
     pipelineInfo.pPushConstantRanges = &push;
     AEVK_CHECK(vk::vkCreatePipelineLayout(device, &pipelineInfo, nullptr, &pipelineLayout));
-    VkDescriptorPoolSize sizes[2] = {{VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, kSetsPerPool * 4}, {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, kSetsPerPool}};
+    // Effect passes bind 8 samplers and a parameter block (fx.h), the engine's own 4 samplers and the edge buffer.
+    VkDescriptorSetLayoutBinding fxBindings[9]{};
+    // Programs that draw geometry read them in their vertex shaders too.
+    const VkShaderStageFlags fxStages = VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT;
+    for (uint32_t i = 0; i < 8; i++) fxBindings[i] = {i, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, fxStages, nullptr};
+    fxBindings[8] = {8, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, fxStages, nullptr};
+    layoutInfo.bindingCount = 9;
+    layoutInfo.pBindings = fxBindings;
+    AEVK_CHECK(vk::vkCreateDescriptorSetLayout(device, &layoutInfo, nullptr, &fxSetLayout));
+    VkPushConstantRange fxPush{VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(FxPush)};
+    pipelineInfo.pSetLayouts = &fxSetLayout;
+    pipelineInfo.pPushConstantRanges = &fxPush;
+    AEVK_CHECK(vk::vkCreatePipelineLayout(device, &pipelineInfo, nullptr, &fxPipelineLayout));
+    // The interface binds its texture and its vertices (ui.vert reads them from a storage buffer).
+    VkDescriptorSetLayoutBinding uiBindings[2] = {{0, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr},
+                                                  {1, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_VERTEX_BIT, nullptr}};
+    layoutInfo.bindingCount = 2;
+    layoutInfo.pBindings = uiBindings;
+    AEVK_CHECK(vk::vkCreateDescriptorSetLayout(device, &layoutInfo, nullptr, &uiSetLayout));
+    VkPushConstantRange uiPush{VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(UiPush)};
+    pipelineInfo.pSetLayouts = &uiSetLayout;
+    pipelineInfo.pPushConstantRanges = &uiPush;
+    AEVK_CHECK(vk::vkCreatePipelineLayout(device, &pipelineInfo, nullptr, &uiPipelineLayout));
+    VkDescriptorPoolSize sizes[2] = {{VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, kSetsPerPool * 8}, {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, kSetsPerPool}};
     VkDescriptorPoolCreateInfo descriptorInfo{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
     descriptorInfo.maxSets = kSetsPerPool;
     descriptorInfo.poolSizeCount = 2;
@@ -474,6 +547,8 @@ struct Engine::Impl {
     passes[kColorFormat] = renderPass(kColorFormat);
     if (!passes.count(coverageFormat)) passes[coverageFormat] = renderPass(coverageFormat);
     passes[kStraightFormat] = renderPass(kStraightFormat);
+    for (VkFormat format : {kFloatFormat, kHalfFormat})
+      if (!passes.count(format)) passes[format] = renderPass(format);
     layerVert = shader(kShader_layer_vert, sizeof kShader_layer_vert);
     fullscreenVert = shader(kShader_fullscreen_vert, sizeof kShader_fullscreen_vert);
     layerFrag = shader(kShader_layer_frag, sizeof kShader_layer_frag);
@@ -483,11 +558,15 @@ struct Engine::Impl {
     compositePipe = pipeline(fullscreenVert, shader(kShader_composite_frag, sizeof kShader_composite_frag), color, false);
     maskPipe = pipeline(fullscreenVert, shader(kShader_mask_frag, sizeof kShader_mask_frag), color, false);
     premultiplyPipe = pipeline(fullscreenVert, shader(kShader_premultiply_frag, sizeof kShader_premultiply_frag), color, false);
+    footagePipe = pipeline(fullscreenVert, shader(kShader_footage_frag, sizeof kShader_footage_frag), color, false);
+    footageYuvPipe = pipeline(fullscreenVert, shader(kShader_footage_yuv_frag, sizeof kShader_footage_yuv_frag), color, false);
     coveragePipe = pipeline(fullscreenVert, shader(kShader_coverage_frag, sizeof kShader_coverage_frag), coverage, false);
     featherPipe = pipeline(fullscreenVert, shader(kShader_feather_frag, sizeof kShader_feather_frag), coverage, false);
     combinePipe = pipeline(fullscreenVert, shader(kShader_combine_frag, sizeof kShader_combine_frag), coverage, false);
     paintPipe = pipeline(fullscreenVert, shader(kShader_paint_frag, sizeof kShader_paint_frag), color, false);
     straightPipe = pipeline(fullscreenVert, shader(kShader_straight_frag, sizeof kShader_straight_frag), passes[kStraightFormat], false);
+    uiVert = shader(kShader_ui_vert, sizeof kShader_ui_vert);
+    uiFrag = shader(kShader_ui_frag, sizeof kShader_ui_frag);
 
     edges = hostBuffer(1 << 16, VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
     dummy = createTarget(1, 1, kColorFormat);
@@ -685,6 +764,7 @@ struct Engine::Impl {
 
   /** Runs what was recorded so far and goes on recording, when a frame needs more descriptors or edges than fit. */
   void flush() {
+    flushes++;
     submit();
     begin();
   }
@@ -736,6 +816,8 @@ struct Engine::Impl {
   /** Draws `pipeline` into all of `out` (or the `scissor` part of it; the rest is cleared) with `inputs` bound to units 0..3. */
   void pass(Target& out, VkPipeline pipe, std::initializer_list<const Target*> inputs, const void* push, uint32_t pushSize, uint32_t vertices,
             const VkRect2D* scissor = nullptr) {
+    clearPending(inputs);
+    out.pendingClear = false;
     VkDescriptorSet set = descriptorSet(inputs, false);
     beginPass(out);
     VkViewport viewport{0, 0, float(out.width), float(out.height), 0, 1};
@@ -752,6 +834,245 @@ struct Engine::Impl {
   void clearTarget(Target& out) {
     beginPass(out);
     vk::vkCmdEndRenderPass(cmd);
+    out.pendingClear = false;
+  }
+
+  /** Clears the targets about to be read that were acquired as transparent and not drawn since. */
+  void clearPending(std::initializer_list<const Target*> inputs) {
+    for (const Target* t : inputs)
+      if (t && t->pendingClear) clearTarget(*const_cast<Target*>(t));
+  }
+
+  // --- effects (fx.h) ----------------------------------------------------------------------------------------------
+
+  VkPipeline fxPipeline(uint32_t id, VkFormat format) {
+    auto it = fxPipes.find({id, format});
+    if (it != fxPipes.end()) return it->second;
+    if (!fxModules[id]) fxModules[id] = shader(kFxShaders[id].code, kFxShaders[id].codeBytes);
+    VkPipeline pipe = pipeline(fullscreenVert, fxModules[id], passes.at(format), false, fxPipelineLayout);
+    fxPipes[{id, format}] = pipe;
+    return pipe;
+  }
+
+  /**
+   * A descriptor set for effect shader `id` with `inputs` as units 0..n-1 and its uniforms as `set` writes them; may
+   * flush the recorded work to make room (which frees the sets allocated before it).
+   */
+  VkDescriptorSet fxDescriptors(uint32_t id, std::initializer_list<const Target*> inputs, const FxSetter& set) {
+    const FxShader& shader = kFxShaders[id];
+    std::vector<uint8_t> params(std::max<uint32_t>(shader.paramBytes, 16), 0);
+    uint32_t units[8] = {};
+    if (set) {
+      FxUniforms uniforms(shader, params.data(), units);
+      set(uniforms);
+    }
+    // Room for the parameters first: a flush to make room would free the descriptor set allocated below.
+    const VkDeviceSize bytes = params.size();
+    auto aligned = [&](VkDeviceSize at) { return (at + storageAlignment - 1) / storageAlignment * storageAlignment; };
+    if (aligned(edgesUsed) + bytes > edges.size) flush();
+    VkDescriptorSetAllocateInfo alloc{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};
+    alloc.descriptorPool = descriptorPool;
+    alloc.descriptorSetCount = 1;
+    alloc.pSetLayouts = &fxSetLayout;
+    VkDescriptorSet descriptors;
+    if (vk::vkAllocateDescriptorSets(device, &alloc, &descriptors) != VK_SUCCESS) {
+      flush();
+      AEVK_CHECK(vk::vkAllocateDescriptorSets(device, &alloc, &descriptors));
+    }
+    const VkDeviceSize at = aligned(edgesUsed);
+    std::memcpy(static_cast<uint8_t*>(edges.mapped) + at, params.data(), bytes);
+    edgesUsed = (at + bytes + sizeof(Edge) - 1) / sizeof(Edge) * sizeof(Edge);
+    VkDescriptorImageInfo images[8];
+    const Target* const* in = inputs.begin();
+    for (uint32_t b = 0; b < 8; b++) {
+      const uint32_t unit = b < shader.samplerCount ? units[b] : 0;
+      const Target* t = unit < inputs.size() && in[unit] ? in[unit] : dummy;
+      images[b] = {t->format == kColorFormat || t->format == kHalfFormat ? linear : nearest, t->view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
+    }
+    VkDescriptorBufferInfo buffer{edges.buffer, at, bytes};
+    VkWriteDescriptorSet writes[2]{};
+    writes[0].sType = writes[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    writes[0].dstSet = writes[1].dstSet = descriptors;
+    writes[0].dstBinding = 0;
+    writes[0].descriptorCount = 8;
+    writes[0].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    writes[0].pImageInfo = images;
+    writes[1].dstBinding = 8;
+    writes[1].descriptorCount = 1;
+    writes[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    writes[1].pBufferInfo = &buffer;
+    vk::vkUpdateDescriptorSets(device, 2, writes, 0, nullptr);
+    return descriptors;
+  }
+
+  /** Draws effect shader `id` over all of `out` with `inputs` as units 0..n-1 (RenderContext.pass). */
+  void fxPass(uint32_t id, Target& out, std::initializer_list<const Target*> inputs, const FxSetter& set) {
+    clearPending(inputs);
+    out.pendingClear = false;
+    VkDescriptorSet descriptors = fxDescriptors(id, inputs, set);
+    VkPipeline pipe = fxPipeline(id, out.format);
+    beginPass(out);
+    VkViewport viewport{0, 0, float(out.width), float(out.height), 0, 1};
+    vk::vkCmdSetViewport(cmd, 0, 1, &viewport);
+    VkRect2D full{{0, 0}, {out.width, out.height}};
+    vk::vkCmdSetScissor(cmd, 0, 1, &full);
+    vk::vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipe);
+    vk::vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, fxPipelineLayout, 0, 1, &descriptors, 0, nullptr);
+    const FxPush push{{float(out.width), float(out.height)}, out.format == kColorFormat ? 1 : 0};
+    vk::vkCmdPushConstants(cmd, fxPipelineLayout, VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof push, &push);
+    vk::vkCmdDraw(cmd, 3, 1, 0, 0);
+    vk::vkCmdEndRenderPass(cmd);
+  }
+
+  VkPipeline fxDrawPipeline(uint32_t id, VkFormat format, FxBlend blend) {
+    auto it = fxDrawPipes.find({id, format, blend});
+    if (it != fxDrawPipes.end()) return it->second;
+    const FxShader& shader = kFxShaders[id];
+    if (!fxModules[id]) fxModules[id] = this->shader(shader.code, shader.codeBytes);
+    if (!fxVertexModules[id]) fxVertexModules[id] = this->shader(shader.vertexCode, shader.vertexBytes);
+    VkPipeline pipe = pipeline(fxVertexModules[id], fxModules[id], passes.at(format), true, fxPipelineLayout, blend);
+    fxDrawPipes[{id, format, blend}] = pipe;
+    return pipe;
+  }
+
+  /** Draws a program with a vertex shader into `out`, cleared first: each draw instanced, blended by `blend` (FxContext::draw). */
+  void fxDraw(uint32_t id, Target& out, std::initializer_list<const Target*> inputs, FxBlend blend, const FxScissor& scissor, const std::vector<FxDraw>& draws) {
+    if (!kFxShaders[id].vertexCode) {
+      warn(std::string("effect shader ") + kFxShaders[id].name + " has no vertex shader to draw with");
+      return;
+    }
+    clearPending(inputs);
+    out.pendingClear = false;
+    // Every draw's set first; a flush while allocating frees the ones before it, so they are allocated again.
+    std::vector<VkDescriptorSet> sets;
+    for (int attempt = 0; attempt < 2; attempt++) {
+      const uint64_t before = flushes;
+      sets.clear();
+      for (const FxDraw& d : draws) sets.push_back(fxDescriptors(id, inputs, d.set));
+      if (flushes == before) break;
+    }
+    VkPipeline pipe = fxDrawPipeline(id, out.format, blend);
+    std::vector<VkPipeline> pipes;
+    for (const FxDraw& d : draws) pipes.push_back(d.blend ? fxDrawPipeline(id, out.format, *d.blend) : pipe);
+    beginPass(out);
+    VkViewport viewport{0, 0, float(out.width), float(out.height), 0, 1};
+    vk::vkCmdSetViewport(cmd, 0, 1, &viewport);
+    VkRect2D rect{{0, 0}, {out.width, out.height}};
+    if (scissor.width && scissor.height) {
+      // WebGL's rows count from the bottom, the target's from the top.
+      const int64_t x0 = std::max<int64_t>(0, scissor.x), x1 = std::min<int64_t>(out.width, int64_t(scissor.x) + scissor.width);
+      const int64_t top = int64_t(out.height) - (int64_t(scissor.y) + scissor.height);
+      const int64_t y0 = std::max<int64_t>(0, top), y1 = std::min<int64_t>(out.height, top + scissor.height);
+      rect = {{int32_t(x0), int32_t(y0)}, {uint32_t(std::max<int64_t>(0, x1 - x0)), uint32_t(std::max<int64_t>(0, y1 - y0))}};
+    }
+    vk::vkCmdSetScissor(cmd, 0, 1, &rect);
+    const FxPush push{{float(out.width), float(out.height)}, out.format == kColorFormat ? 1 : 0};
+    VkPipeline bound = VK_NULL_HANDLE;
+    for (size_t i = 0; i < draws.size(); i++) {
+      if (!draws[i].instances || !draws[i].vertices || !rect.extent.width || !rect.extent.height) continue;
+      if (pipes[i] != bound) {
+        vk::vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipes[i]);
+        vk::vkCmdPushConstants(cmd, fxPipelineLayout, VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof push, &push);
+        bound = pipes[i];
+      }
+      vk::vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, fxPipelineLayout, 0, 1, &sets[i], 0, nullptr);
+      vk::vkCmdDraw(cmd, draws[i].vertices, draws[i].instances, 0, 0);
+    }
+    vk::vkCmdEndRenderPass(cmd);
+  }
+
+  /** A Float target holding `rgba`, its first row at the bottom as WebGL stores a texture's first row (FxContext::upload). */
+  Target* uploadFloat(const float* rgba, uint32_t width, uint32_t height) {
+    Target* t = acquire(std::max(width, 1u), std::max(height, 1u), kFloatFormat);
+    t->pendingClear = false;
+    const VkDeviceSize row = VkDeviceSize(t->width) * 16;
+    const VkDeviceSize bytes = row * t->height;
+    // The staging buffer is shared: what is recorded so far must have run before it is written.
+    flush();
+    Buffer& buffer = stagingFor(bytes);
+    std::memset(buffer.mapped, 0, bytes);
+    for (uint32_t y = 0; y < height; y++) std::memcpy(static_cast<uint8_t*>(buffer.mapped) + row * (t->height - 1 - y), rgba + size_t(y) * width * 4, size_t(width) * 16);
+    barrier(t->image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_VERTEX_SHADER_BIT, 0,
+            VK_PIPELINE_STAGE_TRANSFER_BIT, VK_ACCESS_TRANSFER_WRITE_BIT);
+    VkBufferImageCopy region{};
+    region.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+    region.imageExtent = {t->width, t->height, 1};
+    vk::vkCmdCopyBufferToImage(cmd, buffer.buffer, t->image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
+    barrier(t->image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_TRANSFER_BIT, VK_ACCESS_TRANSFER_WRITE_BIT,
+            VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT | VK_PIPELINE_STAGE_VERTEX_SHADER_BIT, VK_ACCESS_SHADER_READ_BIT);
+    // The copy must run before the next upload overwrites the staging buffer.
+    flush();
+    return t;
+  }
+
+  /** The engine as effects see it (RenderContext). */
+  struct Fx final : FxContext {
+    Impl* impl;
+    /** The layer's content and what effects read of it, at the time its effects run. */
+    const Content& content;
+    const EffectLayer& info;
+    int depth;
+    Fx(Impl* owner, const Content& own, const EffectLayer& on, int at) : impl(owner), content(own), info(on), depth(at) {}
+    Target* acquire(double width, double height, FxFormat format, bool clear) override {
+      const auto side = [](double v) { return v > 1 ? uint32_t(std::ceil(v)) : 1u; };
+      Target* t = impl->acquire(side(width), side(height), format == FxFormat::Float ? kFloatFormat : format == FxFormat::Half ? kHalfFormat : kColorFormat);
+      t->pendingClear = clear;
+      return t;
+    }
+    void release(Target* target) override { impl->release(target); }
+    uint32_t width(const Target* target) const override { return target->width; }
+    uint32_t height(const Target* target) const override { return target->height; }
+    void pass(fx::Id shader, Target& out, std::initializer_list<const Target*> inputs, const FxSetter& set) override { impl->fxPass(shader, out, inputs, set); }
+    void warn(const std::string& message) override { impl->warn(message); }
+    void draw(fx::Id shader, Target& out, std::initializer_list<const Target*> inputs, FxBlend blend, const FxScissor& scissor,
+              const std::vector<FxDraw>& draws) override {
+      impl->fxDraw(shader, out, inputs, blend, scissor, draws);
+    }
+    Target* upload(const float* rgba, uint32_t width, uint32_t height) override { return impl->uploadFloat(rgba, width, height); }
+    const AudioData* audio(const std::string& file) override { return impl->media.audio(file); }
+    FxSource source(const Effect& effect, uint32_t param, FxImage& image, EffectLayer& layer) override {
+      const EffectSource* s = effect.source(param);
+      if (!s) return FxSource::None;
+      if (!s->drawn) return FxSource::Empty;
+      image = impl->contentImage(s->content, depth);
+      layer = s->layer;
+      layer.time = info.time;
+      return FxSource::Image;
+    }
+    bool ownContent(FxImage& image) override {
+      image = impl->contentImage(content, depth);
+      return true;
+    }
+    uint32_t inputCount(const Effect& effect) const override { return uint32_t(effect.inputs.size()); }
+    bool input(const Effect& effect, uint32_t i, FxImage& image) override {
+      if (i >= effect.inputs.size() || !effect.inputs[i].drawn) return false;
+      const EffectInput& in = effect.inputs[i];
+      EffectLayer at = info;
+      at.time = in.time;
+      image = impl->processed(in.content, in.masks, in.effects, at, depth);
+      return true;
+    }
+  };
+
+  void warn(const std::string& message) {
+    if (std::find(warnings.begin(), warnings.end(), message) == warnings.end()) warnings.push_back(message);
+  }
+
+  /** Runs effects in stack order on a layer's masked content (applyEffects in renderer.ts). */
+  LayerImage applyEffects(const std::vector<Effect>& effects, const Content& content, const EffectLayer& info, LayerImage image, int depth) {
+    Fx ctx(this, content, info, depth);
+    for (const Effect& effect : effects) {
+      const FxRenderer render = fxRenderer(effect.matchName);
+      if (!render) {
+        warn("effect " + effect.matchName + " is not rendered by the native engine");
+        continue;
+      }
+      const float scale = image.scale;
+      image = render(image, effect, info, ctx);
+      // Effects keep the resolution they are handed.
+      if (scale != 1) image.scale = scale;
+    }
+    return image;
   }
 
   Target* cleared(uint32_t width, uint32_t height) {
@@ -796,8 +1117,8 @@ struct Engine::Impl {
       Target* coverage = nullptr;
       Target* placed;
       if (layer.adjustment) {
-        coverage = place(layer, width, height, depth);
-        placed = accumulated;
+        coverage = place(layer, width, height, depth, false);
+        placed = layer.effects.empty() ? accumulated : adjusted(layer, *accumulated, comp, depth);
       } else {
         placed = place(layer, width, height, depth);
       }
@@ -820,9 +1141,31 @@ struct Engine::Impl {
     return accumulated;
   }
 
-  /** The layer's image drawn through its matrix into a new target of the comp image's size. */
-  Target* place(const Layer& layer, uint32_t width, uint32_t height, int depth) {
-    LayerImage image = layerImage(layer, depth);
+  /**
+   * An adjustment layer's effects run on the composite below, in comp pixels at the comp's scale, into a new target of
+   * its size (placeAdjustment in renderer.ts); the layer's own image only says where the result shows.
+   */
+  Target* adjusted(const Layer& layer, Target& below, const Comp& comp, int depth) {
+    Fx ctx(this, layer.content, layer.effectLayer, depth);
+    LayerImage local;
+    local.target = ctx.acquire(below.width, below.height, FxFormat::Color, false);
+    ctx.pass(fx::copy, *local.target, {&below}, [](FxUniforms& u) { u.i("u_source", 0); });
+    local.width = comp.width;
+    local.height = comp.height;
+    local.scale = layer.content.scale;
+    const LayerImage effected = applyEffects(layer.effects, layer.content, layer.effectLayer, local, depth);
+    Target* out = cleared(below.width, below.height);
+    /** Row-major: the effected image's pixels land on the comp's, past the border. */
+    const float toView[16] = {1, 0, 0, float(kPad), 0, 1, 0, float(kPad), 0, 0, 1, 0, 0, 0, 0, 1};
+    drawLayerQuad(*out, *effected.target, float(effected.width) + 2 * kPad, float(effected.height) + 2 * kPad, effected.originX - kPad,
+                  effected.originY - kPad, toView, 0);
+    release(effected.target);
+    return out;
+  }
+
+  /** The layer's image drawn through its matrix into a new target of the comp image's size (without its effects for an adjustment layer's coverage). */
+  Target* place(const Layer& layer, uint32_t width, uint32_t height, int depth, bool effects = true) {
+    LayerImage image = layerImage(layer, depth, effects);
     Target* out = acquire(width, height);
     const float k = image.scale;
     drawLayerQuad(*out, *image.target, (float(image.width) + 2 * kPad) / k, (float(image.height) + 2 * kPad) / k, (image.originX - kPad) / k,
@@ -831,9 +1174,29 @@ struct Engine::Impl {
     return out;
   }
 
-  /** The layer's content in its own pixels, after its masks. */
-  LayerImage layerImage(const Layer& layer, int depth) {
-    const Content& content = layer.content;
+  /** The layer's content in its own pixels, after its masks and effects. */
+  LayerImage layerImage(const Layer& layer, int depth, bool effects = true) {
+    static const std::vector<Effect> none;
+    return processed(layer.content, layer.masks, effects ? layer.effects : none, layer.effectLayer, depth);
+  }
+
+  /** Content in its own pixels after `masks` and then `effects` (run as `info` says). */
+  LayerImage processed(const Content& content, const std::vector<Mask>& masks, const std::vector<Effect>& effects, const EffectLayer& info, int depth) {
+    LayerImage image = contentImage(content, depth);
+    if (!masks.empty()) {
+      Target* coverage = maskCoverage(masks, *image.target, image);
+      Target* out = acquire(image.target->width, image.target->height);
+      pass(*out, maskPipe, {image.target, coverage}, nullptr, 0, 3);
+      release(image.target);
+      release(coverage);
+      image.target = out;
+    }
+    if (!effects.empty()) image = applyEffects(effects, content, info, image, depth);
+    return image;
+  }
+
+  /** Content in its own pixels (layerContent in renderer.ts). */
+  LayerImage contentImage(const Content& content, int depth) {
     LayerImage image;
     image.width = content.width;
     image.height = content.height;
@@ -868,15 +1231,100 @@ struct Engine::Impl {
       case ContentKind::Shape:
         image.target = shapeImage(content, w, h);
         break;
+      case ContentKind::Footage:
+        footageImage(content, image);
+        break;
     }
-    if (layer.masks.empty()) return image;
-    Target* coverage = maskCoverage(layer.masks, *image.target, image);
-    Target* out = acquire(image.target->width, image.target->height);
-    pass(*out, maskPipe, {image.target, coverage}, nullptr, 0, 3);
-    release(image.target);
-    release(coverage);
-    image.target = out;
     return image;
+  }
+
+  /**
+   * A footage frame as a layer image (interpret in src/render/footage.ts): the file decoded (or found in the cache),
+   * uploaded as stored and interpreted on the way in. A file that is missing or cannot be decoded draws nothing, as
+   * in the WebGL renderer, with a warning.
+   */
+  void footageImage(const Content& content, LayerImage& image) {
+    const FootageFrame& f = content.footage;
+    std::string error;
+    const size_t slash = f.file.find_last_of("/\\");
+    const std::string name = slash == std::string::npos ? f.file : f.file.substr(slash + 1);
+    std::shared_ptr<const ImageData> data;
+    std::shared_ptr<const VideoPicture> picture;
+    uint32_t width = 0, height = 0;
+    if (f.videoTime >= 0) {
+      picture = media.video(f.file, f.videoTime, error);
+      if (picture) width = picture->width, height = picture->height;
+    } else {
+      data = media.image(f.file, error);
+      if (data) width = data->width, height = data->height;
+    }
+    if (!width || !height) {
+      warn("footage \"" + name + "\" draws nothing: " + (error.empty() ? "it is empty" : error));
+      image.target = cleared(content.width + 2 * kPad, content.height + 2 * kPad);
+      return;
+    }
+    const float scale = content.scale;
+    const bool reduced = scale < 1;
+    const auto side = [reduced, scale](uint32_t s) { return reduced ? std::max<uint32_t>(1, uint32_t(std::ceil(double(s) * scale - 1e-6))) : s; };
+    image.width = side(width);
+    image.height = side(height);
+    image.scale = reduced ? scale : 1;
+    struct {
+      int32_t outSize[2];
+      int32_t pad, mode, hasAlpha, invert, taps;
+      float scale;
+      float matte[4];
+      int32_t size[2], chromaSize[2];
+      int32_t offsets[4], strides[4];
+      float k[4];
+    } push{{int32_t(image.width), int32_t(image.height)}, kPad, int32_t(f.alphaMode), f.hasAlpha ? 1 : 0, f.invertAlpha ? 1 : 0,
+           reduced ? std::min(8, int32_t(std::ceil(1.0 / scale - 1e-6))) : 1, scale, {f.matte[0], f.matte[1], f.matte[2], 0}, {}, {}, {}, {}, {}};
+    Target* source = nullptr;
+    VkPipeline pipe = footagePipe;
+    uint32_t pushSize = 48;
+    if (picture && picture->yuv) {
+      // The planes as bytes in an RGBA8 image kVideoRowBytes wide: the shader converts them.
+      source = uploadStraight(picture->bytes.data(), picture->bytes.size(), kVideoRowBytes / 4, uint32_t(picture->bytes.size() / kVideoRowBytes));
+      pipe = footageYuvPipe;
+      pushSize = sizeof push;
+      push.size[0] = int32_t(width), push.size[1] = int32_t(height);
+      push.chromaSize[0] = int32_t(picture->chromaWidth), push.chromaSize[1] = int32_t(picture->chromaHeight);
+      for (int i = 0; i < 3; i++) push.offsets[i] = int32_t(picture->offsets[i]);
+      push.offsets[3] = picture->interleaved ? 1 : 0;
+      push.strides[0] = int32_t(picture->strides[0]), push.strides[1] = int32_t(picture->strides[1]);
+      push.strides[2] = picture->limitedRange ? 1 : 0;
+      // After Effects' matrix: BT.709 above standard definition, else BT.601.
+      const bool hd = height > 576;
+      push.k[0] = hd ? 0.2126f : 0.299f;
+      push.k[1] = hd ? 0.0722f : 0.114f;
+    } else if (picture) {
+      source = uploadStraight(picture->bytes.data(), size_t(width) * height * 4, width, height);
+    } else {
+      source = uploadStraight(data->pixels.data(), data->pixels.size(), width, height);
+    }
+    Target* out = acquire(image.width + 2 * kPad, image.height + 2 * kPad);
+    pass(*out, pipe, {source}, &push, pushSize, 3);
+    release(source);
+    flush();
+    image.target = out;
+  }
+
+  /** Straight RGBA8 pixels, top row first, into an image of their own size (no border). */
+  Target* uploadStraight(const uint8_t* pixels, size_t bytes, uint32_t width, uint32_t height) {
+    Target* straight = acquire(width, height);
+    // The staging buffer is shared: what is recorded so far must have run before it is written.
+    flush();
+    Buffer& buffer = stagingFor(bytes);
+    std::memcpy(buffer.mapped, pixels, bytes);
+    barrier(straight->image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, 0,
+            VK_PIPELINE_STAGE_TRANSFER_BIT, VK_ACCESS_TRANSFER_WRITE_BIT);
+    VkBufferImageCopy region{};
+    region.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+    region.imageExtent = {width, height, 1};
+    vk::vkCmdCopyBufferToImage(cmd, buffer.buffer, straight->image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
+    barrier(straight->image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_TRANSFER_BIT,
+            VK_ACCESS_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, VK_ACCESS_SHADER_READ_BIT);
+    return straight;
   }
 
   /** Straight pixels into a padded premultiplied image. */
@@ -1067,6 +1515,7 @@ struct Engine::Impl {
     using Clock = std::chrono::steady_clock;
     const Clock::time_point started = Clock::now();
     plan = &p;
+    warnings.clear();
     begin();
     Target* result = nullptr;
     try {
@@ -1140,6 +1589,7 @@ struct Engine::Impl {
     swap.swapchain = VK_NULL_HANDLE;
     if (keepSurface) return;
     if (swap.pipeline) vk::vkDestroyPipeline(device, swap.pipeline, nullptr);
+    if (swap.uiPipeline) vk::vkDestroyPipeline(device, swap.uiPipeline, nullptr);
     if (swap.pass) vk::vkDestroyRenderPass(device, swap.pass, nullptr);
     if (swap.acquired) vk::vkDestroySemaphore(device, swap.acquired, nullptr);
     if (swap.rendered) vk::vkDestroySemaphore(device, swap.rendered, nullptr);
@@ -1183,6 +1633,7 @@ struct Engine::Impl {
         if (f.format == VK_FORMAT_R8G8B8A8_UNORM || f.format == VK_FORMAT_B8G8R8A8_UNORM) swap.format = f.format;
       swap.pass = renderPass(swap.format, VK_IMAGE_LAYOUT_PRESENT_SRC_KHR);
       swap.pipeline = pipeline(layerVert, layerFrag, swap.pass, true);
+      swap.uiPipeline = pipeline(uiVert, uiFrag, swap.pass, false, uiPipelineLayout, FxBlend::Over);
       VkSemaphoreCreateInfo semaphore{VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO};
       AEVK_CHECK(vk::vkCreateSemaphore(device, &semaphore, nullptr, &swap.acquired));
       AEVK_CHECK(vk::vkCreateSemaphore(device, &semaphore, nullptr, &swap.rendered));
@@ -1232,16 +1683,7 @@ struct Engine::Impl {
 
   /** Draws a frame into the window, fitted into `rect` as Renderer.present fits a comp into its canvas. */
   void present(const Target& frame, const PresentRect& rect, const float background[3]) {
-    if (!swap.surface) throw std::runtime_error("no window is attached");
-    if (!swap.swapchain) createSwapchain();
-    uint32_t index = 0;
-    VkResult acquired = vk::vkAcquireNextImageKHR(device, swap.swapchain, UINT64_MAX, swap.acquired, VK_NULL_HANDLE, &index);
-    if (acquired == VK_ERROR_OUT_OF_DATE_KHR) {
-      destroySwapchain(true);
-      createSwapchain();
-      acquired = vk::vkAcquireNextImageKHR(device, swap.swapchain, UINT64_MAX, swap.acquired, VK_NULL_HANDLE, &index);
-    }
-    if (acquired != VK_SUCCESS && acquired != VK_SUBOPTIMAL_KHR) throw VkFailure("vkAcquireNextImageKHR", acquired);
+    const uint32_t index = acquireImage();
     const float viewW = float(swap.extent.width), viewH = float(swap.extent.height);
     const float boxX = rect.width > 0 ? rect.x : 0, boxY = rect.height > 0 ? rect.y : 0;
     const float boxW = rect.width > 0 ? rect.width : viewW, boxH = rect.height > 0 ? rect.height : viewH;
@@ -1275,6 +1717,26 @@ struct Engine::Impl {
     vk::vkCmdPushConstants(cmd, pipelineLayout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof p, &p);
     vk::vkCmdDraw(cmd, 4, 1, 0, 0);
     vk::vkCmdEndRenderPass(cmd);
+    showImage(index);
+  }
+
+  /** The next window image to draw into, the swapchain made (again) when it has to be. */
+  uint32_t acquireImage() {
+    if (!swap.surface) throw std::runtime_error("no window is attached");
+    if (!swap.swapchain) createSwapchain();
+    uint32_t index = 0;
+    VkResult acquired = vk::vkAcquireNextImageKHR(device, swap.swapchain, UINT64_MAX, swap.acquired, VK_NULL_HANDLE, &index);
+    if (acquired == VK_ERROR_OUT_OF_DATE_KHR) {
+      destroySwapchain(true);
+      createSwapchain();
+      acquired = vk::vkAcquireNextImageKHR(device, swap.swapchain, UINT64_MAX, swap.acquired, VK_NULL_HANDLE, &index);
+    }
+    if (acquired != VK_SUCCESS && acquired != VK_SUBOPTIMAL_KHR) throw VkFailure("vkAcquireNextImageKHR", acquired);
+    return index;
+  }
+
+  /** Runs what was recorded into window image `index` and shows it. */
+  void showImage(uint32_t index) {
     submit(swap.acquired, swap.rendered);
     VkPresentInfoKHR presentInfo{VK_STRUCTURE_TYPE_PRESENT_INFO_KHR};
     presentInfo.waitSemaphoreCount = 1;
@@ -1285,6 +1747,148 @@ struct Engine::Impl {
     VkResult shown = vk::vkQueuePresentKHR(queue, &presentInfo);
     if (shown == VK_ERROR_OUT_OF_DATE_KHR || shown == VK_SUBOPTIMAL_KHR) destroySwapchain(true);
     else if (shown != VK_SUCCESS) throw VkFailure("vkQueuePresentKHR", shown);
+  }
+
+  /** A host buffer of at least `size` bytes for `usage`, grown (never shrunk) in place of `b`; only while nothing recorded uses it. */
+  void ensureBuffer(Buffer& b, VkDeviceSize size, VkBufferUsageFlags usage) {
+    if (b.size >= size) return;
+    destroyBuffer(b);
+    b = hostBuffer(std::max<VkDeviceSize>(VkDeviceSize(1) << 16, size + size / 2), usage);
+  }
+
+  /** The interface, drawn over `background` into the window (Engine::presentUi). */
+  void presentUi(const UiDrawData& ui, const Target* frame, const float background[3]) {
+    const uint32_t index = acquireImage();
+    const float viewW = float(swap.extent.width), viewH = float(swap.extent.height);
+    begin();
+    // Every set first: running out of descriptors flushes, which cannot happen inside the window's render pass.
+    std::vector<VkDescriptorSet> sets(ui.commands.size(), VK_NULL_HANDLE);
+    const bool drawable = !ui.vertices.empty() && !ui.indices.empty();
+    if (drawable) {
+      ensureBuffer(uiVertices, ui.vertices.size() * sizeof(UiVertex), VK_BUFFER_USAGE_STORAGE_BUFFER_BIT);
+      ensureBuffer(uiIndices, ui.indices.size() * sizeof(uint32_t), VK_BUFFER_USAGE_INDEX_BUFFER_BIT);
+      std::memcpy(uiVertices.mapped, ui.vertices.data(), ui.vertices.size() * sizeof(UiVertex));
+      std::memcpy(uiIndices.mapped, ui.indices.data(), ui.indices.size() * sizeof(uint32_t));
+      std::map<std::pair<const Target*, bool>, VkDescriptorSet> made;
+      for (size_t i = 0; i < ui.commands.size(); i++) {
+        const UiCommand& c = ui.commands[i];
+        const Target* t = nullptr;
+        if (c.texture == kUiFrameTexture) t = frame;
+        else if (auto it = uiTextures.find(c.texture); it != uiTextures.end()) t = it->second;
+        if (!t) continue;
+        VkDescriptorSet& set = made[{t, c.nearest}];
+        if (!set) set = uiDescriptorSet(*t, c.nearest);
+        sets[i] = set;
+      }
+    }
+    VkClearValue clear{};
+    clear.color = {{background[0], background[1], background[2], 1}};
+    VkRenderPassBeginInfo passInfo{VK_STRUCTURE_TYPE_RENDER_PASS_BEGIN_INFO};
+    passInfo.renderPass = swap.pass;
+    passInfo.framebuffer = swap.framebuffers[index];
+    passInfo.renderArea = {{0, 0}, swap.extent};
+    passInfo.clearValueCount = 1;
+    passInfo.pClearValues = &clear;
+    vk::vkCmdBeginRenderPass(cmd, &passInfo, VK_SUBPASS_CONTENTS_INLINE);
+    if (drawable) {
+      VkViewport viewport{0, 0, viewW, viewH, 0, 1};
+      vk::vkCmdSetViewport(cmd, 0, 1, &viewport);
+      vk::vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, swap.uiPipeline);
+      vk::vkCmdBindIndexBuffer(cmd, uiIndices.buffer, 0, VK_INDEX_TYPE_UINT32);
+      UiPush push{};
+      push.scale[0] = 2 / viewW;
+      push.scale[1] = 2 / viewH;
+      push.translate[0] = push.translate[1] = -1;
+      VkDescriptorSet bound = VK_NULL_HANDLE;
+      for (size_t i = 0; i < ui.commands.size(); i++) {
+        const UiCommand& c = ui.commands[i];
+        if (!sets[i] || !c.indexCount) continue;
+        const float x0 = std::clamp(c.clip[0], 0.0f, viewW), y0 = std::clamp(c.clip[1], 0.0f, viewH);
+        const float x1 = std::clamp(c.clip[2], 0.0f, viewW), y1 = std::clamp(c.clip[3], 0.0f, viewH);
+        if (x1 <= x0 || y1 <= y0) continue;
+        VkRect2D scissor{{int32_t(x0), int32_t(y0)}, {uint32_t(std::ceil(x1) - int32_t(x0)), uint32_t(std::ceil(y1) - int32_t(y0))}};
+        vk::vkCmdSetScissor(cmd, 0, 1, &scissor);
+        if (sets[i] != bound) {
+          vk::vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, uiPipelineLayout, 0, 1, &sets[i], 0, nullptr);
+          bound = sets[i];
+        }
+        const bool isFrame = c.texture == kUiFrameTexture;
+        if (isFrame) {
+          // The frame's content, inside its transparent border.
+          push.uvRect[0] = float(kPad) / float(frame->width);
+          push.uvRect[1] = float(kPad) / float(frame->height);
+          push.uvRect[2] = float(frame->width - 2 * kPad) / float(frame->width);
+          push.uvRect[3] = float(frame->height - 2 * kPad) / float(frame->height);
+        } else {
+          push.uvRect[0] = push.uvRect[1] = 0;
+          push.uvRect[2] = push.uvRect[3] = 1;
+        }
+        push.premultiplied = isFrame ? 1 : 0;
+        vk::vkCmdPushConstants(cmd, uiPipelineLayout, VK_SHADER_STAGE_VERTEX_BIT | VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof push, &push);
+        vk::vkCmdDrawIndexed(cmd, c.indexCount, 1, c.firstIndex, c.vertexOffset, 0);
+      }
+    }
+    vk::vkCmdEndRenderPass(cmd);
+    showImage(index);
+  }
+
+  VkDescriptorSet uiDescriptorSet(const Target& texture, bool nearestFilter) {
+    VkDescriptorSetAllocateInfo alloc{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};
+    alloc.descriptorPool = descriptorPool;
+    alloc.descriptorSetCount = 1;
+    alloc.pSetLayouts = &uiSetLayout;
+    VkDescriptorSet set;
+    if (vk::vkAllocateDescriptorSets(device, &alloc, &set) != VK_SUCCESS) {
+      flush();
+      AEVK_CHECK(vk::vkAllocateDescriptorSets(device, &alloc, &set));
+    }
+    VkDescriptorImageInfo image{nearestFilter ? nearest : linear, texture.view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
+    VkDescriptorBufferInfo buffer{uiVertices.buffer, 0, VK_WHOLE_SIZE};
+    VkWriteDescriptorSet writes[2]{};
+    writes[0].sType = writes[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    writes[0].dstSet = writes[1].dstSet = set;
+    writes[0].dstBinding = 0;
+    writes[0].descriptorCount = 1;
+    writes[0].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    writes[0].pImageInfo = &image;
+    writes[1].dstBinding = 1;
+    writes[1].descriptorCount = 1;
+    writes[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    writes[1].pBufferInfo = &buffer;
+    vk::vkUpdateDescriptorSets(device, 2, writes, 0, nullptr);
+    return set;
+  }
+
+  /** A straight RGBA8 texture for the interface, rows top first (Engine::createUiTexture). */
+  uint64_t createUiTexture(const uint8_t* rgba, uint32_t width, uint32_t height) {
+    width = std::max(width, 1u);
+    height = std::max(height, 1u);
+    Target* t = createTarget(width, height, kColorFormat);
+    const VkDeviceSize bytes = VkDeviceSize(width) * height * 4;
+    try {
+      Buffer& buffer = stagingFor(bytes);
+      std::memcpy(buffer.mapped, rgba, bytes);
+      begin();
+      barrier(t->image, VK_IMAGE_LAYOUT_UNDEFINED, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_PIPELINE_STAGE_TOP_OF_PIPE_BIT, 0, VK_PIPELINE_STAGE_TRANSFER_BIT,
+              VK_ACCESS_TRANSFER_WRITE_BIT);
+      VkBufferImageCopy region{};
+      region.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1};
+      region.imageExtent = {width, height, 1};
+      vk::vkCmdCopyBufferToImage(cmd, buffer.buffer, t->image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
+      barrier(t->image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_PIPELINE_STAGE_TRANSFER_BIT,
+              VK_ACCESS_TRANSFER_WRITE_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, VK_ACCESS_SHADER_READ_BIT);
+      submit();
+    } catch (...) {
+      if (recording) {
+        vk::vkEndCommandBuffer(cmd);
+        recording = false;
+      }
+      destroyTarget(t);
+      throw;
+    }
+    const uint64_t id = nextUiTexture++;
+    uiTextures[id] = t;
+    return id;
   }
 
   // --- teardown ----------------------------------------------------------------------------------------------------
@@ -1300,13 +1904,25 @@ struct Engine::Impl {
       dummy = nullptr;
       destroyBuffer(edges);
       destroyBuffer(staging);
-      for (VkPipeline p : {layerPipe, compositePipe, maskPipe, premultiplyPipe, coveragePipe, featherPipe, combinePipe, paintPipe, straightPipe})
+      destroyBuffer(uiVertices);
+      destroyBuffer(uiIndices);
+      for (auto& [id, t] : uiTextures) destroyTarget(t);
+      uiTextures.clear();
+      if (uiPipelineLayout) vk::vkDestroyPipelineLayout(device, uiPipelineLayout, nullptr);
+      if (uiSetLayout) vk::vkDestroyDescriptorSetLayout(device, uiSetLayout, nullptr);
+      for (VkPipeline p : {layerPipe, compositePipe, maskPipe, premultiplyPipe, footagePipe, footageYuvPipe, coveragePipe, featherPipe, combinePipe, paintPipe, straightPipe})
         if (p) vk::vkDestroyPipeline(device, p, nullptr);
       for (VkShaderModule m : modules) vk::vkDestroyShaderModule(device, m, nullptr);
       for (auto& [format, pass] : passes) vk::vkDestroyRenderPass(device, pass, nullptr);
       if (linear) vk::vkDestroySampler(device, linear, nullptr);
       if (nearest) vk::vkDestroySampler(device, nearest, nullptr);
       if (descriptorPool) vk::vkDestroyDescriptorPool(device, descriptorPool, nullptr);
+      for (auto& [key, pipe] : fxPipes) vk::vkDestroyPipeline(device, pipe, nullptr);
+      fxPipes.clear();
+      for (auto& [key, pipe] : fxDrawPipes) vk::vkDestroyPipeline(device, pipe, nullptr);
+      fxDrawPipes.clear();
+      if (fxPipelineLayout) vk::vkDestroyPipelineLayout(device, fxPipelineLayout, nullptr);
+      if (fxSetLayout) vk::vkDestroyDescriptorSetLayout(device, fxSetLayout, nullptr);
       if (pipelineLayout) vk::vkDestroyPipelineLayout(device, pipelineLayout, nullptr);
       if (setLayout) vk::vkDestroyDescriptorSetLayout(device, setLayout, nullptr);
       if (fence) vk::vkDestroyFence(device, fence, nullptr);
@@ -1334,6 +1950,7 @@ Engine::~Engine() = default;
 std::unique_ptr<Engine> Engine::create(const EngineOptions& options, std::string& error) {
   auto impl = std::make_unique<Impl>();
   impl->options = options;
+  for (const std::string& folder : options.mediaFolders) impl->media.addFolder(folder);
   try {
     impl->init();
   } catch (const std::exception& e) {
@@ -1360,6 +1977,7 @@ std::shared_ptr<Frame> Engine::renderFrame(const Plan& plan, std::string& error)
 }
 
 const FrameTimings& Engine::lastTimings() const { return impl_->timings; }
+const std::vector<std::string>& Engine::lastWarnings() const { return impl_->warnings; }
 
 bool Engine::mapPixels(const Frame& frame, const uint8_t*& rgba, std::string& error) {
   try {
@@ -1437,6 +2055,44 @@ bool Engine::attachDesktopWindow(void* display, uint64_t window, std::string& er
 #endif
 
 void Engine::detachWindow() { impl_->destroySwapchain(false); }
+
+void Engine::windowResized() {
+  if (impl_->swap.swapchain) impl_->destroySwapchain(true);
+}
+
+void Engine::addMediaFolder(const std::string& folder) { impl_->media.addFolder(folder); }
+
+void Engine::windowSize(uint32_t& width, uint32_t& height) const {
+  width = impl_->swap.extent.width;
+  height = impl_->swap.extent.height;
+}
+
+bool Engine::presentUi(const UiDrawData& ui, const Frame* frame, const float background[3], std::string& error) {
+  try {
+    impl_->presentUi(ui, frame ? frame->state_->target : nullptr, background);
+    return true;
+  } catch (const std::exception& e) {
+    error = e.what();
+    return false;
+  }
+}
+
+uint64_t Engine::createUiTexture(const uint8_t* rgba, uint32_t width, uint32_t height, std::string& error) {
+  try {
+    return impl_->createUiTexture(rgba, width, height);
+  } catch (const std::exception& e) {
+    error = e.what();
+    return 0;
+  }
+}
+
+void Engine::destroyUiTexture(uint64_t texture) {
+  auto it = impl_->uiTextures.find(texture);
+  if (it == impl_->uiTextures.end()) return;
+  vk::vkDeviceWaitIdle(impl_->device);
+  impl_->destroyTarget(it->second);
+  impl_->uiTextures.erase(it);
+}
 
 bool Engine::hasWindow() const { return impl_->swap.surface != VK_NULL_HANDLE; }
 

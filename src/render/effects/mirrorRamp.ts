@@ -23,7 +23,7 @@ vec2 layerPoint() { return vec2(gl_FragCoord.x - u_pad + u_origin.x, u_size.y - 
 vec2 targetUv(vec2 q) { return vec2(q.x - u_origin.x + u_pad, u_size.y - (q.y - u_origin.y + u_pad)) / u_size; }
 `;
 
-const MIRROR_FS = `${PASS_HEADER}${COORDS}
+export const MIRROR_FS = `${PASS_HEADER}${COORDS}
 uniform vec2 u_center;
 uniform vec2 u_normal;
 void main() {
@@ -32,7 +32,7 @@ void main() {
   outColor = d > 0.0 ? texture(u_source, targetUv(p - 2.0 * d * u_normal)) : texture(u_source, v_uv);
 }`;
 
-const RAMP_FS = `${PASS_HEADER}${COORDS}
+export const RAMP_FS = `${PASS_HEADER}${COORDS}
 uniform vec2 u_start;
 uniform vec2 u_end;
 uniform vec3 u_startColor;

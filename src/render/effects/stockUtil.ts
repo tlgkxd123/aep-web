@@ -160,6 +160,30 @@ export function layerCenter(layer: Layer, input: LayerImage): [number, number] {
   return [(input.origin[0] + input.width / 2) / k, (input.origin[1] + input.height / 2) / k];
 }
 
+/** The fragment shader layerPass runs for `count` sources (also embedded by the native engine: scripts/lib/native-fx.ts). */
+export function layerPassFragment(count: number, decls: string, body: string): string {
+  const indices = Array.from({ length: count }, (_, i) => i);
+  const samplers = indices.map((i) => `uniform sampler2D u_src${i};\n${imageUniforms(`u_img${i}`)}`).join("");
+  const cases = indices
+    .map((i) => `  if (i == ${i}) { vec2 uv = uvIn(q, u_img${i}Origin, u_img${i}Height, u_img${i}Target); vec2 t = uv * u_img${i}Target;
+    if (t.x < u_pad || t.y < u_pad || t.x > u_img${i}Target.x - u_pad || t.y > u_img${i}Target.y - u_pad) return vec4(0.0);
+    return texture(u_src${i}, uv); }`)
+    .join("\n");
+  return `#version 300 es
+precision highp float;
+out vec4 outColor;
+${COORDS}${COLOR_LIB}${samplers}${decls}
+vec4 at(int i, vec2 q) {
+${cases}
+  return vec4(0.0);
+}
+void main() {
+  if (!insideContent()) { outColor = vec4(0.0); return; }
+  vec2 p = layerPoint();
+${body}
+}`;
+}
+
 /** A new padded image covering `rect`. */
 function acquireRect(ctx: RenderContext, rect: Rect, clear = false): LayerImage {
   const width = Math.max(1, Math.round(rect.width));
@@ -184,25 +208,7 @@ const imageUniforms = (name: string) => `uniform vec2 ${name}Origin;\nuniform fl
  */
 export function layerPass(ctx: RenderContext, rect: Rect, sources: LayerImage[], decls: string, body: string, setUniforms?: Uniforms, scale?: number): LayerImage {
   const out = acquireRect(ctx, rect);
-  const samplers = sources.map((_, i) => `uniform sampler2D u_src${i};\n${imageUniforms(`u_img${i}`)}`).join("");
-  const cases = sources
-    .map((_, i) => `  if (i == ${i}) { vec2 uv = uvIn(q, u_img${i}Origin, u_img${i}Height, u_img${i}Target); vec2 t = uv * u_img${i}Target;
-    if (t.x < u_pad || t.y < u_pad || t.x > u_img${i}Target.x - u_pad || t.y > u_img${i}Target.y - u_pad) return vec4(0.0);
-    return texture(u_src${i}, uv); }`)
-    .join("\n");
-  const fragment = `#version 300 es
-precision highp float;
-out vec4 outColor;
-${COORDS}${COLOR_LIB}${samplers}${decls}
-vec4 at(int i, vec2 q) {
-${cases}
-  return vec4(0.0);
-}
-void main() {
-  if (!insideContent()) { outColor = vec4(0.0); return; }
-  vec2 p = layerPoint();
-${body}
-}`;
+  const fragment = layerPassFragment(sources.length, decls, body);
   ctx.pass(ctx.program(fragment), out.target, sources.map((s) => s.target), (u) => {
     const gl = ctx.gl;
     gl.uniform2f(u("u_size"), out.target.width, out.target.height);
@@ -231,14 +237,18 @@ export function reframe(ctx: RenderContext, input: LayerImage, rect: Rect): Laye
  * kept. Releases `input`.
  */
 export function colorPass(ctx: RenderContext, input: LayerImage, glsl: string, setUniforms?: Uniforms): LayerImage {
-  const fragment = `${PASS_HEADER}${COLOR_LIB}${glsl}
+  return mapPass(ctx, input, colorFragment(glsl), setUniforms);
+}
+
+/** colorPass's shader for `glsl` (also embedded by the native engine). */
+export function colorFragment(glsl: string): string {
+  return `${PASS_HEADER}${COLOR_LIB}${glsl}
 void main() {
   vec4 c = texture(u_source, v_uv);
   if (c.a <= 0.0) { outColor = vec4(0.0); return; }
   vec3 r = clamp(adjust(straight(c)), 0.0, 1.0);
   outColor = vec4(r * c.a, c.a);
 }`;
-  return mapPass(ctx, input, fragment, setUniforms);
 }
 
 /** Registers a colour adjustment (colorPass); `uniforms` sets its uniforms from the parameters. */
@@ -246,7 +256,8 @@ export function registerColor(matchName: string, glsl: string, uniforms: (p: Par
   registerStock(matchName, (input, p, ctx) => colorPass(ctx, input, glsl, (u) => uniforms(p, ctx.gl, u, ctx)));
 }
 
-const GAUSS_FS = `${PASS_HEADER}
+/** Also embedded by the native engine. */
+export const GAUSS_FS = `${PASS_HEADER}
 uniform vec2 u_size;
 uniform float u_pad;
 uniform vec2 u_dir;
@@ -275,7 +286,8 @@ const MAX_KERNEL = 40;
  * GAUSS_FS's sum without clamping, two taps a texture read: the bilinear read between taps i and i + 1, placed by
  * their weights, returns their weighted sum. u_kernel holds (offset, weight) pairs, the centre's first, normalised.
  */
-const PAIRED_GAUSS_FS = `${PASS_HEADER}
+/** Also embedded by the native engine. */
+export const PAIRED_GAUSS_FS = `${PASS_HEADER}
 uniform vec2 u_size;
 uniform float u_pad;
 uniform vec2 u_dir;
@@ -297,7 +309,8 @@ void main() {
  * its top-left corner (u_factor 2 or 4), each 2 x 2 of them one bilinear read. The loops count in ints to a constant,
  * as every GLSL compiler takes them.
  */
-const REDUCE_FS = `${PASS_HEADER}
+/** Also embedded by the native engine. */
+export const REDUCE_FS = `${PASS_HEADER}
 uniform vec2 u_size;
 uniform float u_pad;
 uniform vec2 u_fromSize;
@@ -322,7 +335,8 @@ void main() {
 }`;
 
 /** A reduced image of REDUCE_FS's (u_fromSize, u_fromHeight) read back at full size, bilinear. */
-const EXPAND_FS = `${PASS_HEADER}
+/** Also embedded by the native engine. */
+export const EXPAND_FS = `${PASS_HEADER}
 uniform vec2 u_size;
 uniform float u_pad;
 uniform vec2 u_fromSize;
@@ -499,13 +513,16 @@ function reducedGaussian(ctx: RenderContext, image: LayerImage, sigmaX: number, 
   return out;
 }
 
+/** The layerPass body of warp(), with `post` after the sample (also embedded by the native engine). */
+export const warpBody = (post = ""): string => `  vec4 c = at(0, map(p));\n  outColor = c;\n${post}`;
+
 /**
  * Resamples `input` into `rect`: `map` is GLSL `vec2 map(vec2 p)` giving the input layer point shown at output
  * layer point p (bilinear; transparent outside the input), with `decls` declaring its uniforms. `post` may change
  * `outColor` afterwards (p and the sample `c` in scope). Releases `input`.
  */
 export function warp(ctx: RenderContext, input: LayerImage, rect: Rect, decls: string, setUniforms?: Uniforms, post = ""): LayerImage {
-  const out = layerPass(ctx, rect, [input], decls, `  vec4 c = at(0, map(p));\n  outColor = c;\n${post}`, setUniforms, input.scale);
+  const out = layerPass(ctx, rect, [input], decls, warpBody(post), setUniforms, input.scale);
   ctx.pool.release(input.target);
   return out;
 }

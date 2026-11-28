@@ -6,8 +6,8 @@
  */
 #pragma once
 
+#include <map>
 #include <memory>
-#include <set>
 #include <string>
 #include <vector>
 
@@ -84,6 +84,25 @@ public:
 	f64 Time() const;
 	s64 FrameCount() const;
 
+	/**
+	 * Whether Tick presents the due frame into the engine's window itself (the default). An app that draws its own
+	 * interface around the frame turns it off and draws CurrentFrame with Engine::presentUi.
+	 */
+	void SetPresenting(bool presenting) { m_bPresenting = presenting; }
+	/** The frame at the playhead as the last Tick rendered it; null when it could not be drawn. */
+	const std::shared_ptr<aevk::Frame>& CurrentFrame() const { return m_pCurrent; }
+	/** Why the frame at the playhead cannot be drawn natively (empty when it can). */
+	const std::vector<std::string>& CurrentUnsupported() const;
+	/** The comp's background color, straight RGB. */
+	void Background(float rgb[3]) const;
+
+	const CProject& Project() const { return *m_pProject; }
+	/** The comp being shown, or null. */
+	const CItem* CompItem() const { return m_pComp; }
+
+	/** Forgets every planned and rendered frame, so they are drawn again (footage found in a folder added since). */
+	void ForgetFrames();
+
 	/** Asks the next Tick to present even when the playhead has not moved (after a resize or expose). */
 	void Invalidate() { m_bDirty = true; }
 
@@ -115,14 +134,16 @@ private:
 	s32 m_iDivisor = 1;
 	bool m_bPlaying = false;
 	bool m_bDirty = true;
+	bool m_bPresenting = true;
+	std::shared_ptr<aevk::Frame> m_pCurrent;
 	s64 m_iFrame = 0;
 	s64 m_iShownFrame = -1;
 	/** Playback's clock: when it last restarted and the comp time it restarted at, and the slot last shown since. */
 	f64 m_fOriginTime = 0;
 	f64 m_fOriginCompTime = 0;
 	s64 m_iShownSlot = 0;
-	/** Frames of the current view whose plans the engine cannot draw. */
-	std::set<s64> m_Unsupported;
+	/** Frames of the current view whose plans the engine cannot draw, with what it cannot draw. */
+	std::map<s64, std::vector<std::string>> m_Unsupported;
 	sSessionStats m_Stats;
 };
 

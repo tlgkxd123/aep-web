@@ -22,6 +22,19 @@ class Reader {
     at_ += 4;
     return v;
   }
+  double f64() {
+    const uint64_t lo = u32(), hi = u32();
+    const uint64_t bits = lo | hi << 32;
+    double v;
+    std::memcpy(&v, &bits, 8);
+    return v;
+  }
+  std::string str() {
+    const uint32_t n = count(1);
+    std::string s(n, '\0');
+    if (n) bytes(reinterpret_cast<uint8_t*>(s.data()), n);
+    return s;
+  }
   float f32() {
     uint32_t bits = u32();
     float v;
@@ -115,8 +128,115 @@ void readContent(Reader& r, Content& content, int depth) {
       for (ShapePaint& paint : content.paints) readPaint(r, paint);
       break;
     }
+    case uint32_t(ContentKind::Footage): {
+      content.kind = ContentKind::Footage;
+      FootageFrame& f = content.footage;
+      f.file = r.str();
+      f.sourceWidth = r.side();
+      f.sourceHeight = r.side();
+      const uint32_t flags = r.u32();
+      f.hasAlpha = (flags & 1) != 0;
+      f.invertAlpha = (flags & 2) != 0;
+      f.alphaMode = r.u32();
+      if (f.alphaMode > 2) r.fail("unknown footage alpha mode");
+      for (float& c : f.matte) c = r.f32();
+      f.videoTime = r.f64();
+      break;
+    }
     default:
       r.fail("unknown content kind");
+  }
+}
+
+void readMasks(Reader& r, std::vector<Mask>& masks) {
+  masks.resize(r.count(28));
+  for (Mask& mask : masks) {
+    mask.mode = r.u32();
+    mask.inverted = r.u32() != 0;
+    mask.opacity = r.f32();
+    mask.feather = r.f32();
+    mask.expansion = r.f32();
+    mask.closed = r.u32() != 0;
+    uint32_t vertices = r.count(24);
+    mask.vertices.resize(size_t(vertices) * 6);
+    for (float& v : mask.vertices) v = r.f32();
+  }
+}
+
+void readEffect(Reader& r, Effect& effect, int depth) {
+  if (depth > kMaxDepth) r.fail("plan nested too deep");
+  effect.matchName = r.str();
+  effect.params.resize(r.count(12));
+  for (EffectParam& param : effect.params) {
+    param.index = r.u32();
+    if (param.index > 9999) r.fail("effect parameter index beyond 9999");
+    if (!param.index) param.matchName = r.str();
+    param.value.resize(r.count(8));
+    for (double& v : param.value) v = r.f64();
+    param.menu.resize(r.count(4));
+    for (uint8_t& m : param.menu) m = r.u32() != 0;
+  }
+  effect.sources.resize(r.count(8));
+  for (EffectSource& source : effect.sources) {
+    source.param = r.u32();
+    if (source.param == 0 || source.param > 9999) r.fail("effect source parameter index out of range");
+    source.drawn = r.u32() != 0;
+    if (!source.drawn) continue;
+    readContent(r, source.content, depth + 1);
+    source.layer.width = r.f32();
+    source.layer.height = r.f32();
+    source.layer.kind = r.u32();
+    if (source.layer.kind > 2) r.fail("unknown effect source layer kind");
+  }
+  const uint32_t flags = r.u32();
+  if (flags & ~31u) r.fail("unknown effect flags");
+  effect.hasAudio = (flags & 1) != 0;
+  if (effect.hasAudio) {
+    effect.audio.resize(r.count(36));
+    for (AudioSource& a : effect.audio) {
+      a.file = r.str();
+      a.scale = r.f64();
+      a.offset = r.f64();
+      a.from = r.f64();
+      a.to = r.f64();
+    }
+  }
+  effect.hasPath = (flags & 2) != 0;
+  if (effect.hasPath) {
+    effect.path.closed = r.u32() != 0;
+    effect.path.vertices.resize(size_t(r.count(24)) * 6);
+    for (float& v : effect.path.vertices) v = r.f32();
+  }
+  if (flags & 4) {
+    effect.inputs.resize(r.count(12));
+    for (EffectInput& input : effect.inputs) {
+      input.time = r.f64();
+      input.drawn = r.u32() != 0;
+      if (!input.drawn) continue;
+      readContent(r, input.content, depth + 1);
+      readMasks(r, input.masks);
+      input.effects.resize(r.count(12));
+      for (Effect& inner : input.effects) readEffect(r, inner, depth + 1);
+    }
+  }
+  if (flags & 8) {
+    effect.data.resize(r.count(8));
+    for (EffectData& data : effect.data) {
+      data.param = r.u32();
+      data.bytes.resize(r.count(1));
+      if (!data.bytes.empty()) r.bytes(data.bytes.data(), data.bytes.size());
+    }
+  }
+  effect.hasParticles = (flags & 16) != 0;
+  if (effect.hasParticles) {
+    for (std::vector<float>* splats : {&effect.particles.glow, &effect.particles.core}) {
+      splats->resize(size_t(r.count(20)) * 5);
+      for (float& v : *splats) v = r.f32();
+    }
+    for (float& c : effect.particles.color) c = r.f32();
+    effect.particles.glowBlend = r.u32();
+    effect.particles.particleBlend = r.u32();
+    if (effect.particles.glowBlend - 1 > 3 || effect.particles.particleBlend - 1 > 3) r.fail("unknown particle blend mode");
   }
 }
 
@@ -129,18 +249,19 @@ void readLayer(Reader& r, Layer& layer, int depth) {
   for (float& m : layer.matrix) m = r.f32();
   layer.zoom = r.f32();
   readContent(r, layer.content, depth);
-  uint32_t masks = r.count(28);
-  layer.masks.resize(masks);
-  for (Mask& mask : layer.masks) {
-    mask.mode = r.u32();
-    mask.inverted = r.u32() != 0;
-    mask.opacity = r.f32();
-    mask.feather = r.f32();
-    mask.expansion = r.f32();
-    mask.closed = r.u32() != 0;
-    uint32_t vertices = r.count(24);
-    mask.vertices.resize(size_t(vertices) * 6);
-    for (float& v : mask.vertices) v = r.f32();
+  readMasks(r, layer.masks);
+  const uint32_t effects = r.count(12);
+  if (effects) {
+    EffectLayer& info = layer.effectLayer;
+    info.time = r.f64();
+    info.startTime = r.f64();
+    info.stretch = r.f64();
+    info.width = r.f32();
+    info.height = r.f32();
+    info.kind = r.u32();
+    if (info.kind > 2) r.fail("unknown effect layer kind");
+    layer.effects.resize(effects);
+    for (Effect& effect : layer.effects) readEffect(r, effect, depth);
   }
   layer.matteMode = r.u32();
   if (layer.matteMode > matte::LumaInverted) r.fail("unknown track matte mode");
@@ -163,13 +284,23 @@ void readComp(Reader& r, Comp& comp, int depth) {
   for (Layer& layer : comp.layers) readLayer(r, layer, depth);
 }
 
-void checkImages(const Comp& comp, size_t images, const Reader& r) {
-  for (const Layer& layer : comp.layers) {
-    for (const Layer* l = &layer; l; l = l->matte.get()) {
-      if (l->content.kind == ContentKind::Image && l->content.image >= images) r.fail("image content refers to a missing image");
-      if (l->content.kind == ContentKind::Comp) checkImages(*l->content.comp, images, r);
-    }
+void checkImages(const Comp& comp, size_t images, const Reader& r);
+
+/** Image content anywhere under `content` and `effects` (sources and time inputs included) must name a decoded image. */
+void checkImages(const Content& content, const std::vector<Effect>& effects, size_t images, const Reader& r) {
+  if (content.kind == ContentKind::Image && content.image >= images) r.fail("image content refers to a missing image");
+  if (content.kind == ContentKind::Comp) checkImages(*content.comp, images, r);
+  for (const Effect& effect : effects) {
+    for (const EffectSource& source : effect.sources)
+      if (source.drawn) checkImages(source.content, {}, images, r);
+    for (const EffectInput& input : effect.inputs)
+      if (input.drawn) checkImages(input.content, input.effects, images, r);
   }
+}
+
+void checkImages(const Comp& comp, size_t images, const Reader& r) {
+  for (const Layer& layer : comp.layers)
+    for (const Layer* l = &layer; l; l = l->matte.get()) checkImages(l->content, l->effects, images, r);
 }
 
 }  // namespace

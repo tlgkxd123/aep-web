@@ -181,12 +181,34 @@ ${body}
 /** A float target of floatPass's over `rect`, as an image layerPass can sample. */
 const stateImage = (state: Target, rect: Rect): LayerImage => ({ target: state, width: rect.width, height: rect.height, origin: [rect.x, rect.y] });
 
+/** finishPass's body: `finish` is GLSL turning `vec4 v`, the running result at p, into `outColor` (also embedded by the native engine). */
+export const finishBody = (finish: string): string => `  vec4 v = at(0, p);\n${finish}`;
+
 /** A float target of floatPass's into an image covering `rect`; `finish` is GLSL turning `vec4 v` into `outColor`. */
 function finishPass(ctx: RenderContext, rect: Rect, state: Target, finish: string): LayerImage {
-  const out = layerPass(ctx, rect, [stateImage(state, rect)], "", `  vec4 v = at(0, p);\n${finish}`);
+  const out = layerPass(ctx, rect, [stateImage(state, rect)], "", finishBody(finish));
   releaseFloat(ctx, state);
   return out;
 }
+
+/** foldFrames' declarations for `frames` frames a pass (also embedded by the native engine). */
+export const foldDecls = (frames: number): string => `uniform int u_slot[${frames}];\nuniform float u_w[${frames}];\nuniform int u_count;\nuniform int u_first;`;
+
+/** foldFrames' body for `frames` frames a pass: `step` updates `vec4 s` from `init` with each frame `c` and its weight `w`. */
+export const foldBody = (frames: number, init: string, step: string): string => `  vec4 s = u_first == 1 ? ${init} : prev();
+  for (int i = 0; i < ${frames}; i++) {
+    if (i >= u_count) break;
+    vec4 c = u_slot[i] < 0 ? vec4(0.0) : at(u_slot[i], p);
+    float w = u_w[i];
+    ${step}
+  }
+  outColor = s;`;
+
+/**
+ * The native engine's foldFrames declarations: its layerPass shaders read the running result as source `frames`
+ * (placed over the same rectangle, so at the same pixel) where floatPass binds u_prev.
+ */
+export const nativeFoldDecls = (frames: number): string => `vec4 at(int i, vec2 q);\nvec4 prev() { return at(${frames}, layerPoint()); }\n${foldDecls(frames)}`;
 
 /**
  * Folds weighted frames into a float running result, MAX_FRAMES a pass: `step` is GLSL updating `vec4 s` (the result
@@ -209,15 +231,8 @@ function foldFrames(ctx: RenderContext, rect: Rect, frames: { image: LayerImage 
       rect,
       images,
       state,
-      `uniform int u_slot[${MAX_FRAMES}];\nuniform float u_w[${MAX_FRAMES}];\nuniform int u_count;\nuniform int u_first;`,
-      `  vec4 s = u_first == 1 ? ${init} : prev();
-  for (int i = 0; i < ${MAX_FRAMES}; i++) {
-    if (i >= u_count) break;
-    vec4 c = u_slot[i] < 0 ? vec4(0.0) : at(u_slot[i], p);
-    float w = u_w[i];
-    ${step}
-  }
-  outColor = s;`,
+      foldDecls(MAX_FRAMES),
+      foldBody(MAX_FRAMES, init, step),
       (u) => {
         ctx.gl.uniform1iv(u("u_slot"), slots);
         ctx.gl.uniform1fv(u("u_w"), weights);
@@ -249,7 +264,10 @@ const ECHO_STEP: Record<number, string> = {
   6: "s = s + c * w * (1.0 - s.a);",
   7: "s = s + c * w;",
 };
-const CLAMPED = "  vec4 c = clamp(v, 0.0, 1.0);\n  outColor = vec4(min(c.rgb, vec3(c.a)), c.a);";
+/** Echo's fold step for an operator (1-7; also embedded by the native engine). */
+export const echoStep = (operator: number): string => ECHO_STEP[operator] ?? ECHO_STEP[1];
+/** The time effects' finish: the folded result clamped to valid premultiplied colour (also embedded by the native engine). */
+export const CLAMPED = "  vec4 c = clamp(v, 0.0, 1.0);\n  outColor = vec4(min(c.rgb, vec3(c.a)), c.a);";
 
 registerStock(
   "ADBE Echo",
@@ -284,6 +302,30 @@ registerStock(
 /** Time Difference's Alpha Channel popup. */
 const DifferenceAlpha = { ORIGINAL: 1, TARGET: 2, BLEND: 3, MAX: 4, FULL: 5, RESULT_LUMINANCE: 7, RESULT_MAX: 8, ALPHA_DIFFERENCE: 10, ALPHA_DIFFERENCE_ONLY: 11 } as const;
 
+/** Time Difference's pass over the layer and its target (also embedded by the native engine). */
+export const DIFFERENCE_DECLS = `uniform float u_contrast;
+uniform int u_absolute;
+uniform int u_alpha;
+uniform float u_mid;
+uniform int u_hasTarget;`;
+export const DIFFERENCE_BODY = `  vec4 c = at(0, p);
+  vec4 t = u_hasTarget == 1 ? at(1, p) : vec4(0.0);
+  vec4 delta = vec4(straight(c) - straight(t), c.a - t.a);
+  vec4 d = u_absolute == 1 ? abs(delta) * (u_contrast / 50.0) : u_mid + delta * (u_contrast / 100.0);
+  d = clamp(d, 0.0, 1.0);
+  vec3 col = d.rgb;
+  float a;
+  if (u_alpha == 2) a = t.a;
+  else if (u_alpha == 3) a = 0.5 * (c.a + t.a);
+  else if (u_alpha == 4) a = max(c.a, t.a);
+  else if (u_alpha == 5) a = 1.0;
+  else if (u_alpha == 7) { a = (d.r + d.g + d.b) / 3.0; col = straight(c); }
+  else if (u_alpha == 8) { a = max(d.r, max(d.g, d.b)); col = straight(c); }
+  else if (u_alpha == 10) a = d.a;
+  else if (u_alpha == 11) { a = d.a; col = vec3(1.0); }
+  else a = c.a;
+  outColor = vec4(col * a, a);`;
+
 // Time Difference: the layer minus Target (itself when none) Time Offset later, per straight channel: Contrast
 // % of the difference about a neutral grey, or Contrast / 50 times its absolute value. Alpha Channel says the
 // result's alpha; Result Luminance and Result Max keep the layer's own colour under the result's mean or largest
@@ -303,28 +345,8 @@ registerStock(
       ctx,
       rect,
       sources,
-      `uniform float u_contrast;
-uniform int u_absolute;
-uniform int u_alpha;
-uniform float u_mid;
-uniform int u_hasTarget;`,
-      `  vec4 c = at(0, p);
-  vec4 t = u_hasTarget == 1 ? at(1, p) : vec4(0.0);
-  vec4 delta = vec4(straight(c) - straight(t), c.a - t.a);
-  vec4 d = u_absolute == 1 ? abs(delta) * (u_contrast / 50.0) : u_mid + delta * (u_contrast / 100.0);
-  d = clamp(d, 0.0, 1.0);
-  vec3 col = d.rgb;
-  float a;
-  if (u_alpha == 2) a = t.a;
-  else if (u_alpha == 3) a = 0.5 * (c.a + t.a);
-  else if (u_alpha == 4) a = max(c.a, t.a);
-  else if (u_alpha == 5) a = 1.0;
-  else if (u_alpha == 7) { a = (d.r + d.g + d.b) / 3.0; col = straight(c); }
-  else if (u_alpha == 8) { a = max(d.r, max(d.g, d.b)); col = straight(c); }
-  else if (u_alpha == 10) a = d.a;
-  else if (u_alpha == 11) { a = d.a; col = vec3(1.0); }
-  else a = c.a;
-  outColor = vec4(col * a, a);`,
+      DIFFERENCE_DECLS,
+      DIFFERENCE_BODY,
       (u) => {
         const gl = ctx.gl;
         gl.uniform1f(u("u_contrast"), contrast);
@@ -339,6 +361,37 @@ uniform int u_hasTarget;`,
   },
   TIME_EFFECT,
 );
+
+/**
+ * Time Displacement's grid pass over the map (source 0) and up to `frames` frames (also embedded by the native engine):
+ * each pixel takes the frame its map luminance names, -1 for the frame at the time itself.
+ */
+export const displacementDecls = (frames: number): string =>
+  `uniform int u_slot[${frames}];
+uniform int u_count;
+uniform int u_base;
+uniform int u_first;
+uniform vec4 u_mapRect;
+uniform float u_maximum;
+uniform float u_time;
+uniform float u_resolution;`;
+export const DISPLACEMENT_BODY = `  vec4 s = u_first == 1 ? vec4(0.0) : prev();
+  vec2 q = u_mapRect.xy + (p - u_origin) * u_mapRect.zw;
+  vec4 m = at(0, q);
+  float level = luma(straight(m));
+  int i = int(floor((u_time + (level - 0.5) * 2.0 * u_maximum) * u_resolution + 1e-4));
+  int j = i - u_base;
+  if (j >= 0 && j < u_count) {
+    int slot = u_slot[j];
+    s = slot == -2 ? vec4(-1.0) : slot < 0 ? vec4(0.0) : at(slot, p);
+  }
+  outColor = s;`;
+/** Time Displacement's result: the layer itself where the grid marked the time's own frame. */
+export const DISPLACEMENT_FINISH = `  vec4 v = at(1, p);\n  outColor = v.a < 0.0 ? at(0, p) : v;`;
+
+/** The native engine's Time Displacement declarations: the running result is source `frames` + 1 (see nativeFoldDecls). */
+export const nativeDisplacementDecls = (frames: number): string =>
+  `vec4 at(int i, vec2 q);\nvec4 prev() { return at(${frames + 1}, layerPoint()); }\n${displacementDecls(frames)}`;
 
 // Time Displacement: each pixel from the layer at the time its Time Displacement Layer pixel's luminance says, from
 // Max Displacement Time back (black) to forward (white), in steps of 1 / Time Resolution; the map stretched over the
@@ -378,25 +431,8 @@ registerStock(
         rect,
         [map, ...present],
         state,
-        `uniform int u_slot[${MAX_FRAMES}];
-uniform int u_count;
-uniform int u_base;
-uniform int u_first;
-uniform vec4 u_mapRect;
-uniform float u_maximum;
-uniform float u_time;
-uniform float u_resolution;`,
-        `  vec4 s = u_first == 1 ? vec4(0.0) : prev();
-  vec2 q = u_mapRect.xy + (p - u_origin) * u_mapRect.zw;
-  vec4 m = at(0, q);
-  float level = luma(straight(m));
-  int i = int(floor((u_time + (level - 0.5) * 2.0 * u_maximum) * u_resolution + 1e-4));
-  int j = i - u_base;
-  if (j >= 0 && j < u_count) {
-    int slot = u_slot[j];
-    s = slot == -2 ? vec4(-1.0) : slot < 0 ? vec4(0.0) : at(slot, p);
-  }
-  outColor = s;`,
+        displacementDecls(MAX_FRAMES),
+        DISPLACEMENT_BODY,
         (u) => {
           const gl = ctx.gl;
           gl.uniform1iv(u("u_slot"), slots);
@@ -416,7 +452,7 @@ uniform float u_resolution;`,
     }
     ctx.pool.release(map.target);
     // Pixels marked -1 show the layer at the time itself.
-    const out = layerPass(ctx, rect, [input, stateImage(state!, rect)], "", `  vec4 v = at(1, p);\n  outColor = v.a < 0.0 ? at(0, p) : v;`);
+    const out = layerPass(ctx, rect, [input, stateImage(state!, rect)], "", DISPLACEMENT_FINISH);
     releaseFloat(ctx, state!);
     ctx.pool.release(input.target);
     return out;
@@ -462,6 +498,15 @@ registerStock(
   TIME_EFFECT,
 );
 
+/** Radial Shadow's cast shadow and its composite under the layer (also embedded by the native engine). */
+export const RADIAL_SHADOW_DECLS = "uniform vec2 u_light; uniform float u_k; uniform vec3 u_color; uniform float u_opacity; uniform int u_glass; uniform float u_influence;";
+export const RADIAL_SHADOW_BODY = `  vec4 c = at(0, u_light + (p - u_light) / u_k);
+  vec3 tint = u_glass == 1 ? mix(u_color, straight(c), clamp(u_influence, 0.0, 1.0)) : u_color;
+  float a = c.a * u_opacity;
+  outColor = vec4(tint * a, a);`;
+export const SHADOW_UNDER_DECLS = "uniform int u_only;";
+export const SHADOW_UNDER_BODY = "  vec4 c = at(0, p);\n  vec4 s = at(1, p);\n  outColor = u_only == 1 ? s : c + s * (1.0 - c.a);";
+
 // Radial Shadow: the layer's alpha cast from Light Source onto a plane behind it, scaled about the light by
 // 1 / (1 - Projection Distance / 100), in Shadow Color at Opacity, softened by Softness, under the layer (or alone).
 // Glass Edge tints the shadow with the layer's colour by Color Influence. Resize Layer lets the shadow grow the layer.
@@ -484,11 +529,8 @@ registerStock("ADBE Radial Shadow", (input, p, ctx, layer) => {
     ctx,
     shadowRect,
     [input],
-    "uniform vec2 u_light; uniform float u_k; uniform vec3 u_color; uniform float u_opacity; uniform int u_glass; uniform float u_influence;",
-    `  vec4 c = at(0, u_light + (p - u_light) / u_k);
-  vec3 tint = u_glass == 1 ? mix(u_color, straight(c), clamp(u_influence, 0.0, 1.0)) : u_color;
-  float a = c.a * u_opacity;
-  outColor = vec4(tint * a, a);`,
+    RADIAL_SHADOW_DECLS,
+    RADIAL_SHADOW_BODY,
     (u) => {
       const gl = ctx.gl;
       gl.uniform2f(u("u_light"), light[0], light[1]);
@@ -501,7 +543,7 @@ registerStock("ADBE Radial Shadow", (input, p, ctx, layer) => {
   );
   if (softness > 0) shadow = gaussian(ctx, shadow, softness / RADIAL_SOFTNESS, softness / RADIAL_SOFTNESS);
   const outRect = resize ? unionRect(rect, imageRect(shadow)) : rect;
-  const out = layerPass(ctx, outRect, [input, shadow], "uniform int u_only;", "  vec4 c = at(0, p);\n  vec4 s = at(1, p);\n  outColor = u_only == 1 ? s : c + s * (1.0 - c.a);", (u) =>
+  const out = layerPass(ctx, outRect, [input, shadow], SHADOW_UNDER_DECLS, SHADOW_UNDER_BODY, (u) =>
     ctx.gl.uniform1i(u("u_only"), shadowOnly ? 1 : 0),
   );
   ctx.pool.release(shadow.target);
@@ -525,6 +567,34 @@ const GLASSES_MENU = ["SBS", "OU", "Interlaced", "Difference", "(-", "RG", "RB",
 
 /** The share of the right view's luminance After Effects writes to green in Red Green and Red Blue LR. */
 const GLASSES_GREEN = { [GlassesView.RED_GREEN]: 0.8025, [GlassesView.RED_BLUE]: 0.549 } as const;
+
+/** 3D Glasses' pass, with the squeezed views' box test or the others' (also embedded by the native engine). */
+export const GLASSES_DECLS = "uniform vec2 u_shift; uniform vec4 u_box; uniform vec4 u_rects[2]; uniform int u_view; uniform vec2 u_half; uniform float u_green;";
+export const glassesBody = (squeezed: boolean): string => `  vec2 ql = p, qr = p;
+  bool inLeft = true, inRight = true;
+  if (u_view == ${GlassesView.SIDE_BY_SIDE}) { inLeft = p.x < u_half.x; inRight = !inLeft; ql.x = 2.0 * p.x; qr.x = 2.0 * (p.x - u_half.x); }
+  else if (u_view == ${GlassesView.OVER_UNDER}) { inLeft = p.y < u_half.y; inRight = !inLeft; ql.y = 2.0 * p.y; qr.y = 2.0 * (p.y - u_half.y); }
+  bool inBox = ${squeezed ? "true" : "all(greaterThanEqual(p, u_box.xy)) && all(lessThan(p, u_box.zw))"};
+  ql -= u_shift;
+  qr += u_shift;
+  bool repeat = u_view == ${GlassesView.INTERLACED} || u_view >= ${GlassesView.RED_GREEN};
+  if (repeat) {
+    ql = clamp(ql, u_rects[0].xy + 0.5, u_rects[0].zw - 0.5);
+    qr = clamp(qr, u_rects[1].xy + 0.5, u_rects[1].zw - 0.5);
+  }
+  bool okLeft = inLeft && (${squeezed ? "all(greaterThanEqual(ql + u_shift, u_box.xy)) && all(lessThan(ql + u_shift, u_box.zw))" : "inBox"});
+  bool okRight = inRight && (${squeezed ? "all(greaterThanEqual(qr - u_shift, u_box.xy)) && all(lessThan(qr - u_shift, u_box.zw))" : "inBox"});
+  vec4 l = okLeft ? at(0, ql) : vec4(0.0);
+  vec4 r = okRight ? at(1, qr) : vec4(0.0);
+  if (u_view == ${GlassesView.SIDE_BY_SIDE} || u_view == ${GlassesView.OVER_UNDER}) outColor = inLeft ? l : r;
+  else if (u_view == ${GlassesView.INTERLACED}) outColor = mod(floor(p.y - u_box.y), 2.0) < 0.5 ? l : r;
+  else if (u_view == ${GlassesView.DIFFERENCE}) outColor = vec4(abs(l.rgb - r.rgb), max(l.a, r.a));
+  else {
+    float a = 0.5 * (l.a + r.a);
+    float yl = luma(straight(l));
+    float yr = luma(straight(r));
+    outColor = vec4(yl, u_green * yr, u_view == ${GlassesView.RED_GREEN} ? 0.0 : yr, 1.0) * a;
+  }`;
 
 // 3D Glasses: Left View moved right by Scene Convergence and down by Vertical Alignment, Right View the other way,
 // over the box from the later of their starts to the later of their ends. Side by side and over-under squeeze each
@@ -573,32 +643,8 @@ registerStock(
       ctx,
       rect,
       views,
-      "uniform vec2 u_shift; uniform vec4 u_box; uniform vec4 u_rects[2]; uniform int u_view; uniform vec2 u_half; uniform float u_green;",
-      `  vec2 ql = p, qr = p;
-  bool inLeft = true, inRight = true;
-  if (u_view == ${GlassesView.SIDE_BY_SIDE}) { inLeft = p.x < u_half.x; inRight = !inLeft; ql.x = 2.0 * p.x; qr.x = 2.0 * (p.x - u_half.x); }
-  else if (u_view == ${GlassesView.OVER_UNDER}) { inLeft = p.y < u_half.y; inRight = !inLeft; ql.y = 2.0 * p.y; qr.y = 2.0 * (p.y - u_half.y); }
-  bool inBox = ${squeezed ? "true" : "all(greaterThanEqual(p, u_box.xy)) && all(lessThan(p, u_box.zw))"};
-  ql -= u_shift;
-  qr += u_shift;
-  bool repeat = u_view == ${GlassesView.INTERLACED} || u_view >= ${GlassesView.RED_GREEN};
-  if (repeat) {
-    ql = clamp(ql, u_rects[0].xy + 0.5, u_rects[0].zw - 0.5);
-    qr = clamp(qr, u_rects[1].xy + 0.5, u_rects[1].zw - 0.5);
-  }
-  bool okLeft = inLeft && (${squeezed ? "all(greaterThanEqual(ql + u_shift, u_box.xy)) && all(lessThan(ql + u_shift, u_box.zw))" : "inBox"});
-  bool okRight = inRight && (${squeezed ? "all(greaterThanEqual(qr - u_shift, u_box.xy)) && all(lessThan(qr - u_shift, u_box.zw))" : "inBox"});
-  vec4 l = okLeft ? at(0, ql) : vec4(0.0);
-  vec4 r = okRight ? at(1, qr) : vec4(0.0);
-  if (u_view == ${GlassesView.SIDE_BY_SIDE} || u_view == ${GlassesView.OVER_UNDER}) outColor = inLeft ? l : r;
-  else if (u_view == ${GlassesView.INTERLACED}) outColor = mod(floor(p.y - u_box.y), 2.0) < 0.5 ? l : r;
-  else if (u_view == ${GlassesView.DIFFERENCE}) outColor = vec4(abs(l.rgb - r.rgb), max(l.a, r.a));
-  else {
-    float a = 0.5 * (l.a + r.a);
-    float yl = luma(straight(l));
-    float yr = luma(straight(r));
-    outColor = vec4(yl, u_green * yr, u_view == ${GlassesView.RED_GREEN} ? 0.0 : yr, 1.0) * a;
-  }`,
+      GLASSES_DECLS,
+      glassesBody(squeezed),
       (u) => {
         const gl = ctx.gl;
         gl.uniform2f(u("u_shift"), convergence, alignment);
@@ -615,6 +661,26 @@ registerStock(
   },
   { cacheable: false, scalable: true },
 );
+
+/** CC Spotlight's light (also embedded by the native engine). */
+export const SPOTLIGHT_DECLS = "uniform vec2 u_from; uniform vec2 u_to; uniform float u_height; uniform float u_cosCone; uniform float u_soft; uniform vec3 u_color; uniform float u_intensity; uniform float u_scale; uniform int u_mode;";
+export const SPOTLIGHT_BODY = `  vec3 s = vec3(u_from, u_height);
+  vec3 d = vec3(p / u_scale - 0.5, 0.0) - s;
+  float dist = max(length(d), 1e-6);
+  vec3 axis = vec3(u_to, 0.0) - s;
+  float cosAxis = dot(d, axis) / (dist * max(length(axis), 1e-6));
+  float edge = u_cosCone + u_soft * (1.0 - u_cosCone);
+  float cone = edge > u_cosCone ? smoothstep(u_cosCone, edge, cosAxis) : step(u_cosCone, cosAxis);
+  float k = cone * u_height / dist * u_intensity;
+  vec4 c = at(0, p);
+  if (u_mode == 1) {
+    float a = clamp(k, 0.0, 1.0);
+    outColor = vec4(u_color * a, a);
+  } else if (u_mode == 4) {
+    outColor = vec4(c.rgb * clamp(1.0 - u_intensity * (1.0 - cone), 0.0, 1.0), c.a);
+  } else {
+    outColor = vec4(min(c.rgb + u_color * k * c.a, vec3(c.a)), c.a);
+  }`;
 
 // CC Spotlight: a spot at Height (percent of the layer's height) above From, aimed at To on the layer, lighting each
 // point by the cosine of its incidence times Intensity inside a cone of half-angle Cone Angle whose edge softens, in
@@ -635,24 +701,8 @@ registerStock("CC Spotlight", (input, p, ctx, layer) => {
     ctx,
     imageRect(input),
     [input],
-    "uniform vec2 u_from; uniform vec2 u_to; uniform float u_height; uniform float u_cosCone; uniform float u_soft; uniform vec3 u_color; uniform float u_intensity; uniform float u_scale; uniform int u_mode;",
-    `  vec3 s = vec3(u_from, u_height);
-  vec3 d = vec3(p / u_scale - 0.5, 0.0) - s;
-  float dist = max(length(d), 1e-6);
-  vec3 axis = vec3(u_to, 0.0) - s;
-  float cosAxis = dot(d, axis) / (dist * max(length(axis), 1e-6));
-  float edge = u_cosCone + u_soft * (1.0 - u_cosCone);
-  float cone = edge > u_cosCone ? smoothstep(u_cosCone, edge, cosAxis) : step(u_cosCone, cosAxis);
-  float k = cone * u_height / dist * u_intensity;
-  vec4 c = at(0, p);
-  if (u_mode == 1) {
-    float a = clamp(k, 0.0, 1.0);
-    outColor = vec4(u_color * a, a);
-  } else if (u_mode == 4) {
-    outColor = vec4(c.rgb * clamp(1.0 - u_intensity * (1.0 - cone), 0.0, 1.0), c.a);
-  } else {
-    outColor = vec4(min(c.rgb + u_color * k * c.a, vec3(c.a)), c.a);
-  }`,
+    SPOTLIGHT_DECLS,
+    SPOTLIGHT_BODY,
     (u) => {
       const gl = ctx.gl;
       gl.uniform2f(u("u_from"), from[0], from[1]);

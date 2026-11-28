@@ -33,6 +33,29 @@ enum ePropertyValueType : u32
 	PVT_TEXT_DOCUMENT = 6424,
 };
 
+/** PF_ParamType: the control an effect parameter declares (EffectControlType in src/aep/model.ts). */
+enum eEffectControl : u32
+{
+	CONTROL_LAYER = 0,
+	CONTROL_INTEGER = 1,
+	CONTROL_SCALAR = 2,
+	CONTROL_ANGLE = 3,
+	CONTROL_CHECKBOX = 4,
+	CONTROL_COLOR = 5,
+	CONTROL_POINT = 6,
+	CONTROL_POPUP = 7,
+	CONTROL_NO_DATA = 9,
+	CONTROL_FLOAT_SLIDER = 10,
+	CONTROL_ARBITRARY = 11,
+	CONTROL_PATH = 12,
+	CONTROL_GROUP_START = 13,
+	CONTROL_GROUP_END = 14,
+	CONTROL_BUTTON = 15,
+	CONTROL_POINT_3D = 18,
+	/** Not an effect parameter, or one its effect does not declare. */
+	CONTROL_NONE = 0xffffffffu,
+};
+
 /** ExtendScript KeyframeInterpolationType. */
 enum eInterpolation : u32
 {
@@ -199,6 +222,8 @@ public:
 	std::vector<std::unique_ptr<CPropertyNode>> m_Children;
 	bool m_bEffect = false;
 	std::string m_EffectName;
+	/** Effect: the arbitrary data (aRbp) the instance stores, by parameter match name (instanceData in colorExtraMath.ts). */
+	std::map<std::string, std::vector<u8>> m_InstanceData;
 	bool m_bHasMask = false;
 	sMaskInfo m_Mask;
 
@@ -212,6 +237,9 @@ public:
 	bool m_bSpatial = false;
 	/** Created with a default because After Effects did not store it. */
 	bool m_bSynthesized = false;
+	/** Effect parameter: the control its effect declares for it, and a popup's choices. */
+	u32 m_uControlType = CONTROL_NONE;
+	std::vector<std::string> m_Options;
 
 	/** Eases resolved for interpolation, built on first use (evaluate.cpp). */
 	mutable std::unique_ptr<sPrepared> m_pPrepared;
@@ -256,6 +284,7 @@ public:
 	bool m_bNull = false;
 	bool m_bGuide = false;
 	bool m_bEffectsActive = true;
+	bool m_bAudioEnabled = true;
 	bool m_bTimeRemapEnabled = false;
 	u32 m_uBlendMode = 5212;
 	u32 m_uTrackMatteType = TRACK_MATTE_NONE;
@@ -283,6 +312,41 @@ enum eSourceType : u8
 	SOURCE_FILE,
 };
 
+/** Interpret Footage alpha modes (ExtendScript AlphaMode). */
+enum eAlphaMode : u32
+{
+	ALPHA_STRAIGHT = 5412,
+	ALPHA_IGNORE = 5413,
+	ALPHA_PREMULTIPLIED = 5414,
+};
+
+/** A footage file's frames and how they are interpreted (FootageInterpretation and ImageSequence in src/aep/model.ts). */
+struct sFootageSource
+{
+	bool m_bHasAlpha = false;
+	/** eAlphaMode; footage without alpha reports Straight. */
+	u32 m_uAlphaMode = ALPHA_STRAIGHT;
+	bool m_bInvertAlpha = false;
+	f64 m_PremulColor[3] = { 0, 0, 0 };
+	/** No duration of its own (a still image). */
+	bool m_bIsStill = true;
+	u32 m_uLoop = 1;
+	/** The file's own frame rate (sspc), 0 when the project records none: video frames are looked up by it. */
+	f64 m_fNativeFrameRate = 0;
+	/** The project records a folder of numbered frames: the fields below are set. */
+	bool m_bSequence = false;
+	std::string m_SequencePrefix;
+	std::string m_SequenceExtension;
+	u32 m_uStartFrame = 0;
+	u32 m_uEndFrame = 0;
+	u32 m_uFramePadding = 0;
+	/** Frame file names the project lists (StVc), when it lists them. */
+	std::vector<std::string> m_FileNames;
+
+	/** The file name of sequence frame number `frame` (sequenceFrameName in src/aep/footage.ts). */
+	std::string FrameName(u32 frame) const;
+};
+
 class CItem
 {
 public:
@@ -302,9 +366,15 @@ public:
 	eSourceType m_eSource = SOURCE_FILE;
 	f64 m_SolidColor[3] = { 0, 0, 0 };
 	std::string m_File;
+	sFootageSource m_Footage;
+	/** Whether the footage has sound (an audio sample rate; the proxy's when "use proxy" is on). */
+	bool m_bHasAudio = false;
 
 	/** Comps. */
 	f64 m_BgColor[3] = { 0, 0, 0 };
+	/** Motion blur's shutter, in degrees of a frame. */
+	f64 m_fShutterAngle = 0;
+	f64 m_fShutterPhase = 0;
 	std::vector<std::unique_ptr<CLayer>> m_Layers;
 
 	/** Folders. */
