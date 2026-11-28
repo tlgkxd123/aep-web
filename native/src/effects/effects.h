@@ -23,5 +23,14 @@ FxRenderer mirrorRenderer();
 FxRenderer rampRenderer();
 /** stylize.cpp */
 FxRenderer strobeRenderer();
+FxRenderer thresholdRenderer();
+FxRenderer thresholdRgbRenderer();
+FxRenderer findEdgesRenderer();
+FxRenderer embossRenderer();
+FxRenderer colorEmbossRenderer();
+FxRenderer repeTileRenderer();
+FxRenderer kaleidaRenderer();
+FxRenderer hexTileRenderer();
+FxRenderer blockLoadRenderer();
 
 }  // namespace aevk

@@ -28,6 +28,10 @@ const layerPass = (name: string, count: number, decls: FxArg, body: FxArg): FxSh
   name,
   source: ref("stockUtil.ts", "layerPassFragment", count, decls, body),
 });
+/** A layerPass shader of stylizeExtra.ts from its PREFIX_DECLS and PREFIX_BODY exports. */
+const stylize = (name: string, count: number, prefix: string): FxShaderSource => layerPass(name, count, ref("stylizeExtra.ts", `${prefix}_DECLS`), ref("stylizeExtra.ts", `${prefix}_BODY`));
+/** A warp shader (stockUtil.ts warp()): `decls` declares `vec2 map(vec2 p)`. */
+const warp = (name: string, decls: FxArg, post = ""): FxShaderSource => layerPass(name, 1, decls, ref("stockUtil.ts", "warpBody", post));
 /** A generator of generateExtra.ts (generate()): its pattern's declarations and body. */
 const generator = (name: string, prefix: string): FxShaderSource =>
   layerPass(name, 1, ref("generateExtra.ts", "generateDecls", ref("generateExtra.ts", `${prefix}_DECLS`)), ref("generateExtra.ts", "generateBody", ref("generateExtra.ts", `${prefix}_BODY`)));
@@ -46,7 +50,16 @@ export const FX_SHADERS: FxShaderSource[] = [
   shader("glow_blur", "deepGlow.ts", "BLUR_FS"),
   shader("glow_accumulate", "deepGlow.ts", "ACCUMULATE_FS"),
   shader("glow_composite", "deepGlow.ts", "COMPOSITE_FS"),
-  layerPass("strobe", 1, ref("stylizeExtra.ts", "STROBE_DECLS"), ref("stylizeExtra.ts", "STROBE_BODY")),
+  stylize("strobe", 1, "STROBE"),
+  stylize("threshold", 1, "THRESHOLD"),
+  stylize("threshold_rgb", 1, "THRESHOLD_RGB"),
+  layerPass("unpremultiplied", 1, "", ref("stylizeExtra.ts", "UNPREMULTIPLIED_BODY")),
+  stylize("find_edges", 2, "FIND_EDGES"),
+  stylize("emboss", 2, "EMBOSS"),
+  stylize("repetile", 1, "REPETILE"),
+  warp("kaleida", ref("stylizeExtra.ts", "KALEIDA_DECLS")),
+  stylize("hextile", 1, "HEXTILE"),
+  stylize("block_load", 1, "BLOCK_LOAD"),
   generator("checkerboard", "CHECKERBOARD"),
   generator("circle", "CIRCLE"),
   generator("grid", "GRID"),

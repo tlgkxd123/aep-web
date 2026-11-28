@@ -28,6 +28,18 @@ FxRect layerRect(const EffectLayer& layer, const FxImage& input);
 
 FxRect unionRect(const FxRect& a, const FxRect& b);
 
+/** The largest output a distortion may grow the layer to, per side (image pixels; MAX_EXTENT). */
+constexpr double kMaxExtent = 16384;
+
+/** `r` grown to whole pixels, within kMaxExtent of the origin (clampRect). */
+FxRect clampRect(const FxRect& r);
+
+/** The default of an effect's centre point in layer pixels: the middle of a sized layer's box, else of its image (layerCenter). */
+std::array<double, 2> layerCenter(const EffectLayer& layer, const FxImage& input);
+
+/** A direction angle (degrees, 0 = up, clockwise) as a unit vector in layer space, y down (directionVector). */
+std::array<double, 2> directionVector(double degrees);
+
 /** An effect point in layer pixels: points are measured from the top left of the layer's box (layerPoint in generateExtra.ts). */
 std::array<double, 2> effectPoint(const EffectLayer& layer, const std::vector<double>& point);
 
@@ -66,6 +78,9 @@ FxImage layerPass(FxContext& ctx, const FxRect& rect, std::initializer_list<FxIm
  * and `extra` as u_extra0...; releases `input` (mapPass in fxextraUtil.ts).
  */
 FxImage mapPass(FxContext& ctx, FxImage input, fx::Id shader, const FxSetter& set = {}, std::initializer_list<FxImage> extra = {});
+
+/** The input's straight colours, opaque (unpremultiplied in stylizeExtra.ts); keeps `input`. */
+FxImage unpremultiplied(FxContext& ctx, const FxImage& input);
 
 /** layerPass over the input's own rectangle with the input as source 0, keeping its scale; releases `input`. */
 FxImage pixelPass(FxContext& ctx, FxImage input, fx::Id shader, const FxSetter& set = {});

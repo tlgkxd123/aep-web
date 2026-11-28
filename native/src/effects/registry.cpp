@@ -25,6 +25,15 @@ FxRenderer fxRenderer(const std::string& matchName) {
       {"ADBE Polar Coordinates", polarRenderer},
       {"ADBE Mirror", mirrorRenderer},
       {"ADBE Ramp", rampRenderer},
+      {"CC Threshold", thresholdRenderer},
+      {"CC Threshold RGB", thresholdRgbRenderer},
+      {"ADBE Find Edges", findEdgesRenderer},
+      {"ADBE Emboss", embossRenderer},
+      {"ADBE Color Emboss", colorEmbossRenderer},
+      {"CC RepeTile", repeTileRenderer},
+      {"CC Kaleida", kaleidaRenderer},
+      {"CS HexTile", hexTileRenderer},
+      {"CS BlockLoad", blockLoadRenderer},
   };
   for (const Entry& e : entries)
     if (matchName == e.matchName) return e.renderer();

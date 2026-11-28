@@ -505,13 +505,16 @@ function reducedGaussian(ctx: RenderContext, image: LayerImage, sigmaX: number, 
   return out;
 }
 
+/** The layerPass body of warp(), with `post` after the sample (also embedded by the native engine). */
+export const warpBody = (post = ""): string => `  vec4 c = at(0, map(p));\n  outColor = c;\n${post}`;
+
 /**
  * Resamples `input` into `rect`: `map` is GLSL `vec2 map(vec2 p)` giving the input layer point shown at output
  * layer point p (bilinear; transparent outside the input), with `decls` declaring its uniforms. `post` may change
  * `outColor` afterwards (p and the sample `c` in scope). Releases `input`.
  */
 export function warp(ctx: RenderContext, input: LayerImage, rect: Rect, decls: string, setUniforms?: Uniforms, post = ""): LayerImage {
-  const out = layerPass(ctx, rect, [input], decls, `  vec4 c = at(0, map(p));\n  outColor = c;\n${post}`, setUniforms, input.scale);
+  const out = layerPass(ctx, rect, [input], decls, warpBody(post), setUniforms, input.scale);
   ctx.pool.release(input.target);
   return out;
 }

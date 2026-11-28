@@ -41,6 +41,23 @@ FxRect unionRect(const FxRect& a, const FxRect& b) {
   return {x, y, std::max(a.x + a.width, b.x + b.width) - x, std::max(a.y + a.height, b.y + b.height) - y};
 }
 
+FxRect clampRect(const FxRect& r) {
+  const double x = std::max(-kMaxExtent, std::floor(r.x));
+  const double y = std::max(-kMaxExtent, std::floor(r.y));
+  return {x, y, std::min(kMaxExtent, std::ceil(r.x + r.width)) - x, std::min(kMaxExtent, std::ceil(r.y + r.height)) - y};
+}
+
+std::array<double, 2> layerCenter(const EffectLayer& layer, const FxImage& input) {
+  if (layer.width > 0 && layer.height > 0) return {layer.width / 2.0, layer.height / 2.0};
+  const double k = input.scale;
+  return {(input.originX + input.width / 2.0) / k, (input.originY + input.height / 2.0) / k};
+}
+
+std::array<double, 2> directionVector(double degrees) {
+  const double r = degrees * M_PI / 180;
+  return {std::sin(r), -std::cos(r)};
+}
+
 std::array<double, 2> effectPoint(const EffectLayer& layer, const std::vector<double>& point) {
   const double x = point.empty() ? 0 : point[0];
   const double y = point.size() > 1 ? point[1] : 0;
@@ -139,6 +156,8 @@ FxImage mapPass(FxContext& ctx, FxImage input, fx::Id shader, const FxSetter& se
   input.target = out;
   return input;
 }
+
+FxImage unpremultiplied(FxContext& ctx, const FxImage& input) { return layerPass(ctx, imageRect(input), {input}, fx::unpremultiplied); }
 
 FxImage pixelPass(FxContext& ctx, FxImage input, fx::Id shader, const FxSetter& set) {
   FxImage out = layerPass(ctx, imageRect(input), {input}, shader, set, input.scale);
