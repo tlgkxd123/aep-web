@@ -1,5 +1,7 @@
 #include "engine.h"
 
+#include "fx.h"
+
 #include <algorithm>
 #include <chrono>
 #include <cmath>
@@ -21,6 +23,9 @@ namespace aevk {
 namespace {
 
 constexpr VkFormat kColorFormat = VK_FORMAT_R8G8B8A8_UNORM;
+/** Effects' float targets (floatTargets.ts): RGBA32F sampled nearest, RGBA16F ("half") filtered linearly. */
+constexpr VkFormat kFloatFormat = VK_FORMAT_R32G32B32A32_SFLOAT;
+constexpr VkFormat kHalfFormat = VK_FORMAT_R16G16B16A16_SFLOAT;
 /** Read-back frames: straight RGBA computed in integers (straight.frag). */
 constexpr VkFormat kStraightFormat = VK_FORMAT_R8G8B8A8_UINT;
 /** Frames a pooled target may go unused before it is deleted. */
@@ -113,6 +118,8 @@ struct Target {
   size_t bytes = 0;
   uint64_t released = 0;
   uint64_t frame = 0;
+  /** Acquired as transparent and not drawn since: cleared before anything reads it. */
+  bool pendingClear = false;
 };
 
 struct Buffer {
@@ -123,11 +130,12 @@ struct Buffer {
 };
 
 /** A layer's image in its own pixels (see LayerImage in src/render/registry.ts). */
-struct LayerImage {
-  Target* target = nullptr;
-  uint32_t width = 0, height = 0;
-  float originX = 0, originY = 0;
-  float scale = 1;
+using LayerImage = FxImage;
+
+/** The fragment push constants of an effect pass (scripts/lib/fx-convert.ts). */
+struct FxPush {
+  float size[2];
+  int32_t quantize;
 };
 
 struct Frame::State {
@@ -179,6 +187,11 @@ struct Engine::Impl {
   VkPipeline layerPipe = VK_NULL_HANDLE, compositePipe = VK_NULL_HANDLE, maskPipe = VK_NULL_HANDLE, premultiplyPipe = VK_NULL_HANDLE;
   VkPipeline coveragePipe = VK_NULL_HANDLE, featherPipe = VK_NULL_HANDLE, combinePipe = VK_NULL_HANDLE, paintPipe = VK_NULL_HANDLE;
   VkPipeline straightPipe = VK_NULL_HANDLE;
+  VkDescriptorSetLayout fxSetLayout = VK_NULL_HANDLE;
+  VkPipelineLayout fxPipelineLayout = VK_NULL_HANDLE;
+  std::map<std::pair<uint32_t, VkFormat>, VkPipeline> fxPipes;
+  std::vector<VkShaderModule> fxModules = std::vector<VkShaderModule>(fx::kCount, VK_NULL_HANDLE);
+  std::vector<std::string> warnings;
   FrameTimings timings;
   Buffer edges;
   VkDeviceSize edgesUsed = 0;
@@ -380,7 +393,7 @@ struct Engine::Impl {
     return pass;
   }
 
-  VkPipeline pipeline(VkShaderModule vert, VkShaderModule frag, VkRenderPass pass, bool strip) {
+  VkPipeline pipeline(VkShaderModule vert, VkShaderModule frag, VkRenderPass pass, bool strip, VkPipelineLayout layout = VK_NULL_HANDLE) {
     VkPipelineShaderStageCreateInfo stages[2]{};
     stages[0].sType = stages[1].sType = VK_STRUCTURE_TYPE_PIPELINE_SHADER_STAGE_CREATE_INFO;
     stages[0].stage = VK_SHADER_STAGE_VERTEX_BIT;
@@ -421,7 +434,7 @@ struct Engine::Impl {
     create.pMultisampleState = &multisample;
     create.pColorBlendState = &blending;
     create.pDynamicState = &dynamicState;
-    create.layout = pipelineLayout;
+    create.layout = layout ? layout : pipelineLayout;
     create.renderPass = pass;
     VkPipeline result;
     AEVK_CHECK(vk::vkCreateGraphicsPipelines(device, VK_NULL_HANDLE, 1, &create, nullptr, &result));
@@ -455,7 +468,18 @@ struct Engine::Impl {
     pipelineInfo.pushConstantRangeCount = 1;
     pipelineInfo.pPushConstantRanges = &push;
     AEVK_CHECK(vk::vkCreatePipelineLayout(device, &pipelineInfo, nullptr, &pipelineLayout));
-    VkDescriptorPoolSize sizes[2] = {{VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, kSetsPerPool * 4}, {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, kSetsPerPool}};
+    // Effect passes bind 8 samplers and a parameter block (fx.h), the engine's own 4 samplers and the edge buffer.
+    VkDescriptorSetLayoutBinding fxBindings[9]{};
+    for (uint32_t i = 0; i < 8; i++) fxBindings[i] = {i, VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr};
+    fxBindings[8] = {8, VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, 1, VK_SHADER_STAGE_FRAGMENT_BIT, nullptr};
+    layoutInfo.bindingCount = 9;
+    layoutInfo.pBindings = fxBindings;
+    AEVK_CHECK(vk::vkCreateDescriptorSetLayout(device, &layoutInfo, nullptr, &fxSetLayout));
+    VkPushConstantRange fxPush{VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(FxPush)};
+    pipelineInfo.pSetLayouts = &fxSetLayout;
+    pipelineInfo.pPushConstantRanges = &fxPush;
+    AEVK_CHECK(vk::vkCreatePipelineLayout(device, &pipelineInfo, nullptr, &fxPipelineLayout));
+    VkDescriptorPoolSize sizes[2] = {{VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER, kSetsPerPool * 8}, {VK_DESCRIPTOR_TYPE_STORAGE_BUFFER, kSetsPerPool}};
     VkDescriptorPoolCreateInfo descriptorInfo{VK_STRUCTURE_TYPE_DESCRIPTOR_POOL_CREATE_INFO};
     descriptorInfo.maxSets = kSetsPerPool;
     descriptorInfo.poolSizeCount = 2;
@@ -474,6 +498,8 @@ struct Engine::Impl {
     passes[kColorFormat] = renderPass(kColorFormat);
     if (!passes.count(coverageFormat)) passes[coverageFormat] = renderPass(coverageFormat);
     passes[kStraightFormat] = renderPass(kStraightFormat);
+    for (VkFormat format : {kFloatFormat, kHalfFormat})
+      if (!passes.count(format)) passes[format] = renderPass(format);
     layerVert = shader(kShader_layer_vert, sizeof kShader_layer_vert);
     fullscreenVert = shader(kShader_fullscreen_vert, sizeof kShader_fullscreen_vert);
     layerFrag = shader(kShader_layer_frag, sizeof kShader_layer_frag);
@@ -736,6 +762,8 @@ struct Engine::Impl {
   /** Draws `pipeline` into all of `out` (or the `scissor` part of it; the rest is cleared) with `inputs` bound to units 0..3. */
   void pass(Target& out, VkPipeline pipe, std::initializer_list<const Target*> inputs, const void* push, uint32_t pushSize, uint32_t vertices,
             const VkRect2D* scissor = nullptr) {
+    clearPending(inputs);
+    out.pendingClear = false;
     VkDescriptorSet set = descriptorSet(inputs, false);
     beginPass(out);
     VkViewport viewport{0, 0, float(out.width), float(out.height), 0, 1};
@@ -752,6 +780,123 @@ struct Engine::Impl {
   void clearTarget(Target& out) {
     beginPass(out);
     vk::vkCmdEndRenderPass(cmd);
+    out.pendingClear = false;
+  }
+
+  /** Clears the targets about to be read that were acquired as transparent and not drawn since. */
+  void clearPending(std::initializer_list<const Target*> inputs) {
+    for (const Target* t : inputs)
+      if (t && t->pendingClear) clearTarget(*const_cast<Target*>(t));
+  }
+
+  // --- effects (fx.h) ----------------------------------------------------------------------------------------------
+
+  VkPipeline fxPipeline(uint32_t id, VkFormat format) {
+    auto it = fxPipes.find({id, format});
+    if (it != fxPipes.end()) return it->second;
+    if (!fxModules[id]) fxModules[id] = shader(kFxShaders[id].code, kFxShaders[id].codeBytes);
+    VkPipeline pipe = pipeline(fullscreenVert, fxModules[id], passes.at(format), false, fxPipelineLayout);
+    fxPipes[{id, format}] = pipe;
+    return pipe;
+  }
+
+  /** Draws effect shader `id` over all of `out` with `inputs` as units 0..n-1 (RenderContext.pass). */
+  void fxPass(uint32_t id, Target& out, std::initializer_list<const Target*> inputs, const FxSetter& set) {
+    const FxShader& shader = kFxShaders[id];
+    std::vector<uint8_t> params(std::max<uint32_t>(shader.paramBytes, 16), 0);
+    uint32_t units[8] = {};
+    if (set) {
+      FxUniforms uniforms(shader, params.data(), units);
+      set(uniforms);
+    }
+    clearPending(inputs);
+    out.pendingClear = false;
+    // Room for the parameters first: a flush to make room would free the descriptor set allocated below.
+    const VkDeviceSize bytes = params.size();
+    auto aligned = [&](VkDeviceSize at) { return (at + storageAlignment - 1) / storageAlignment * storageAlignment; };
+    if (aligned(edgesUsed) + bytes > edges.size) flush();
+    VkDescriptorSetAllocateInfo alloc{VK_STRUCTURE_TYPE_DESCRIPTOR_SET_ALLOCATE_INFO};
+    alloc.descriptorPool = descriptorPool;
+    alloc.descriptorSetCount = 1;
+    alloc.pSetLayouts = &fxSetLayout;
+    VkDescriptorSet descriptors;
+    if (vk::vkAllocateDescriptorSets(device, &alloc, &descriptors) != VK_SUCCESS) {
+      flush();
+      AEVK_CHECK(vk::vkAllocateDescriptorSets(device, &alloc, &descriptors));
+    }
+    const VkDeviceSize at = aligned(edgesUsed);
+    std::memcpy(static_cast<uint8_t*>(edges.mapped) + at, params.data(), bytes);
+    edgesUsed = (at + bytes + sizeof(Edge) - 1) / sizeof(Edge) * sizeof(Edge);
+    VkDescriptorImageInfo images[8];
+    const Target* const* in = inputs.begin();
+    for (uint32_t b = 0; b < 8; b++) {
+      const uint32_t unit = b < shader.samplerCount ? units[b] : 0;
+      const Target* t = unit < inputs.size() && in[unit] ? in[unit] : dummy;
+      images[b] = {t->format == kColorFormat || t->format == kHalfFormat ? linear : nearest, t->view, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL};
+    }
+    VkDescriptorBufferInfo buffer{edges.buffer, at, bytes};
+    VkWriteDescriptorSet writes[2]{};
+    writes[0].sType = writes[1].sType = VK_STRUCTURE_TYPE_WRITE_DESCRIPTOR_SET;
+    writes[0].dstSet = writes[1].dstSet = descriptors;
+    writes[0].dstBinding = 0;
+    writes[0].descriptorCount = 8;
+    writes[0].descriptorType = VK_DESCRIPTOR_TYPE_COMBINED_IMAGE_SAMPLER;
+    writes[0].pImageInfo = images;
+    writes[1].dstBinding = 8;
+    writes[1].descriptorCount = 1;
+    writes[1].descriptorType = VK_DESCRIPTOR_TYPE_STORAGE_BUFFER;
+    writes[1].pBufferInfo = &buffer;
+    vk::vkUpdateDescriptorSets(device, 2, writes, 0, nullptr);
+    VkPipeline pipe = fxPipeline(id, out.format);
+    beginPass(out);
+    VkViewport viewport{0, 0, float(out.width), float(out.height), 0, 1};
+    vk::vkCmdSetViewport(cmd, 0, 1, &viewport);
+    VkRect2D full{{0, 0}, {out.width, out.height}};
+    vk::vkCmdSetScissor(cmd, 0, 1, &full);
+    vk::vkCmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipe);
+    vk::vkCmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, fxPipelineLayout, 0, 1, &descriptors, 0, nullptr);
+    const FxPush push{{float(out.width), float(out.height)}, out.format == kColorFormat ? 1 : 0};
+    vk::vkCmdPushConstants(cmd, fxPipelineLayout, VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof push, &push);
+    vk::vkCmdDraw(cmd, 3, 1, 0, 0);
+    vk::vkCmdEndRenderPass(cmd);
+  }
+
+  /** The engine as effects see it (RenderContext). */
+  struct Fx final : FxContext {
+    Impl* impl;
+    explicit Fx(Impl* owner) : impl(owner) {}
+    Target* acquire(double width, double height, FxFormat format, bool clear) override {
+      const auto side = [](double v) { return v > 1 ? uint32_t(std::ceil(v)) : 1u; };
+      Target* t = impl->acquire(side(width), side(height), format == FxFormat::Float ? kFloatFormat : format == FxFormat::Half ? kHalfFormat : kColorFormat);
+      t->pendingClear = clear;
+      return t;
+    }
+    void release(Target* target) override { impl->release(target); }
+    uint32_t width(const Target* target) const override { return target->width; }
+    uint32_t height(const Target* target) const override { return target->height; }
+    void pass(fx::Id shader, Target& out, std::initializer_list<const Target*> inputs, const FxSetter& set) override { impl->fxPass(shader, out, inputs, set); }
+    void warn(const std::string& message) override { impl->warn(message); }
+  };
+
+  void warn(const std::string& message) {
+    if (std::find(warnings.begin(), warnings.end(), message) == warnings.end()) warnings.push_back(message);
+  }
+
+  /** Runs the layer's effects in stack order, after its masks (applyEffects in renderer.ts). */
+  LayerImage applyEffects(const Layer& layer, LayerImage image) {
+    Fx ctx(this);
+    for (const Effect& effect : layer.effects) {
+      const FxRenderer render = fxRenderer(effect.matchName);
+      if (!render) {
+        warn("effect " + effect.matchName + " is not rendered by the native engine");
+        continue;
+      }
+      const float scale = image.scale;
+      image = render(image, effect, layer.effectLayer, ctx);
+      // Effects keep the resolution they are handed.
+      if (scale != 1) image.scale = scale;
+    }
+    return image;
   }
 
   Target* cleared(uint32_t width, uint32_t height) {
@@ -869,13 +1014,15 @@ struct Engine::Impl {
         image.target = shapeImage(content, w, h);
         break;
     }
-    if (layer.masks.empty()) return image;
-    Target* coverage = maskCoverage(layer.masks, *image.target, image);
-    Target* out = acquire(image.target->width, image.target->height);
-    pass(*out, maskPipe, {image.target, coverage}, nullptr, 0, 3);
-    release(image.target);
-    release(coverage);
-    image.target = out;
+    if (!layer.masks.empty()) {
+      Target* coverage = maskCoverage(layer.masks, *image.target, image);
+      Target* out = acquire(image.target->width, image.target->height);
+      pass(*out, maskPipe, {image.target, coverage}, nullptr, 0, 3);
+      release(image.target);
+      release(coverage);
+      image.target = out;
+    }
+    if (!layer.effects.empty()) image = applyEffects(layer, image);
     return image;
   }
 
@@ -1067,6 +1214,7 @@ struct Engine::Impl {
     using Clock = std::chrono::steady_clock;
     const Clock::time_point started = Clock::now();
     plan = &p;
+    warnings.clear();
     begin();
     Target* result = nullptr;
     try {
@@ -1307,6 +1455,10 @@ struct Engine::Impl {
       if (linear) vk::vkDestroySampler(device, linear, nullptr);
       if (nearest) vk::vkDestroySampler(device, nearest, nullptr);
       if (descriptorPool) vk::vkDestroyDescriptorPool(device, descriptorPool, nullptr);
+      for (auto& [key, pipe] : fxPipes) vk::vkDestroyPipeline(device, pipe, nullptr);
+      fxPipes.clear();
+      if (fxPipelineLayout) vk::vkDestroyPipelineLayout(device, fxPipelineLayout, nullptr);
+      if (fxSetLayout) vk::vkDestroyDescriptorSetLayout(device, fxSetLayout, nullptr);
       if (pipelineLayout) vk::vkDestroyPipelineLayout(device, pipelineLayout, nullptr);
       if (setLayout) vk::vkDestroyDescriptorSetLayout(device, setLayout, nullptr);
       if (fence) vk::vkDestroyFence(device, fence, nullptr);
@@ -1360,6 +1512,7 @@ std::shared_ptr<Frame> Engine::renderFrame(const Plan& plan, std::string& error)
 }
 
 const FrameTimings& Engine::lastTimings() const { return impl_->timings; }
+const std::vector<std::string>& Engine::lastWarnings() const { return impl_->warnings; }
 
 bool Engine::mapPixels(const Frame& frame, const uint8_t*& rgba, std::string& error) {
   try {

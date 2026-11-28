@@ -11,7 +11,9 @@ import { NATIVE_EFFECTS } from "../src/native/effects.ts";
 import { buildFramePlan, type FramePlan, type PlanContent, type PlanLayer } from "../src/native/plan.ts";
 import { GRADIENT_STOPS } from "../src/render/shapes.ts";
 import { decodePlan, encodePlan, PLAN_MAGIC } from "../src/native/wire.ts";
-import { shaderHash, SHADER_DIR, SHADER_HEADER, shaderSymbol } from "../scripts/lib/native.ts";
+import { FX_HEADER, shaderHash, SHADER_DIR, SHADER_HEADER, shaderSymbol } from "../scripts/lib/native.ts";
+import { FX_SHADERS, fxHash, fxSource } from "../scripts/lib/native-fx.ts";
+import { convertFx } from "../scripts/lib/fx-convert.ts";
 
 const SAMPLE = resolve("native/tests/data/sample.aevp");
 
@@ -222,5 +224,44 @@ describe("native render plan", () => {
       expect(header).toContain(`static const uint32_t ${shaderSymbol(file)}[]`);
     }
     expect(existsSync(join(SHADER_DIR, "..", "src", "engine.cpp"))).toBe(true);
+  });
+
+  it("embeds the effect shaders compiled from the TypeScript effects' current GLSL", async () => {
+    const header = readFileSync(FX_HEADER, "utf8");
+    for (const entry of FX_SHADERS) {
+      const source = await fxSource(entry);
+      expect(header).toContain(`// ${entry.name} sha256 ${fxHash(source)}`);
+      const { uniforms, samplers } = convertFx(source, entry.name);
+      for (const u of uniforms) expect(header).toContain(`{"${u.name}", FxType::`);
+      if (samplers.length) expect(header).toContain(`kFxSamplers_${entry.name}[] = {${samplers.map((n) => `"${n}"`).join(", ")}}`);
+    }
+  });
+
+  it("converts WebGL effect shaders to Vulkan GLSL with WebGL's row order and std430 offsets", () => {
+    const { source, uniforms, samplers, paramBytes } = convertFx(
+      `#version 300 es
+precision highp float;
+uniform sampler2D u_a;
+uniform float u_k, u_w[3];
+uniform vec3 u_c;
+uniform sampler2D u_b;
+in vec2 v_uv;
+out vec4 color;
+float sample(float x) { return x; }
+void main() { color = texture(u_a, v_uv) + texelFetch(u_b, ivec2(gl_FragCoord.xy), 0) * sample(u_k); }`,
+      "test",
+    );
+    expect(samplers).toEqual(["u_a", "u_b"]);
+    expect(uniforms.map((u) => [u.name, u.offset, u.stride, u.count])).toEqual([
+      ["u_k", 0, 4, 1],
+      ["u_w", 4, 4, 3],
+      ["u_c", 16, 16, 1],
+    ]);
+    expect(paramBytes).toBe(32);
+    expect(source).toContain("fx_texture(u_a, v_uv)");
+    expect(source).toContain("fx_texelFetch(u_b, ivec2(fxFragCoord.xy), 0)");
+    expect(source).toContain("float fx_sample(float x)");
+    expect(source).toContain("void fx_main()");
+    expect(source).not.toMatch(/^\s*precision/m);
   });
 });

@@ -8,6 +8,7 @@
 
 #include "check.h"
 #include "engine.h"
+#include "fx.h"
 #include "geometry.h"
 #include "playback.h"
 
@@ -307,4 +308,55 @@ TEST(strokes_wind_one_way) {
   // Past the miter limit a miter join is a bevel too.
   const Outline limited = strokeOutline({{&square, true}}, {1, 0, 0, 1, 0, 0}, 2, LineCap::Butt, LineJoin::Miter, 1.2);
   CHECK(limited.edges.size() == bevel.edges.size());
+}
+
+TEST(every_listed_effect_has_a_renderer) {
+#define AEVK_EFFECT(name, scalable, passThrough) CHECK(passThrough || fxRenderer(name) != nullptr);
+#include "effects/list.inc"
+#undef AEVK_EFFECT
+  CHECK(fxRenderer("ADBE Not An Effect") == nullptr);
+}
+
+TEST(fast_box_blur_spreads_rows_the_right_way_up) {
+  if (!engine()) SKIP("no Vulkan device");
+  // A white 3x3 solid masked to its top row, blurred vertically by 1 px: rows -1..1 of the layer get a third each.
+  Plan plan;
+  plan.root.width = 8;
+  plan.root.height = 8;
+  Layer layer = solid(3, 3, {1, 1, 1}, 2, 3);
+  layer.masks.push_back(rectangle(0, 0, 3, 1));
+  Effect blur;
+  blur.matchName = "ADBE Box Blur2";
+  blur.params = {{1, "", {1}, {}}, {2, "", {1}, {}}, {3, "", {3}, {0, 0, 0}}, {4, "", {0}, {}}};
+  layer.effects.push_back(blur);
+  layer.effectLayer.width = 3;
+  layer.effectLayer.height = 3;
+  plan.root.layers.push_back(std::move(layer));
+  std::vector<uint8_t> rgba;
+  uint32_t w, h;
+  CHECK(render(plan, rgba, w, h));
+  for (uint32_t y = 0; y < 8; y++) {
+    const uint8_t alpha = pixel(rgba, w, 3, y)[3];
+    const bool lit = y >= 2 && y <= 4;
+    CHECK(lit ? std::abs(alpha - 85) <= 1 : alpha == 0);
+  }
+  CHECK(pixel(rgba, w, 1, 3)[3] == 0 && pixel(rgba, w, 5, 3)[3] == 0);
+  CHECK(engine()->lastWarnings().empty());
+}
+
+TEST(warns_about_effects_it_does_not_draw) {
+  if (!engine()) SKIP("no Vulkan device");
+  Plan plan;
+  plan.root.width = 4;
+  plan.root.height = 4;
+  Layer layer = solid(4, 4, {1, 0, 0}, 0, 0);
+  Effect unknown;
+  unknown.matchName = "ADBE Not An Effect";
+  layer.effects.push_back(unknown);
+  plan.root.layers.push_back(std::move(layer));
+  std::vector<uint8_t> rgba;
+  uint32_t w, h;
+  CHECK(render(plan, rgba, w, h));
+  CHECK(pixel(rgba, w, 1, 1)[0] == 255);
+  CHECK(engine()->lastWarnings().size() == 1);
 }

@@ -83,7 +83,7 @@ struct EffectParam {
   uint32_t index = 0;
   std::string matchName;
   /** A number, a point, or straight RGBA for a colour; empty for parameters with no value. */
-  std::vector<float> value;
+  std::vector<double> value;
   /** For popups: per menu entry, 1 for a "(-" separator the entry numbering skips. */
   std::vector<uint8_t> menu;
 };

@@ -16,7 +16,7 @@
 //   effectLayer := f64 time, f64 startTime, f32 width, f32 height, u32 kind (0 AV, 1 shape, 2 other)
 //   effect  := str matchName, u32 paramCount, param*
 //   param   := u32 index (n for "<effect match name>-000n", 0 for any other), [str matchName when 0],
-//              u32 valueCount, f32*, u32 menuCount, u32 per entry (1 separator)
+//              u32 valueCount, f64*, u32 menuCount, u32 per entry (1 separator)
 //   str     := u32 byteCount, UTF-8 bytes
 //   image   := u32 width, u32 height, u8[width * height * 4] straight RGBA, top row first
 import type { FramePlan, PlanComp, PlanContent, PlanEffect, PlanImage, PlanLayer, PlanMask, PlanParam, ShapePaintPlan } from "./plan.ts";
@@ -146,7 +146,7 @@ function writeEffect(w: Writer, effect: PlanEffect): void {
     w.u32(index);
     if (!index) w.str(param.matchName);
     w.u32(param.value.length);
-    for (const v of param.value) w.f32(v);
+    for (const v of param.value) w.f64(v);
     w.u32(param.menu?.length ?? 0);
     for (const separator of param.menu ?? []) w.u32(separator ? 1 : 0);
   }
@@ -315,7 +315,7 @@ function readLayer(r: Reader): PlanLayer {
       for (let j = r.u32(); j > 0; j--) {
         const index = r.u32();
         const paramName = index ? `${matchName}-${String(index).padStart(4, "0")}` : r.str();
-        const value = Array.from({ length: r.u32() }, () => r.f32());
+        const value = Array.from({ length: r.u32() }, () => r.f64());
         const menuCount = r.u32();
         const param: PlanParam = { matchName: paramName, value };
         if (menuCount) param.menu = Array.from({ length: menuCount }, () => r.u32() !== 0);

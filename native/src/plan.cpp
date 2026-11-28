@@ -172,8 +172,8 @@ void readLayer(Reader& r, Layer& layer, int depth) {
         param.index = r.u32();
         if (param.index > 9999) r.fail("effect parameter index beyond 9999");
         if (!param.index) param.matchName = r.str();
-        param.value.resize(r.count(4));
-        for (float& v : param.value) v = r.f32();
+        param.value.resize(r.count(8));
+        for (double& v : param.value) v = r.f64();
         param.menu.resize(r.count(4));
         for (uint8_t& m : param.menu) m = r.u32() != 0;
       }

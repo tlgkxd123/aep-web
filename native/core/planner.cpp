@@ -484,7 +484,7 @@ void CFramePlanner::Effects(const CLayer& layer, f64 time, std::vector<aevk::Eff
 			}
 			for (u32 i = 0; i < value.Count(); i++)
 			{
-				param.value.push_back(float(value.m_V[i]));
+				param.value.push_back(value.m_V[i]);
 			}
 			for (const std::string& option : node.m_Options)
 			{

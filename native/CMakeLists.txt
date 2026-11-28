@@ -19,7 +19,10 @@ option(AEVK_TOOLS "Build the headless renderer and the tests" ON)
 
 add_library(aevk STATIC
   src/capi.cpp
+  src/effects/box_blur.cpp
+  src/effects/registry.cpp
   src/engine.cpp
+  src/fx.cpp
   src/geometry.cpp
   src/plan.cpp
   src/playback.cpp

@@ -78,6 +78,8 @@ class Engine {
   /** Renders the plan and keeps the frame on the GPU; null with `error` set when it cannot. */
   std::shared_ptr<Frame> renderFrame(const Plan& plan, std::string& error);
   const FrameTimings& lastTimings() const;
+  /** What the last frame skipped (effects the engine does not draw...). */
+  const std::vector<std::string>& lastWarnings() const;
   /**
    * Straight-alpha RGBA of a frame, rows top first, without the border, in the engine's own memory: `rgba` stays valid
    * until the next call on the engine.

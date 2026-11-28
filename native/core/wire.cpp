@@ -166,9 +166,9 @@ void WriteEffect(CWriter& w, const aevk::Effect& effect)
 			w.Str(param.matchName);
 		}
 		w.U32(u32(param.value.size()));
-		for (const float v : param.value)
+		for (const f64 v : param.value)
 		{
-			w.F32(v);
+			w.F64(v);
 		}
 		w.U32(u32(param.menu.size()));
 		for (const u8 separator : param.menu)
