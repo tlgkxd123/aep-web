@@ -1096,8 +1096,8 @@ struct Engine::Impl {
       Target* coverage = nullptr;
       Target* placed;
       if (layer.adjustment) {
-        coverage = place(layer, width, height, depth);
-        placed = accumulated;
+        coverage = place(layer, width, height, depth, false);
+        placed = layer.effects.empty() ? accumulated : adjusted(layer, *accumulated, comp, depth);
       } else {
         placed = place(layer, width, height, depth);
       }
@@ -1120,9 +1120,31 @@ struct Engine::Impl {
     return accumulated;
   }
 
-  /** The layer's image drawn through its matrix into a new target of the comp image's size. */
-  Target* place(const Layer& layer, uint32_t width, uint32_t height, int depth) {
-    LayerImage image = layerImage(layer, depth);
+  /**
+   * An adjustment layer's effects run on the composite below, in comp pixels at the comp's scale, into a new target of
+   * its size (placeAdjustment in renderer.ts); the layer's own image only says where the result shows.
+   */
+  Target* adjusted(const Layer& layer, Target& below, const Comp& comp, int depth) {
+    Fx ctx(this, layer, depth);
+    LayerImage local;
+    local.target = ctx.acquire(below.width, below.height, FxFormat::Color, false);
+    ctx.pass(fx::copy, *local.target, {&below}, [](FxUniforms& u) { u.i("u_source", 0); });
+    local.width = comp.width;
+    local.height = comp.height;
+    local.scale = layer.content.scale;
+    const LayerImage effected = applyEffects(layer, local, depth);
+    Target* out = cleared(below.width, below.height);
+    /** Row-major: the effected image's pixels land on the comp's, past the border. */
+    const float toView[16] = {1, 0, 0, float(kPad), 0, 1, 0, float(kPad), 0, 0, 1, 0, 0, 0, 0, 1};
+    drawLayerQuad(*out, *effected.target, float(effected.width) + 2 * kPad, float(effected.height) + 2 * kPad, effected.originX - kPad,
+                  effected.originY - kPad, toView, 0);
+    release(effected.target);
+    return out;
+  }
+
+  /** The layer's image drawn through its matrix into a new target of the comp image's size (without its effects for an adjustment layer's coverage). */
+  Target* place(const Layer& layer, uint32_t width, uint32_t height, int depth, bool effects = true) {
+    LayerImage image = layerImage(layer, depth, effects);
     Target* out = acquire(width, height);
     const float k = image.scale;
     drawLayerQuad(*out, *image.target, (float(image.width) + 2 * kPad) / k, (float(image.height) + 2 * kPad) / k, (image.originX - kPad) / k,
@@ -1132,7 +1154,7 @@ struct Engine::Impl {
   }
 
   /** The layer's content in its own pixels, after its masks and effects. */
-  LayerImage layerImage(const Layer& layer, int depth) {
+  LayerImage layerImage(const Layer& layer, int depth, bool effects = true) {
     LayerImage image = contentImage(layer.content, depth);
     if (!layer.masks.empty()) {
       Target* coverage = maskCoverage(layer.masks, *image.target, image);
@@ -1142,7 +1164,7 @@ struct Engine::Impl {
       release(coverage);
       image.target = out;
     }
-    if (!layer.effects.empty()) image = applyEffects(layer, image, depth);
+    if (effects && !layer.effects.empty()) image = applyEffects(layer, image, depth);
     return image;
   }
 

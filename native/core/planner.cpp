@@ -503,10 +503,6 @@ void CFramePlanner::PlanComp(const CItem& comp, f64 time, s32 depth, f64 scale, 
 		{
 			continue;
 		}
-		if (layer->m_bAdjustment && !EnabledEffects(*layer).empty())
-		{
-			Unsupported("adjustment layer effects (\"" + layer->m_Name + "\")");
-		}
 		placed.blendMode = layer->m_uBlendMode;
 		placed.opacity = float(LocalTransform(*layer, time).m_fOpacity / 100);
 		const CLayer* matteLayer = layer->m_uTrackMatteType != NO_MATTE ? MatteLayerOf(*layer, comp) : nullptr;
@@ -535,7 +531,7 @@ void CFramePlanner::PlanComp(const CItem& comp, f64 time, s32 depth, f64 scale, 
 bool CFramePlanner::Placed(const CLayer& layer, const CItem& comp, f64 time, const sCamera* camera, s32 depth, f64 scale,
 	bool adjustment, aevk::Layer& out)
 {
-	if (!adjustment)
+	/** An adjustment layer's effects run on the composite below it (placeAdjustment in renderer.ts), at the comp's scale. */
 	{
 		std::string missing;
 		bool unscalable = false;
@@ -597,10 +593,7 @@ bool CFramePlanner::Placed(const CLayer& layer, const CItem& comp, f64 time, con
 	/** As plan.ts: the content's own scale (footage is not drawn above its size). */
 	Masks(layer, time, out.content.kind == aevk::ContentKind::Footage && scale >= 1 ? 1.0 : scale, out.masks);
 	out.effects.clear();
-	if (!adjustment)
-	{
-		Effects(layer, comp, time, depth, out.effects);
-	}
+	Effects(layer, comp, time, depth, out.effects);
 	if (!out.effects.empty())
 	{
 		aevk::EffectLayer& info = out.effectLayer;

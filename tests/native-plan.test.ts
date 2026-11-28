@@ -236,9 +236,9 @@ describe("native render plan", () => {
   });
 
   it("names what it cannot render natively, so the frame stays with the WebGL renderer", () => {
-    const project = parseProject(new Uint8Array(readFileSync(resolve("refs/fixtures/adjust.aep"))));
-    const comp = [...project.items.values()].find((i): i is CompItem => i.kind === "comp" && i.name === "adjust_blur")!;
-    expect(buildFramePlan(project, comp, 0).unsupported).toEqual([expect.stringMatching(/^adjustment layer effects/)]);
+    const project = parseProject(new Uint8Array(readFileSync(resolve("refs/fixtures/transitions2.aep"))));
+    const comp = [...project.items.values()].find((i): i is CompItem => i.kind === "comp" && i.name === "transitions2_gridwipe_doors")!;
+    expect(buildFramePlan(project, comp, 0).unsupported).toEqual([expect.stringMatching(/^effects \(CC Grid Wipe/)]);
   });
 
   it("lists the same effects for both planners (src/native/effects.ts, native/src/effects/list.inc)", () => {

@@ -145,6 +145,8 @@ calls (a referenced property's value, `toComp`, `wiggle`, the noise behind `rand
   reach the project's footage folder (below).
 - Plan v7 adds each effect layer's Time Stretch, so effects that run on the layer's own clock (Ripple's waves) see
   the same time the TypeScript renderer gives them.
+- Adjustment layers' effects run on the composite below them in comp pixels, as `placeAdjustment` does; the layer's
+  own image still only says where the result shows. All four `adjust_*` reference frames pass.
 
 **M5. Effects**
 

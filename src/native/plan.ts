@@ -301,7 +301,6 @@ class Planner {
     for (const layer of drawOrder(comp, time, camera, anySolo(comp))) {
       const placed = this.placed(layer, comp, time, camera, depth, scale, layer.adjustmentLayer);
       if (!placed) continue;
-      if (layer.adjustmentLayer && enabledEffects(layer).length) this.unsupported.add(`adjustment layer effects ("${layer.name}")`);
       placed.blendMode = layer.blendingMode;
       placed.opacity = localTransform(layer, time).opacity / 100;
       const matteLayer = layer.trackMatteType !== NO_MATTE ? matteLayerOf(layer, comp) : undefined;
@@ -319,12 +318,11 @@ class Planner {
 
   /** The layer's content and masks with its placement; null when it draws nothing. */
   private placed(layer: Layer, comp: CompItem, time: number, camera: Camera | undefined, depth: number, scale: number, adjustment: boolean): PlanLayer | null {
-    if (!adjustment) {
-      const effects = enabledEffects(layer);
-      const missing = effects.filter((e) => !nativeEffect(e.matchName));
-      if (missing.length) this.unsupported.add(`effects (${missing.map((e) => e.effectName ?? e.matchName).join(", ")} on "${layer.name}")`);
-      else if (scale !== 1 && effects.some((e) => !nativeEffect(e.matchName)!.scalable)) this.unsupported.add(`effects at a reduced resolution ("${layer.name}")`);
-    }
+    // An adjustment layer's effects run on the composite below it (placeAdjustment in renderer.ts), at the comp's scale.
+    const enabled = enabledEffects(layer);
+    const missing = enabled.filter((e) => !nativeEffect(e.matchName));
+    if (missing.length) this.unsupported.add(`effects (${missing.map((e) => e.effectName ?? e.matchName).join(", ")} on "${layer.name}")`);
+    else if (scale !== 1 && enabled.some((e) => !nativeEffect(e.matchName)!.scalable)) this.unsupported.add(`effects at a reduced resolution ("${layer.name}")`);
     const content = this.content(layer, time, depth, scale);
     if (!content) return null;
     let matrix: Mat4;
@@ -345,7 +343,7 @@ class Planner {
       const toTarget = scale === 1 ? Mat4.translation(PAD, PAD, 0) : Mat4.translation(PAD, PAD, 0).mul(Mat4.scale(scale, scale, 1));
       matrix = toTarget.mul(world);
     }
-    const effects = adjustment ? [] : this.effects(layer, comp, time, depth);
+    const effects = this.effects(layer, comp, time, depth);
     const placed: PlanLayer = {
       name: layer.name,
       adjustment,

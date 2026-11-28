@@ -105,14 +105,14 @@ describe("native playback frames", () => {
   });
 
   it("leaves comps with content it cannot render yet to WebGL", async () => {
-    const project = parseProject(new Uint8Array(readFileSync(resolve("refs/fixtures/adjust.aep"))));
-    const comp = [...project.items.values()].find((i): i is CompItem => i.kind === "comp" && i.name === "adjust_blur")!;
+    const project = parseProject(new Uint8Array(readFileSync(resolve("refs/fixtures/transitions2.aep"))));
+    const comp = [...project.items.values()].find((i): i is CompItem => i.kind === "comp" && i.name === "transitions2_gridwipe_doors")!;
     const { frames, backend } = setup();
     frames.enabled = true;
     await frames.probe();
-    expect(frames.prefetch(project, comp, "adjust", 0, 0, 1)).toBeUndefined();
-    expect(frames.lastRefusal).toMatch(/adjustment layer effects/);
-    expect(frames.prefetch(project, comp, "adjust", 1, 1 / 24, 1)).toBeUndefined();
+    expect(frames.prefetch(project, comp, "gridwipe", 0, 0, 1)).toBeUndefined();
+    expect(frames.lastRefusal).toMatch(/CC Grid Wipe/);
+    expect(frames.prefetch(project, comp, "gridwipe", 1, 1 / 24, 1)).toBeUndefined();
     expect(backend.plans).toHaveLength(0);
   });
 
